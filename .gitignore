@@ -1,0 +1,58 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.flutter-
+coverage/
+
+# IDEs
+.idea/
+.vscode/
+*.iml
+*.swp
+.DS_Store
+
+# Android / Gradle generated files
+android/.gradle/
+android/local.properties
+android/key.properties
+android/**/key.properties
+android/captures/
+android/generated/
+
+# iOS generated and signing files
+ios/Flutter/.last_build_id
+ios/Flutter/Generated.xcconfig
+ios/Flutter/flutter_export_environment.sh
+ios/Runner/GeneratedPluginRegistrant.*
+ios/Runner.xcworkspace/
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/ephemeral/
+*.mobileprovision
+*.p12
+*.p8
+*.cer
+*.pem
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.keystore
+*.jks
+secrets/
+credentials/
+service-account*.json
+google-services.json
+GoogleService-Info.plist
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
