@@ -1,0 +1,75 @@
+name: Alteo Customer CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/customer-app-foundation
+    paths:
+      - "apps/customer/**"
+      - ".github/workflows/customer-app-ci.yml"
+      - ".github/scripts/configure_customer_platforms.py"
+  pull_request:
+    paths:
+      - "apps/customer/**"
+      - ".github/workflows/customer-app-ci.yml"
+      - ".github/scripts/configure_customer_platforms.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: customer-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          cache-dependency-path: apps/customer/pubspec.yaml
+
+      - name: Generate native Android and iOS shells
+        working-directory: apps/customer
+        run: flutter create --platforms=android,ios --org com.alteo --project-name customer --no-pub .
+
+      - name: Configure deep links and Play Store target API
+        working-directory: apps/customer
+        run: python3 ../../.github/scripts/configure_customer_platforms.py
+
+      - name: Install dependencies
+        working-directory: apps/customer
+        run: flutter pub get
+
+      - name: Format Dart source
+        working-directory: apps/customer
+        run: dart format lib test
+
+      - name: Static analysis
+        working-directory: apps/customer
+        run: flutter analyze --fatal-infos
+
+      - name: Unit tests
+        working-directory: apps/customer
+        run: flutter test --reporter expanded
+
+      - name: Build Android debug APK
+        working-directory: apps/customer
+        run: flutter build apk --debug
+
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: alteo-customer-debug-apk
+          path: apps/customer/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
