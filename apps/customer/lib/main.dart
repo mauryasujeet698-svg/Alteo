@@ -191,17 +191,22 @@ class _CustomerShellState extends State<CustomerShell> {
   int _tab = 0;
   final Map<String, CartLine> _cart = {};
   String _search = '';
+  String? _kindFilter;
   late Future<List<Map<String, dynamic>>> _products;
   int get _count => _cart.values.fold(0, (sum, line) => sum + line.quantity);
   int get _total => _cart.values.fold(0, (sum, line) => sum + line.totalMinor);
   @override
   void initState() { super.initState(); _products = _loadProducts(); }
 
-  Future<List<Map<String, dynamic>>> _loadProducts([String search = '']) async {
+  Future<List<Map<String, dynamic>>> _loadProducts([String search = '', String? kind]) async {
     dynamic query = widget.client.from('seller_products')
       .select('id,name,kind,description,price_minor,currency,image_url,seller_id').eq('status', 'active');
-    final safe = search.trim().replaceAll('%', '').replaceAll('_', '');
-    if (safe.isNotEmpty) query = query.ilike('name', '%' + safe + '%');
+    if (kind != null) {
+      query = query.eq('kind', kind);
+    } else {
+      final safe = search.trim().replaceAll('%', '').replaceAll('_', '');
+      if (safe.isNotEmpty) query = query.ilike('name', '%' + safe + '%');
+    }
     final rows = await query.order('created_at', ascending: false).limit(24);
     return (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
   }
@@ -251,8 +256,8 @@ class _CustomerShellState extends State<CustomerShell> {
   Widget build(BuildContext context) {
     final pages = [
       HomePage(client: widget.client, user: widget.user, products: _products, search: _search,
-        onSearch: (v) => setState(() { _search = v; _products = _loadProducts(v); }),
-        onRefresh: () => setState(() => _products = _loadProducts(_search)), onAdd: _add, onService: _service),
+        onSearch: (v) => setState(() { _search = v; _kindFilter = null; _products = _loadProducts(v); }),
+        onRefresh: () => setState(() => _products = _loadProducts(_search, _kindFilter)), onAdd: _add, onService: _service),
       OrdersPage(client: widget.client, user: widget.user),
       CartPage(cart: _cart, totalMinor: _total, onQuantity: _quantity, onCheckout: _checkout),
       AccountPage(user: widget.user, client: widget.client),
@@ -271,8 +276,8 @@ class _CustomerShellState extends State<CustomerShell> {
   }
   void _service(String name) {
     if (name == 'Shopping' || name == 'Food' || name == 'Quick') {
-      final query = name == 'Shopping' ? '' : name.toLowerCase();
-      setState(() { _tab = 0; _search = query; _products = _loadProducts(query); });
+      final kind = name == 'Shopping' ? 'shopping' : name == 'Food' ? 'food' : 'quick';
+      setState(() { _tab = 0; _search = ''; _kindFilter = kind; _products = _loadProducts('', kind); });
       return;
     }
     showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (context) => Padding(
