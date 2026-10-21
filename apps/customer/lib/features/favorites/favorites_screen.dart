@@ -1,5 +1,4 @@
 import 'package:customer/core/widgets/catalogue_preview_notice.dart';
-import 'package:customer/features/cart/cart_store.dart';
 import 'package:customer/features/catalog/data/preview_products.dart';
 import 'package:customer/features/catalog/presentation/product_card.dart';
 import 'package:customer/features/favorites/favorite_store.dart';
