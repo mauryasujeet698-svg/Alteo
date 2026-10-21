@@ -39,8 +39,8 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: >-
           flutter build apk --release --no-pub
-          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
-          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://nkerkoptbrcadlpxffkn.supabase.co' }}
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rZXJrb3B0YnJjYWRscHhmZmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1NzMzOTUsImV4cCI6MjEwODE0OTM5NX0.Ib5Lm42UvdAXURgH-g26Vp2i-UVM86vH2q4A-Ht1T1g' }}
           --dart-define=MAPBOX_PUBLIC_TOKEN=${{ secrets.MAPBOX_PUBLIC_TOKEN }}
           --dart-define=CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
       - name: Upload APK artifact
