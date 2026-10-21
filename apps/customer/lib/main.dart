@@ -224,7 +224,7 @@ class _CustomerShellState extends State<CustomerShell> {
   @override
   Widget build(BuildContext context) {
     final pages = [
-      HomePage(user: widget.user, products: _products, search: _search,
+      HomePage(client: widget.client, user: widget.user, products: _products, search: _search,
         onSearch: (v) => setState(() { _search = v; _products = _loadProducts(v); }),
         onRefresh: () => setState(() => _products = _loadProducts(_search)), onAdd: _add, onService: _service),
       OrdersPage(client: widget.client, user: widget.user),
@@ -265,8 +265,9 @@ class _CustomerShellState extends State<CustomerShell> {
 }
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key, required this.user, required this.products, required this.search,
+  const HomePage({super.key, required this.client, required this.user, required this.products, required this.search,
     required this.onSearch, required this.onRefresh, required this.onAdd, required this.onService});
+  final SupabaseClient client;
   final User user;
   final Future<List<Map<String, dynamic>>> products;
   final String search;
@@ -292,6 +293,7 @@ class HomePage extends StatelessWidget {
         decoration: InputDecoration(hintText: 'Search food, groceries and products', prefixIcon: const Icon(Icons.search),
           suffixIcon: IconButton(onPressed: () => onSearch(''), icon: const Icon(Icons.close)))),
       const SizedBox(height: 18),
+      LivePromotions(client: client),
       Container(padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(borderRadius: BorderRadius.circular(22),
           gradient: const LinearGradient(colors: [Color(0xFF176B57), Color(0xFF31977D)])),
@@ -343,6 +345,77 @@ class HomePage extends StatelessWidget {
       }),
       const SizedBox(height: 18), const Text('Availability and prices depend on your launch area.', style: TextStyle(color: Colors.black54, fontSize: 12)),
     ]));
+}
+
+
+class LivePromotions extends StatefulWidget {
+  const LivePromotions({super.key, required this.client});
+  final SupabaseClient client;
+  @override
+  State<LivePromotions> createState() => _LivePromotionsState();
+}
+class _LivePromotionsState extends State<LivePromotions> {
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+  void _load() {
+    _banners = widget.client.from('app_banners').select('id,title,subtitle,image_url,action_type,action_value')
+      .eq('active', true).order('priority').limit(5)
+      .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
+    _offers = widget.client.from('offers').select('id,code,title,description,service,discount_type,discount_value')
+      .eq('active', true).order('created_at', ascending: false).limit(10)
+      .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
+  }
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    FutureBuilder<List<Map<String, dynamic>>>(future: _banners, builder: (context, snapshot) {
+      final rows = snapshot.data ?? [];
+      if (rows.isEmpty) return const SizedBox.shrink();
+      return SizedBox(height: 118, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: rows.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10), itemBuilder: (context, index) {
+          final row = rows[index];
+          return Container(width: 285, padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(18),
+              gradient: const LinearGradient(colors: [Color(0xFF176B57), Color(0xFF31977D)])),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+              Text(row['title']?.toString() ?? 'Alteo offer', maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 17)),
+              if ((row['subtitle']?.toString() ?? '').isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(row['subtitle'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
+              ],
+            ]));
+        }));
+    }),
+    FutureBuilder<List<Map<String, dynamic>>>(future: _offers, builder: (context, snapshot) {
+      final rows = snapshot.data ?? [];
+      if (rows.isEmpty) return const SizedBox.shrink();
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 14),
+        Text('Offers for you', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8),
+        SizedBox(height: 76, child: ListView.separated(scrollDirection: Axis.horizontal, itemCount: rows.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8), itemBuilder: (context, index) {
+            final row = rows[index];
+            final value = row['discount_value']?.toString() ?? '';
+            final type = row['discount_type']?.toString() == 'percent' ? '% off' : 'paise off';
+            return Container(width: 210, padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: const Color(0xFFFFF0B9), borderRadius: BorderRadius.circular(14)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(row['title']?.toString() ?? 'Offer', maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800)),
+                Text((row['code']?.toString() ?? '') + '  •  ' + value + ' ' + type,
+                  maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)),
+              ]));
+          })),
+      ]);
+    }),
+    const SizedBox(height: 4),
+  ]);
 }
 
 class ServiceTile extends StatelessWidget {
