@@ -120,19 +120,6 @@ class _PhoneSignInState extends State<PhoneSignIn> {
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
-  void _selectPlace(PlaceSuggestion value, {required bool pickup}) {
-    setState(() {
-      if (pickup) { _pickup = value; } else { _destination = value; }
-      _bookingId = null;
-    });
-    final map = _map;
-    if (map != null) {
-      map.flyTo(
-        CameraOptions(center: Point(coordinates: Position(value.longitude, value.latitude)), zoom: 13),
-        MapAnimationOptions(duration: 650),
-      );
-    }
-  }
 
   Future<void> _submit() async {
     final phone = _phone.text.trim();
@@ -337,6 +324,20 @@ class _BookingPageState extends State<BookingPage> {
     _description.dispose();
     _area.dispose();
     super.dispose();
+  }
+
+  void _selectPlace(PlaceSuggestion value, {required bool pickup}) {
+    setState(() {
+      if (pickup) { _pickup = value; } else { _destination = value; }
+      _bookingId = null;
+    });
+    final map = _map;
+    if (map != null) {
+      map.flyTo(
+        CameraOptions(center: Point(coordinates: Position(value.longitude, value.latitude)), zoom: 13),
+        MapAnimationOptions(duration: 650),
+      );
+    }
   }
 
   Future<void> _submit() async {
