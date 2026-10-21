@@ -312,11 +312,15 @@ class _OnboardingTab extends StatefulWidget {
 class _OnboardingTabState extends State<_OnboardingTab> {
   late Future<List<Map<String, dynamic>>> _sellers;
   late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
   @override
   void initState() { super.initState(); _refresh(); }
   void _refresh() {
     _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
     _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
   }
   void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   Future<void> _setSellerStatus(String id, String status) async {
@@ -325,6 +329,35 @@ class _OnboardingTabState extends State<_OnboardingTab> {
       if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
     } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
     catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
   }
   Future<void> _grantRole() async {
     final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
@@ -341,7 +374,7 @@ class _OnboardingTabState extends State<_OnboardingTab> {
     catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
   }
   @override
-  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles]); },
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
     child: ListView(padding: const EdgeInsets.all(16), children: [
       Row(children: [
         Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
@@ -363,6 +396,52 @@ class _OnboardingTabState extends State<_OnboardingTab> {
             TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
           ]),
         ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
       }),
       const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
       FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
