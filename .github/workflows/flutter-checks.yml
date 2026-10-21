@@ -24,11 +24,26 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Generate Android platform scaffold
+      - name: Generate Android platform scaffold and OAuth redirect
         working-directory: apps/${{ matrix.app }}
         run: |
           flutter create --platforms=android --project-name=alteo_${{ matrix.app }} .
           rm -f test/widget_test.dart
+          python3 - <<'PY'
+          from pathlib import Path
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          xml = manifest.read_text()
+          redirect = '''        <intent-filter>
+                  <action android:name="android.intent.action.VIEW" />
+                  <category android:name="android.intent.category.DEFAULT" />
+                  <category android:name="android.intent.category.BROWSABLE" />
+                  <data android:scheme="alteo" android:host="login-callback" />
+                </intent-filter>
+          '''
+          if 'android:scheme="alteo"' not in xml:
+              xml = xml.replace('        </activity>', redirect + '        </activity>', 1)
+              manifest.write_text(xml)
+          PY
       - name: Resolve dependencies
         working-directory: apps/${{ matrix.app }}
         run: flutter pub get
