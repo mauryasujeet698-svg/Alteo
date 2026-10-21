@@ -488,7 +488,7 @@ grant select on public.profiles, public.user_roles, public.addresses, public.sel
   public.dark_stores, public.dark_store_inventory, public.notifications, public.support_tickets,
   public.media_assets, public.pricing_rules, public.rides to authenticated;
 
-grant insert (display_name, avatar_url) on public.profiles to authenticated;
+grant insert (id, display_name, avatar_url) on public.profiles to authenticated;
 grant update (display_name, avatar_url, updated_at) on public.profiles to authenticated;
 
 grant insert (label, recipient_name, phone, address_line1, address_line2, locality, city, state, postal_code, latitude, longitude, is_default)
