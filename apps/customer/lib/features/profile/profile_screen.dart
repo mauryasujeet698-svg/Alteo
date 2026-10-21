@@ -1,6 +1,8 @@
 import 'package:customer/core/config/app_config.dart';
 import 'package:customer/core/theme/alteo_theme.dart';
 import 'package:customer/features/auth/auth_service.dart';
+import 'package:flutter/foundation.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -105,7 +107,7 @@ class _ProfilePage extends StatelessWidget {
           const SizedBox(height: 8),
           const _ProfileRow(icon: Icons.receipt_long_outlined, title: 'My orders', subtitle: 'Order history and refunds'),
           const _ProfileRow(icon: Icons.location_on_outlined, title: 'Saved addresses', subtitle: 'Home, work and other places'),
-          const _ProfileRow(icon: Icons.favorite_border_rounded, title: 'Favourites', subtitle: 'Products and restaurants you save'),
+          _ProfileRow(icon: Icons.favorite_border_rounded, title: 'Favourites', subtitle: 'Products and restaurants you save', onTap: () => context.push('/favorites')),
           const _ProfileRow(icon: Icons.account_balance_wallet_outlined, title: 'Payments', subtitle: 'Available methods will appear here'),
           const SizedBox(height: 18),
           Text('PREFERENCES & HELP', style: Theme.of(context).textTheme.labelSmall?.copyWith(letterSpacing: 1.2, fontWeight: FontWeight.w800)),
@@ -133,11 +135,13 @@ class _ProfileRow extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.subtitle,
+    this.onTap,
   });
 
   final IconData icon;
   final String title;
   final String subtitle;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -155,7 +159,7 @@ class _ProfileRow extends StatelessWidget {
       title: Text(title, style: Theme.of(context).textTheme.titleMedium),
       subtitle: Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
       trailing: const Icon(Icons.chevron_right_rounded),
-      onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+      onTap: onTap ?? () => ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(title + ' will be enabled with the relevant backend module.')),
       ),
     );
