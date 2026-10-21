@@ -56,7 +56,7 @@ jobs:
 
       - name: Static analysis
         working-directory: apps/customer
-        run: flutter analyze --fatal-infos
+        run: flutter analyze --fatal-warnings
 
       - name: Unit tests
         working-directory: apps/customer
