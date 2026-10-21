@@ -382,7 +382,7 @@ class OrdersPage extends StatelessWidget {
             final total = ((row['total_minor'] as num?)?.toInt() ?? 0) / 100;
             return Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
               title: Text('Order ' + row['id'].toString().substring(0, 8).toUpperCase()),
-              subtitle: Text(_capitalize((row['status'] ?? '').toString().replaceAll('_', ' ')) + ' • Payment: ' + _capitalize((row['payment_status'] ?? '').toString()),
+              subtitle: Text(_capitalize((row['status'] ?? '').toString().replaceAll('_', ' ')) + ' • Payment: ' + _capitalize((row['payment_status'] ?? '').toString())),
               trailing: Text('₹' + total.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.w800))));
           });
       }));
