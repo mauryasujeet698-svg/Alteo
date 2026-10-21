@@ -400,9 +400,13 @@ class _ServicesTab extends StatefulWidget {
 }
 class _ServicesTabState extends State<_ServicesTab> {
   late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
   @override
   void initState() { super.initState(); _refresh(); }
-  void _refresh() { _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at'); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
   Future<void> _edit({Map<String, dynamic>? row}) async {
     final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
     String service = row?['service']?.toString() ?? 'food';
@@ -431,8 +435,76 @@ class _ServicesTabState extends State<_ServicesTab> {
     } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
     catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
   }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
   @override
-  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _controls; },
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
     child: ListView(padding: const EdgeInsets.all(16), children: [
       Row(children: [
         Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
@@ -452,6 +524,31 @@ class _ServicesTabState extends State<_ServicesTab> {
           subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
           trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
         ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
       }),
     ]));
 }
