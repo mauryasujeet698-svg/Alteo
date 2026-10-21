@@ -482,3 +482,22 @@ end;
 $$;
 revoke all on function public.create_customer_parcel(text,double precision,double precision,text,double precision,double precision,text,text,text) from public, anon;
 grant execute on function public.create_customer_parcel(text,double precision,double precision,text,double precision,double precision,text,text,text) to authenticated;
+
+
+create or replace function public.dispatch_after_delivery_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status = 'pending' and new.delivery_partner_id is null then
+    perform private.dispatch_pending_deliveries(new.area_code);
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.dispatch_after_delivery_update() from public, anon, authenticated;
+drop trigger if exists delivery_jobs_retry_auto_dispatch on public.delivery_jobs;
+create trigger delivery_jobs_retry_auto_dispatch after update of status,delivery_partner_id on public.delivery_jobs
+for each row execute function public.dispatch_after_delivery_update();
