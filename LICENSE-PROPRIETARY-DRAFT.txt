@@ -1,0 +1,12 @@
+ALTEO PROPRIETARY SOURCE-AVAILABLE LICENCE — DRAFT FOR REVIEW
+Copyright (c) 2026 Alteo. All rights reserved.
+
+This repository is published so that visitors may inspect the source for informational and evaluation purposes only.
+
+Except for rights that cannot lawfully be excluded, no permission or licence is granted to copy, reproduce, modify, adapt, create derivative works from, redistribute, sublicense, publish, sell, offer as a service, or otherwise use the source code, product design, documentation, brand assets, or other materials in this repository without prior written permission from the rights holder.
+
+Viewing the repository on GitHub does not grant a licence for reuse or commercial exploitation. Any permission must be explicit and in writing from the rights holder.
+
+THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW.
+
+This is a draft for review and is not legal advice. Confirm the rights holder, jurisdiction, enforceability, third-party component licences, and any required notices with qualified counsel before relying on this text.
