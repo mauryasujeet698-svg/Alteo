@@ -1,26 +1,41 @@
-name: Flutter checks
+name: Flutter checks and Android builds
 on:
   push:
-    branches: [main]
+    branches: [main, execute/alteo-foundation-20261021]
   pull_request:
     branches: [main]
 permissions:
   contents: read
 jobs:
-  analyze-customer:
+  verify-and-build:
+    name: Verify and build ${{ matrix.app }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [customer, admin, driver_partner, delivery_partner, seller, dark_store]
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Resolve customer dependencies
-        working-directory: apps/customer
+      - name: Resolve dependencies
+        working-directory: apps/${{ matrix.app }}
         run: flutter pub get
-      - name: Analyze customer app
-        working-directory: apps/customer
-        run: flutter analyze
-      - name: Run customer tests
-        working-directory: apps/customer
-        run: flutter test
+      - name: Analyze
+        working-directory: apps/${{ matrix.app }}
+        run: flutter analyze --no-pub
+      - name: Test
+        working-directory: apps/${{ matrix.app }}
+        run: flutter test --no-pub
+      - name: Build release APK
+        working-directory: apps/${{ matrix.app }}
+        run: flutter build apk --release --no-pub
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: alteo-${{ matrix.app }}-android-apk
+          path: apps/${{ matrix.app }}/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
