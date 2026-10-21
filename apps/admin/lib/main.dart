@@ -732,7 +732,7 @@ class _ContentTabState extends State<_ContentTab> with SingleTickerProviderState
           if(snapshot.hasError)return const Text('Could not load banners.');
           final rows=snapshot.data??[];
           if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
-          return Column(children:rows.map((r)=>Card(child:SwitchListTile(title:Text(r['title'].toString()),subtitle:Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()),value:r['active']==true,onChanged:(v)=>_setActive('app_banners',r['id'].toString(),v))).toList());
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
         }),
       ])),
       RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
@@ -742,7 +742,7 @@ class _ContentTabState extends State<_ContentTab> with SingleTickerProviderState
           if(snapshot.hasError)return const Text('Could not load offers.');
           final rows=snapshot.data??[];
           if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
-          return Column(children:rows.map((r)=>Card(child:SwitchListTile(title:Text(r['title'].toString() + ' (' + r['code'].toString() + ')'),subtitle:Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()),value:r['active']==true,onChanged:(v)=>_setActive('offers',r['id'].toString(),v))).toList());
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
         }),
       ])),
     ])),
