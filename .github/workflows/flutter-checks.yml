@@ -20,6 +20,9 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Generate Android platform scaffold
+        working-directory: apps/${{ matrix.app }}
+        run: flutter create --platforms=android --project-name=alteo_${{ matrix.app }} .
       - name: Resolve dependencies
         working-directory: apps/${{ matrix.app }}
         run: flutter pub get
@@ -31,7 +34,12 @@ jobs:
         run: flutter test --no-pub
       - name: Build release APK
         working-directory: apps/${{ matrix.app }}
-        run: flutter build apk --release --no-pub
+        run: >-
+          flutter build apk --release --no-pub
+          --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}
+          --dart-define=MAPBOX_PUBLIC_TOKEN=${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          --dart-define=CLOUDINARY_CLOUD_NAME=${{ secrets.CLOUDINARY_CLOUD_NAME }}
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
