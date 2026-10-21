@@ -170,6 +170,7 @@ class _PhoneSignInState extends State<PhoneSignIn> {
           textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
     ])),
   ))));
+}
 
 class CartLine {
   CartLine(this.product, [this.quantity = 1]);
@@ -370,8 +371,8 @@ class HomePage extends StatelessWidget {
       }),
       const SizedBox(height: 18), const Text('Availability and prices depend on your launch area.', style: TextStyle(color: Colors.black54, fontSize: 12)),
     ]));
+  }
 }
-
 
 class LivePromotions extends StatefulWidget {
   const LivePromotions({super.key, required this.client});
@@ -441,6 +442,7 @@ class _LivePromotionsState extends State<LivePromotions> {
     }),
     const SizedBox(height: 4),
   ]);
+  }
 }
 
 class ServiceTile extends StatelessWidget {
