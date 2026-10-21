@@ -107,6 +107,9 @@ begin
   select id into v_ride from public.rides where customer_id = v_customer and idempotency_key = p_idempotency_key;
   if v_ride is not null then return v_ride; end if;
 
+  if not exists (select 1 from public.service_controls sc where sc.service='ride' and sc.enabled=true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'ride service is not enabled for this area' using errcode = 'P0002';
+  end if;
   v_straight_m := ceil(6371000 * 2 * asin(sqrt(
     power(sin(radians(p_destination_latitude-p_pickup_latitude)/2),2)
     + cos(radians(p_pickup_latitude))*cos(radians(p_destination_latitude))
@@ -182,6 +185,9 @@ begin
   select id into v_job from public.delivery_jobs where customer_id = v_customer and idempotency_key = p_idempotency_key;
   if v_job is not null then return v_job; end if;
 
+  if not exists (select 1 from public.service_controls sc where sc.service='parcel' and sc.enabled=true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'parcel service is not enabled for this area' using errcode = 'P0002';
+  end if;
   v_straight_m := ceil(6371000 * 2 * asin(sqrt(
     power(sin(radians(p_destination_latitude-p_pickup_latitude)/2),2)
     + cos(radians(p_pickup_latitude))*cos(radians(p_destination_latitude))
@@ -387,6 +393,9 @@ begin
   end loop;
   if v_subtotal > 1000000000 then raise exception 'cart total exceeds allowed limit' using errcode = '22023'; end if;
 
+  if not exists (select 1 from public.service_controls sc where sc.service = v_kind and sc.enabled = true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'checkout is not enabled for this service area yet' using errcode = 'P0002';
+  end if;
   select base_fee_minor, minimum_fee_minor into v_base, v_minimum
     from public.pricing_rules
     where service = v_kind and active = true and city_code in (v_area,'DEFAULT')
@@ -421,3 +430,45 @@ end;
 $$;
 revoke all on function public.create_customer_order(jsonb,jsonb,text,bigint) from public, anon;
 grant execute on function public.create_customer_order(jsonb,jsonb,text,bigint) to authenticated;
+
+
+-- Enforce payment status in the trusted dispatch boundary, not only in admin UI.
+create or replace function public.admin_assign_delivery_partner(p_delivery_job_id uuid, p_partner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.delivery_jobs%rowtype;
+  v_payment_status text;
+begin
+  if (select auth.uid()) is null or not (select private.has_role('admin')) then
+    raise exception 'administrator role required' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.user_roles ur where ur.user_id = p_partner_id and ur.role = 'delivery_partner') then
+    raise exception 'user is not an approved delivery partner' using errcode = '42501';
+  end if;
+  select * into v_job from public.delivery_jobs where id = p_delivery_job_id for update;
+  if not found then raise exception 'delivery job not found' using errcode = 'P0002'; end if;
+  if v_job.status in ('delivered','cancelled','failed') then
+    raise exception 'cannot assign a closed delivery job' using errcode = '22023';
+  end if;
+  if v_job.order_id is not null then
+    select payment_status into v_payment_status from public.orders where id = v_job.order_id;
+    if v_payment_status <> 'paid' then
+      raise exception 'order payment is not confirmed' using errcode = '22023';
+    end if;
+  end if;
+  update public.delivery_assignments set status='revoked',updated_at=now()
+    where delivery_job_id=p_delivery_job_id and status in ('offered','accepted');
+  update public.delivery_jobs set delivery_partner_id=p_partner_id,status='assigned',updated_at=now() where id=p_delivery_job_id;
+  insert into public.delivery_assignments(delivery_job_id,partner_id,assigned_by,status)
+    values (p_delivery_job_id,p_partner_id,(select auth.uid()),'offered');
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values ((select auth.uid()),'delivery.partner_assigned','delivery_job',p_delivery_job_id,
+      jsonb_build_object('partner_id',p_partner_id,'assigned_manually',true));
+end;
+$$;
+revoke all on function public.admin_assign_delivery_partner(uuid,uuid) from public, anon;
+grant execute on function public.admin_assign_delivery_partner(uuid,uuid) to authenticated;
