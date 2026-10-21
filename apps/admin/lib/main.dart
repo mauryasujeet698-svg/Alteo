@@ -345,7 +345,7 @@ class _OnboardingTabState extends State<_OnboardingTab> {
     if (id == null || id.trim().isEmpty || !mounted) return;
     final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
       title: const Text('Select role'),
-      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' '))).toList(),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
     ));
     if (role == null || !mounted) return;
     try {
