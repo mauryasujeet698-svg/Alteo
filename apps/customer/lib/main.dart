@@ -43,20 +43,45 @@ class AlteoApp extends StatelessWidget {
 class ConfigScreen extends StatelessWidget {
   const ConfigScreen({super.key, required this.message});
   final String message;
+
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: Padding(
-    padding: const EdgeInsets.all(28),
-    child: Column(mainAxisSize: MainAxisSize.min, children: [
-      const BrandMark(size: 76), const SizedBox(height: 18),
-      Text('Alteo', style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 8), const Text('Everyday services, in one place', textAlign: TextAlign.center),
-      const SizedBox(height: 24), const Icon(Icons.settings_suggest_outlined, size: 36),
-      const SizedBox(height: 10), const Text('App configuration needed', style: TextStyle(fontWeight: FontWeight.w700)),
-      const SizedBox(height: 8), Text(message, textAlign: TextAlign.center),
-      const SizedBox(height: 12), const Text('No demo login or fake customer data is used. Configure Supabase before signing in.',
-        textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
-    ]),
-  ))));
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const BrandMark(size: 76),
+                const SizedBox(height: 18),
+                Text(
+                  'Alteo',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                const Text('Everyday services, in one place', textAlign: TextAlign.center),
+                const SizedBox(height: 24),
+                const Icon(Icons.settings_suggest_outlined, size: 36),
+                const SizedBox(height: 10),
+                const Text('App configuration needed', style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Text(message, textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                const Text(
+                  'No demo login or fake customer data is used. Configure Supabase before signing in.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.black54),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key, required this.client});
