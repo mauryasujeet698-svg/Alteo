@@ -280,19 +280,250 @@ class _CustomerShellState extends State<CustomerShell> {
       setState(() { _tab = 0; _search = ''; _kindFilter = kind; _products = _loadProducts('', kind); });
       return;
     }
+    if (name == 'Rides' || name == 'Parcels') {
+      Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => BookingPage(client: widget.client, service: name == 'Rides' ? 'ride' : 'parcel'),
+      ));
+      return;
+    }
     showModalBottomSheet<void>(context: context, showDragHandle: true, builder: (context) => Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(name, style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 8),
-        Text(name == 'Rides'
-          ? 'Live ride booking needs Mapbox place search and an active ride fare rule for your launch area.'
-          : name == 'Parcels'
-            ? 'Parcel booking needs pickup/drop-off places and an active parcel fare rule for your launch area.'
-            : 'Offers managed by Alteo will appear here once an admin publishes them.'),
+        const Text('Offers managed by Alteo appear on the home screen when an admin publishes them.'),
         const SizedBox(height: 14), OutlinedButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
       ]),
     ));
   }
+}
+
+class BookingPage extends StatefulWidget {
+  const BookingPage({super.key, required this.client, required this.service});
+  final SupabaseClient client;
+  final String service; // ride or parcel
+
+  @override
+  State<BookingPage> createState() => _BookingPageState();
+}
+
+class _BookingPageState extends State<BookingPage> {
+  PlaceSuggestion? _pickup;
+  PlaceSuggestion? _destination;
+  final _description = TextEditingController();
+  final _area = TextEditingController(text: 'DEFAULT');
+  bool _busy = false;
+  String? _error;
+  String? _bookingId;
+  int? _fareMinor;
+
+  @override
+  void dispose() {
+    _description.dispose();
+    _area.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    if (_pickup == null || _destination == null) {
+      setState(() => _error = 'Choose both pickup and destination from the map search suggestions.');
+      return;
+    }
+    if (widget.service == 'parcel' && _description.text.trim().length < 2) {
+      setState(() => _error = 'Describe the parcel contents briefly.');
+      return;
+    }
+    setState(() { _busy = true; _error = null; });
+    final key = DateTime.now().microsecondsSinceEpoch.toString() + '-' + Random.secure().nextInt(1 << 32).toString();
+    try {
+      dynamic id;
+      if (widget.service == 'ride') {
+        id = await widget.client.rpc('create_customer_ride', params: {
+          'p_pickup_label': _pickup!.label,
+          'p_pickup_latitude': _pickup!.latitude,
+          'p_pickup_longitude': _pickup!.longitude,
+          'p_destination_label': _destination!.label,
+          'p_destination_latitude': _destination!.latitude,
+          'p_destination_longitude': _destination!.longitude,
+          'p_idempotency_key': key,
+          'p_area_code': _area.text.trim().isEmpty ? 'DEFAULT' : _area.text.trim().toUpperCase(),
+        });
+        final row = await widget.client.from('rides').select('fare_minor').eq('id', id).maybeSingle();
+        if (mounted) setState(() { _bookingId = id.toString(); _fareMinor = (row?['fare_minor'] as num?)?.toInt(); });
+      } else {
+        id = await widget.client.rpc('create_customer_parcel', params: {
+          'p_pickup_label': _pickup!.label,
+          'p_pickup_latitude': _pickup!.latitude,
+          'p_pickup_longitude': _pickup!.longitude,
+          'p_destination_label': _destination!.label,
+          'p_destination_latitude': _destination!.latitude,
+          'p_destination_longitude': _destination!.longitude,
+          'p_item_description': _description.text.trim(),
+          'p_idempotency_key': key,
+          'p_area_code': _area.text.trim().isEmpty ? 'DEFAULT' : _area.text.trim().toUpperCase(),
+        });
+        final row = await widget.client.from('delivery_jobs').select('fare_minor').eq('id', id).maybeSingle();
+        if (mounted) setState(() { _bookingId = id.toString(); _fareMinor = (row?['fare_minor'] as num?)?.toInt(); });
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Booking failed. Check that Mapbox, service availability and pricing are configured.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isRide = widget.service == 'ride';
+    return Scaffold(
+      appBar: AppBar(title: Text(isRide ? 'Book a ride' : 'Send a parcel')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(color: const Color(0xFFE4F2EB), borderRadius: BorderRadius.circular(18)),
+              child: Row(children: [
+                Icon(isRide ? Icons.directions_car : Icons.local_shipping, size: 36, color: const Color(0xFF176B57)),
+                const SizedBox(width: 12),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(isRide ? 'Where are you going?' : 'Where should we collect and deliver?',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  const Text('Search Indian addresses or places and select a result.'),
+                ])),
+              ]),
+            ),
+            const SizedBox(height: 18),
+            if (!MapboxService.isConfigured)
+              const _BookingNotice(
+                text: 'Map search is not configured. Add a restricted public Mapbox token to the build configuration before booking.',
+              ),
+            const Text('Pickup', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            _PlacePickerField(
+              key: const ValueKey('pickup-place'),
+              label: 'Search pickup address',
+              icon: Icons.trip_origin,
+              onSelected: (value) => setState(() { _pickup = value; _bookingId = null; }),
+            ),
+            const SizedBox(height: 16),
+            const Text('Destination', style: TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            _PlacePickerField(
+              key: const ValueKey('destination-place'),
+              label: 'Search destination address',
+              icon: Icons.location_on_outlined,
+              onSelected: (value) => setState(() { _destination = value; _bookingId = null; }),
+            ),
+            if (!isRide) ...[
+              const SizedBox(height: 16),
+              TextField(
+                controller: _description,
+                maxLength: 300,
+                decoration: const InputDecoration(labelText: 'What are you sending?', hintText: 'Documents, small package, etc.'),
+              ),
+            ],
+            const SizedBox(height: 16),
+            TextField(
+              controller: _area,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(labelText: 'Service area code', helperText: 'Use the code enabled by Alteo operations; DEFAULT is a fallback area.'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+            const SizedBox(height: 18),
+            FilledButton.icon(
+              onPressed: _busy || _bookingId != null || !MapboxService.isConfigured ? null : _submit,
+              icon: _busy ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.check_circle_outline),
+              label: Text(_busy ? 'Submitting…' : isRide ? 'Request ride' : 'Request parcel pickup'),
+            ),
+            if (_bookingId != null) ...[
+              const SizedBox(height: 18),
+              Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.check_circle, color: Color(0xFF176B57), size: 32),
+                const SizedBox(height: 8),
+                Text(isRide ? 'Ride request created' : 'Parcel request created', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text('Reference: ' + _bookingId!),
+                if (_fareMinor != null) Text('Estimated fare: ₹' + (_fareMinor! / 100).toStringAsFixed(2)),
+                const SizedBox(height: 6),
+                const Text('The request is recorded. An eligible partner must be assigned before fulfilment; routing-based fare estimates need verification against the actual road route.'),
+              ]))),
+            ],
+            const SizedBox(height: 10),
+            const Text('Bookings depend on active service-area rules and pricing. No payment is collected in this screen.',
+              style: TextStyle(color: Colors.black54, fontSize: 12)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlacePickerField extends StatelessWidget {
+  const _PlacePickerField({super.key, required this.label, required this.icon, required this.onSelected});
+  final String label;
+  final IconData icon;
+  final ValueChanged<PlaceSuggestion> onSelected;
+
+  @override
+  Widget build(BuildContext context) => Autocomplete<PlaceSuggestion>(
+    displayStringForOption: (option) => option.label,
+    optionsBuilder: (value) async {
+      if (value.text.trim().length < 3 || !MapboxService.isConfigured) return const <PlaceSuggestion>[];
+      try {
+        return await MapboxService.searchPlaces(value.text);
+      } catch (_) {
+        return const <PlaceSuggestion>[];
+      }
+    },
+    onSelected: onSelected,
+    fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) => TextField(
+      controller: controller,
+      focusNode: focusNode,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon), helperText: 'Enter at least 3 characters and choose a suggestion.'),
+      onSubmitted: (_) => onFieldSubmitted(),
+    ),
+    optionsViewBuilder: (context, onSelectedOption, options) => Align(
+      alignment: Alignment.topLeft,
+      child: Material(
+        elevation: 6,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 250, maxWidth: 500),
+          child: ListView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            itemCount: options.length,
+            itemBuilder: (context, index) {
+              final option = options.elementAt(index);
+              return ListTile(
+                leading: const Icon(Icons.location_on_outlined),
+                title: Text(option.label, maxLines: 2, overflow: TextOverflow.ellipsis),
+                onTap: () => onSelectedOption(option),
+              );
+            },
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class _BookingNotice extends StatelessWidget {
+  const _BookingNotice({required this.text});
+  final String text;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: Text(text, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+  );
 }
 
 class HomePage extends StatelessWidget {
