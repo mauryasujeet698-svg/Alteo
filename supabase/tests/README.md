@@ -1,0 +1,2 @@
+# Supabase security tests
+Add automated role-based tests for every table and Storage bucket. Verify that one customer cannot read or mutate another customer's profile, addresses, orders, uploads or location data.
