@@ -166,9 +166,14 @@ class _DriverHome extends StatefulWidget {
 class _DriverHomeState extends State<_DriverHome> {
   late Future<List<Map<String, dynamic>>> _rides;
   late Future<List<Map<String, dynamic>>> _earnings;
+  final _area = TextEditingController(text: 'DEFAULT');
   bool _busy = false;
+  bool _online = false;
+  bool _availabilityBusy = false;
   @override
   void initState() { super.initState(); _refresh(); }
+  @override
+  void dispose() { _area.dispose(); super.dispose(); }
   void _refresh() {
     _rides = widget.client.from('rides')
       .select('id,status,pickup_label,destination_label,estimated_distance_m,fare_minor,currency,created_at')
@@ -178,6 +183,26 @@ class _DriverHomeState extends State<_DriverHome> {
       .select('id,amount_minor,currency,status,created_at').eq('driver_id', widget.user.id)
       .order('created_at', ascending: false).limit(100)
       .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
+  }
+  Future<void> _toggleAvailability(bool online) async {
+    setState(() => _availabilityBusy = true);
+    try {
+      await widget.client.rpc('partner_set_availability', params: {
+        'p_role': 'driver_partner',
+        'p_area_code': _area.text.trim().isEmpty ? 'DEFAULT' : _area.text.trim().toUpperCase(),
+        'p_is_online': online,
+        'p_latitude': null,
+        'p_longitude': null,
+      });
+      if (mounted) {
+        setState(() => _online = online);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(online ? 'You are online for assigned trips.' : 'You are offline.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update availability.')));
+    } finally { if (mounted) setState(() => _availabilityBusy = false); }
   }
   Future<void> _action(Map<String, dynamic> ride, String action) async {
     setState(() => _busy = true);
@@ -204,6 +229,18 @@ class _DriverHomeState extends State<_DriverHome> {
       child: ListView(padding: const EdgeInsets.all(16), children: [
         Text('Assigned trips', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 6), const Text('Trips become visible after Alteo operations assigns a driver.'),
+        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+          TextField(controller: _area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'Service area code', helperText: 'Use the area code provided by Alteo operations.')),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Available for automatic assignment'),
+            subtitle: Text(_online ? 'Online' : 'Offline'),
+            value: _online,
+            onChanged: _availabilityBusy ? null : _toggleAvailability,
+          ),
+        ]))),
+
         const SizedBox(height: 12),
         FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
