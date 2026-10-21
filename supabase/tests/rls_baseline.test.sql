@@ -26,8 +26,8 @@ select is(
 );
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000101', true);
-select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000101","role":"authenticated"}', true);
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000101';
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000101","role":"authenticated"}';
 
 select is((select count(*)::integer from public.profiles), 1, 'user A can read their own profile');
 select is((select count(*)::integer from public.profiles where id = '00000000-0000-4000-8000-000000000102'), 0, 'user A cannot read user B profile');
@@ -45,8 +45,9 @@ reset role;
 select is((select display_name from public.profiles where id = '00000000-0000-4000-8000-000000000102'), 'RLS User B', 'cross-user UPDATE does not change user B data');
 
 set local role authenticated;
-select set_config('request.jwt.claim.sub', '00000000-0000-4000-8000-000000000102', true);
-select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000102","role":"authenticated"}', true);
+set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000102';
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000102","role":"authenticated"}';
+select is((select count(*)::integer from public.user_roles where user_id = '00000000-0000-4000-8000-000000000102'), 0, 'new account has no privileged role by default');
 select is((select count(*)::integer from public.profiles), 1, 'user B can read their own profile');
 select is((select count(*)::integer from public.profiles where id = '00000000-0000-4000-8000-000000000101'), 0, 'user B cannot read user A profile');
 select throws_ok(
