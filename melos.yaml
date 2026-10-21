@@ -1,0 +1,14 @@
+name: alteo
+packages:
+  - apps/**
+  - packages/**
+
+command:
+  bootstrap:
+    usePubspecOverrides: true
+
+scripts:
+  analyze:
+    run: melos exec -- flutter analyze
+  test:
+    run: melos exec -- flutter test
