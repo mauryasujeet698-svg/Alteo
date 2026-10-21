@@ -205,9 +205,20 @@ class _SellerHomeState extends State<_SellerHome> {
   @override
   void initState() { super.initState(); _refresh(); }
   void _refresh() {
-    _products = widget.client.from('seller_products').select('id,name,kind,description,price_minor,currency,status,created_at')
+    _products = widget.client.from('seller_products').select('id,name,kind,description,price_minor,currency,status,created_at,seller_inventory(stock_on_hand,reserved_quantity)')
       .eq('seller_id', _sellerId).order('created_at', ascending: false).limit(100)
-      .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
+      .then((rows) => rows.map((r) {
+        final product = Map<String, dynamic>.from(r);
+        final inventory = product.remove('seller_inventory');
+        if (inventory is List && inventory.isNotEmpty && inventory.first is Map) {
+          product['stock_on_hand'] = inventory.first['stock_on_hand'];
+          product['reserved_quantity'] = inventory.first['reserved_quantity'];
+        } else {
+          product['stock_on_hand'] = 0;
+          product['reserved_quantity'] = 0;
+        }
+        return product;
+      }).toList());
     _orders = widget.client.from('orders').select('id,status,payment_status,total_minor,currency,created_at')
       .eq('seller_id', _sellerId).order('created_at', ascending: false).limit(100)
       .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
@@ -216,6 +227,7 @@ class _SellerHomeState extends State<_SellerHome> {
     final name = TextEditingController(text: product?['name']?.toString() ?? '');
     final description = TextEditingController(text: product?['description']?.toString() ?? '');
     final price = TextEditingController(text: product == null ? '' : (((product['price_minor'] as num?)?.toInt() ?? 0)).toString());
+    final stock = TextEditingController(text: product == null ? '0' : (((product['stock_on_hand'] as num?)?.toInt() ?? 0)).toString());
     String kind = product?['kind']?.toString() ?? 'shopping';
     final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
       title: Text(product == null ? 'Add product' : 'Edit product'),
@@ -227,25 +239,32 @@ class _SellerHomeState extends State<_SellerHome> {
           onChanged: (v) { if (v != null) setDialog(() => kind = v); }),
         const SizedBox(height: 8), TextField(controller: price, keyboardType: TextInputType.number,
           decoration: const InputDecoration(labelText: 'Price in paise', helperText: '₹100.00 is 10000 paise.')),
+        const SizedBox(height: 8), TextField(controller: stock, keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Stock on hand', helperText: 'Quantity available now. Cannot be lower than reserved stock.')),
       ])),
       actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        FilledButton(onPressed: () => Navigator.pop(context, {'name':name.text.trim(),'description':description.text.trim(),'kind':kind,'price':int.tryParse(price.text.trim())}),
+        FilledButton(onPressed: () => Navigator.pop(context, {'name':name.text.trim(),'description':description.text.trim(),'kind':kind,'price':int.tryParse(price.text.trim()),'stock':int.tryParse(stock.text.trim())}),
           child: const Text('Save draft'))],
     )));
-    name.dispose(); description.dispose(); price.dispose();
+    name.dispose(); description.dispose(); price.dispose(); stock.dispose();
     if (result == null || !mounted) return;
     final amount = result['price'] as int?;
-    if ((result['name'] as String).length < 1 || amount == null || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a product name and positive price in paise.')));
+    final stockCount = result['stock'] as int?;
+    if ((result['name'] as String).length < 1 || amount == null || amount <= 0 || stockCount == null || stockCount < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a product name, positive price in paise and non-negative stock.')));
       return;
     }
     try {
       final values = {'name':result['name'],'description':result['description'],'kind':result['kind'],'price_minor':amount,'currency':'INR'};
+      String productId;
       if (product == null) {
-        await widget.client.from('seller_products').insert({...values,'seller_id':_sellerId});
+        final saved = await widget.client.from('seller_products').insert({...values,'seller_id':_sellerId}).select('id').single();
+        productId = saved['id'].toString();
       } else {
-        await widget.client.from('seller_products').update({...values,'updated_at':DateTime.now().toUtc().toIso8601String()}).eq('id', product['id']);
+        productId = product['id'].toString();
+        await widget.client.from('seller_products').update({...values,'updated_at':DateTime.now().toUtc().toIso8601String()}).eq('id', productId);
       }
+      await widget.client.rpc('seller_set_stock', params: {'p_seller_id':_sellerId,'p_product_id':productId,'p_stock_on_hand':stockCount});
       if (mounted) {
         setState(_refresh);
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Product saved as a draft. An administrator must activate it for customers.')));
@@ -306,7 +325,7 @@ class _ProductsTab extends StatelessWidget {
         return Card(child:ListTile(
           leading:const CircleAvatar(child:Icon(Icons.inventory_2_outlined)),
           title:Text(p['name'].toString()),
-          subtitle:Text('₹'+price.toStringAsFixed(2)+' • '+p['kind'].toString()+' • '+p['status'].toString()),
+          subtitle:Text('₹'+price.toStringAsFixed(2)+' • '+p['kind'].toString()+' • '+p['status'].toString()+' • stock '+p['stock_on_hand'].toString()),
           trailing:IconButton(onPressed:()=>onEdit(p),icon:const Icon(Icons.edit_outlined)),
         ));
       }).toList());
