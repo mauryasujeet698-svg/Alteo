@@ -1,60 +1,20 @@
-import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-import 'src/config/app_config.dart';
-import 'src/services/mapbox_service.dart';
+import 'package:alteo_role_app/alteo_role_app.dart';
+import 'package:alteo_customer/src/config/app_config.dart';
+import 'package:alteo_customer/src/services/mapbox_service.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+  const definition = WorkspaceDefinition(
+    appName: 'Alteo Customer',
+    roleLabel: 'Customer account',
+    sections: [
+      WorkspaceSection(label: 'Explore', table: 'seller_products', columns: 'id,name,kind,price_minor,currency,status', titleColumn: 'name', subtitleColumns: ['kind', 'price_minor', 'currency'], filters: {'status': 'active'}),
+      WorkspaceSection(label: 'Orders', table: 'orders', columns: 'id,status,total_minor,currency,created_at', titleColumn: 'status', subtitleColumns: ['total_minor', 'currency', 'created_at'], ownerColumn: 'customer_id'),
+      WorkspaceSection(label: 'Rides', table: 'rides', columns: 'id,status,pickup_label,destination_label,fare_minor,created_at', titleColumn: 'status', subtitleColumns: ['pickup_label', 'destination_label', 'fare_minor', 'created_at'], ownerColumn: 'customer_id'),
+      WorkspaceSection(label: 'Parcels', table: 'delivery_jobs', columns: 'id,status,created_at', titleColumn: 'status', subtitleColumns: ['created_at'], ownerColumn: 'customer_id'),
+      WorkspaceSection(label: 'Account', table: 'profiles', columns: 'id,display_name,avatar_url,created_at', titleColumn: 'display_name', subtitleColumns: ['created_at'], ownerColumn: 'id'),
+    ],
+  );
   final config = AppConfig.fromEnvironment();
-
-  if (config.supabaseUrl.isNotEmpty && config.supabaseAnonKey.isNotEmpty) {
-    await Supabase.initialize(url: config.supabaseUrl, anonKey: config.supabaseAnonKey);
-  }
   MapboxService.configure(config.mapboxPublicToken);
-  runApp(const AlteoCustomerApp());
-}
-
-class AlteoCustomerApp extends StatelessWidget {
-  const AlteoCustomerApp({super.key});
-
-  @override
-  Widget build(BuildContext context) => MaterialApp(
-        title: 'Alteo',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57)),
-          useMaterial3: true,
-        ),
-        home: const CustomerStartPage(),
-      );
-}
-
-class CustomerStartPage extends StatelessWidget {
-  const CustomerStartPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Alteo')),
-        body: const SafeArea(
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.explore_outlined, size: 64),
-                  SizedBox(height: 16),
-                  Text('Everything you need, in one place', textAlign: TextAlign.center),
-                  SizedBox(height: 8),
-                  Text(
-                    'Customer app foundation. Configure the environment and verify backend policies before enabling live services.',
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
+  await launchAlteoWorkspace(definition: definition, supabaseUrl: config.supabaseUrl, supabaseAnonKey: config.supabaseAnonKey);
 }
