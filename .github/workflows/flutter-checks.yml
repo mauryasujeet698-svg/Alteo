@@ -1,0 +1,26 @@
+name: Flutter checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  analyze-customer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve customer dependencies
+        working-directory: apps/customer
+        run: flutter pub get
+      - name: Analyze customer app
+        working-directory: apps/customer
+        run: flutter analyze
+      - name: Run customer tests
+        working-directory: apps/customer
+        run: flutter test
