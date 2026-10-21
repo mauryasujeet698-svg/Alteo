@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 import 'src/config/app_config.dart';
 import 'src/services/mapbox_service.dart';
 
@@ -119,6 +120,20 @@ class _PhoneSignInState extends State<PhoneSignIn> {
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
+  void _selectPlace(PlaceSuggestion value, {required bool pickup}) {
+    setState(() {
+      if (pickup) { _pickup = value; } else { _destination = value; }
+      _bookingId = null;
+    });
+    final map = _map;
+    if (map != null) {
+      map.flyTo(
+        CameraOptions(center: Point(coordinates: Position(value.longitude, value.latitude)), zoom: 13),
+        MapAnimationOptions(duration: 650),
+      );
+    }
+  }
+
   Future<void> _submit() async {
     final phone = _phone.text.trim();
     if (!_sent && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
@@ -309,6 +324,7 @@ class BookingPage extends StatefulWidget {
 class _BookingPageState extends State<BookingPage> {
   PlaceSuggestion? _pickup;
   PlaceSuggestion? _destination;
+  MapboxMap? _map;
   final _description = TextEditingController();
   final _area = TextEditingController(text: 'DEFAULT');
   bool _busy = false;
@@ -397,6 +413,23 @@ class _BookingPageState extends State<BookingPage> {
               ]),
             ),
             const SizedBox(height: 18),
+            if (MapboxService.isConfigured) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(18),
+                child: SizedBox(
+                  height: 235,
+                  child: MapWidget(
+                    key: const ValueKey('alteo-booking-map'),
+                    cameraOptions: CameraOptions(
+                      center: Point(coordinates: Position(78.9629, 20.5937)),
+                      zoom: 4.6,
+                    ),
+                    onMapCreated: (map) { _map = map; },
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
             if (!MapboxService.isConfigured)
               const _BookingNotice(
                 text: 'Map search is not configured. Add a restricted public Mapbox token to the build configuration before booking.',
@@ -407,7 +440,7 @@ class _BookingPageState extends State<BookingPage> {
               key: const ValueKey('pickup-place'),
               label: 'Search pickup address',
               icon: Icons.trip_origin,
-              onSelected: (value) => setState(() { _pickup = value; _bookingId = null; }),
+              onSelected: (value) => _selectPlace(value, pickup: true),
             ),
             const SizedBox(height: 16),
             const Text('Destination', style: TextStyle(fontWeight: FontWeight.w800)),
@@ -416,7 +449,7 @@ class _BookingPageState extends State<BookingPage> {
               key: const ValueKey('destination-place'),
               label: 'Search destination address',
               icon: Icons.location_on_outlined,
-              onSelected: (value) => setState(() { _destination = value; _bookingId = null; }),
+              onSelected: (value) => _selectPlace(value, pickup: false),
             ),
             if (!isRide) ...[
               const SizedBox(height: 16),
