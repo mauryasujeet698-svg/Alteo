@@ -1,0 +1,2 @@
+# Shared packages
+Add reusable Flutter packages here as the apps need stable shared modules: design system, authentication helpers, data access, domain models, maps and media. Keep authorization enforced by Supabase, not UI code.
