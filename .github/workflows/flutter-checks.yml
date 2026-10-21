@@ -1,5 +1,6 @@
 name: Flutter checks and Android builds
 on:
+  workflow_dispatch:
   push:
     branches: [main, execute/alteo-foundation-20261021]
   pull_request:
