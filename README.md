@@ -1,35 +1,33 @@
 # Alteo
 
-Alteo is a multi-service platform planned around six separate app experiences:
+Alteo is a multi-service platform with six separate app experiences in one Flutter monorepo.
 
-1. **Customer** — shopping, food, rides, parcels, orders and account management.
-2. **Admin** — platform operations, approvals, support, reporting and configuration.
-3. **Delivery Partner** — order delivery assignments, navigation, delivery status and earnings.
-4. **Driver Partner** — ride availability, trip assignments, trip status and earnings.
-5. **Seller** — catalogue, pricing, inventory and order fulfilment.
-6. **Dark Store** — stock management, picking, packing and dispatch.
+## Apps
+1. Customer — shopping, food, rides, parcels, orders and account management.
+2. Admin — operations, approvals, support, reporting and configuration.
+3. Driver Partner — ride availability, trips, status and earnings.
+4. Delivery Partner — delivery assignments, navigation, status and earnings.
+5. Seller — catalogue, pricing, inventory and fulfilment.
+6. Dark Store — stock, picking, packing and dispatch.
 
-## Project status
+## Foundation added
+- Flutter/Dart monorepo workspace using Melos.
+- Customer app starter with Supabase initialization and Mapbox token configuration.
+- Cloudinary upload client that requests a signed upload authorization from a Supabase Edge Function.
+- Supabase profile migration with Row Level Security policies limiting profile access to the signed-in owner.
+- GitHub Actions workflow for Flutter analysis and tests.
+- Proprietary inspection-only license; viewing code does not grant permission to reuse it.
 
-This repository was created as a clean starting point. No application implementation has been started yet.
+## Services and environment
+Supabase provides auth, Postgres, RLS and Edge Functions. Mapbox provides maps/location features and must use a platform-restricted public token. Cloudinary handles media delivery and signed uploads; its API secret belongs only in Supabase Edge Function secrets. Use .env.example as a checklist, not as a place for real credentials. Pass client configuration with Flutter --dart-define values.
 
-- **Mobile apps:** Flutter / Dart is the intended app stack.
-- **Backend:** A dedicated Supabase project named `Alteo` has been created.
-- **Authentication:** Provider and role flows still need to be designed and configured.
-- **Database:** Application tables and migrations have not yet been added.
-- **Payments, maps, notifications and fulfilment:** To be designed and integrated after requirements are agreed.
+Before uploads can work, configure CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY and CLOUDINARY_API_SECRET as Supabase Edge Function secrets and deploy cloudinary-upload-signature. Configure SUPABASE_URL, SUPABASE_ANON_KEY and MAPBOX_PUBLIC_TOKEN for the app.
 
-## Architecture principles
+## Data isolation and battery
+Read docs/SECURITY_AND_PERFORMANCE.md. Every user-owned table must have tested RLS policies; the initial migration covers profiles only. Request location only when needed, avoid continuous polling, debounce search, fetch bounded pages, stop tracking when tasks end, and never reuse private cached data between accounts.
 
-- Keep the six app experiences logically separated, while sharing one documented backend and common domain rules where appropriate.
-- Treat the database and trusted server-side functions as the authority for order status, pricing, stock, permissions and payments.
-- Enforce Row Level Security for exposed database tables and test access rules for every role.
-- Never commit secrets, service-role keys, signing keys, passwords, or production credentials.
-- Store schema changes as reviewed, version-controlled migrations.
-- Use mock data only in explicitly labelled development/demo flows; production flows must use real, validated services.
+## Build order
+Customer app first. The other five apps are separate targets and will be implemented next. Shared packages will be added as common modules stabilize. Each app has its own navigation and release artifact; backend authorization remains authoritative.
 
-## Repository setup
-
-This repository is currently an empty project scaffold. The app structure, CI, database migrations, environment configuration and automated tests will be added deliberately in subsequent steps.
-
-Before production work, review repository visibility and protect the default branch.
+## Important status
+This is a foundation, not a production-ready six-app platform. Authentication screens, complete database schema, role/permission model, live maps/search UI, payments, dispatch, push notifications, full RLS tests, app signing and final APKs are not complete. The Cloudinary signing function needs upload limits, strict production policy and abuse controls before release.
