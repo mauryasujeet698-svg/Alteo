@@ -1,0 +1,4 @@
+project_id = "alteo"
+
+[functions.cloudinary-upload-signature]
+verify_jwt = true
