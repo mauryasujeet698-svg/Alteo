@@ -193,9 +193,14 @@ class _DeliveryHome extends StatefulWidget {
 class _DeliveryHomeState extends State<_DeliveryHome> {
   late Future<List<_Task>> _tasks;
   late Future<List<Map<String, dynamic>>> _earnings;
+  final _area = TextEditingController(text: 'DEFAULT');
   bool _working = true;
+  bool _online = false;
+  bool _availabilityBusy = false;
   @override
   void initState() { super.initState(); _refresh(); }
+  @override
+  void dispose() { _area.dispose(); super.dispose(); }
   Future<List<_Task>> _loadTasks() async {
     final rows = await widget.client.from('delivery_jobs')
       .select('id,order_id,customer_id,seller_id,status,job_type,tracking_code,pickup_label,destination_label,item_description,fare_minor,created_at')
@@ -217,6 +222,26 @@ class _DeliveryHomeState extends State<_DeliveryHome> {
       .select('id,amount_minor,currency,status,created_at')
       .eq('delivery_partner_id', widget.user.id).order('created_at', ascending: false).limit(100)
       .then((rows) => rows.map((r) => Map<String, dynamic>.from(r)).toList());
+  }
+  Future<void> _toggleAvailability(bool online) async {
+    setState(() => _availabilityBusy = true);
+    try {
+      await widget.client.rpc('partner_set_availability', params: {
+        'p_role': 'delivery_partner',
+        'p_area_code': _area.text.trim().isEmpty ? 'DEFAULT' : _area.text.trim().toUpperCase(),
+        'p_is_online': online,
+        'p_latitude': null,
+        'p_longitude': null,
+      });
+      if (mounted) {
+        setState(() => _online = online);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(online ? 'You are online for delivery assignment.' : 'You are offline.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update availability.')));
+    } finally { if (mounted) setState(() => _availabilityBusy = false); }
   }
   Future<void> _action(_Task task, String action) async {
     setState(() => _working = true);
@@ -252,6 +277,18 @@ class _DeliveryHomeState extends State<_DeliveryHome> {
         Text('Assigned to you', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 6),
         const Text('Only jobs assigned to your account are shown. Order item details are limited to your assigned orders.'),
+        Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(children: [
+          TextField(controller: _area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'Service area code', helperText: 'Use the area code provided by Alteo operations.')),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Available for automatic assignment'),
+            subtitle: Text(_online ? 'Online' : 'Offline'),
+            value: _online,
+            onChanged: _availabilityBusy ? null : _toggleAvailability,
+          ),
+        ]))),
+
         const SizedBox(height: 12),
         FutureBuilder<List<_Task>>(future: _tasks, builder: (context, snapshot) {
           if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator()));
