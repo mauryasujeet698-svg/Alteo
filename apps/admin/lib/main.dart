@@ -222,26 +222,9 @@ class _OverviewTabState extends State<_OverviewTab> {
   @override
   void initState() { super.initState(); _refresh(); }
   void _refresh() {
-    _stats = Future.wait([
-      widget.client.from('orders').select('id,total_minor,payment_status,status').limit(1000),
-      widget.client.from('sellers').select('id,status').limit(1000),
-      widget.client.from('delivery_jobs').select('id,status').limit(1000),
-      widget.client.from('user_roles').select('id,role').limit(2000),
-    ]).then((results) {
-      final orders = (results[0] as List).map((r) => Map<String, dynamic>.from(r as Map)).toList();
-      final sellers = (results[1] as List).map((r) => Map<String, dynamic>.from(r as Map)).toList();
-      final jobs = (results[2] as List).map((r) => Map<String, dynamic>.from(r as Map)).toList();
-      final roles = (results[3] as List).map((r) => Map<String, dynamic>.from(r as Map)).toList();
-      final paid = orders.where((r) => r['payment_status'] == 'paid').fold<int>(0, (sum, r) => sum + ((r['total_minor'] as num?)?.toInt() ?? 0));
-      return {
-        'orders': orders.length,
-        'paid_minor': paid,
-        'sellers': sellers.where((r) => r['status'] == 'approved').length,
-        'pending_sellers': sellers.where((r) => r['status'] == 'pending').length,
-        'open_jobs': jobs.where((r) => !['delivered','cancelled','failed'].contains(r['status'])).length,
-        'partners': roles.where((r) => ['driver_partner','delivery_partner'].contains(r['role'])).length,
-      };
-    });
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
   }
   @override
   Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
@@ -253,14 +236,17 @@ class _OverviewTabState extends State<_OverviewTab> {
         if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
         if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
         final s = snapshot.data!;
-        final paid = ((s['paid_minor'] as int) / 100).toStringAsFixed(2);
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
         return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
-          _Metric(title: 'Orders', value: s['orders'].toString(), icon: Icons.receipt_long),
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
           _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
-          _Metric(title: 'Approved sellers', value: s['sellers'].toString(), icon: Icons.storefront),
-          _Metric(title: 'Pending sellers', value: s['pending_sellers'].toString(), icon: Icons.pending_actions),
-          _Metric(title: 'Open deliveries', value: s['open_jobs'].toString(), icon: Icons.local_shipping),
-          _Metric(title: 'Partner roles', value: s['partners'].toString(), icon: Icons.people),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
         ]);
       }),
       const SizedBox(height: 18),
