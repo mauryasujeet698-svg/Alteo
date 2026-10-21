@@ -766,12 +766,13 @@ class AddressDialog extends StatefulWidget {
 class _AddressDialogState extends State<AddressDialog> {
   final _name = TextEditingController(), _phone = TextEditingController(), _line = TextEditingController();
   final _city = TextEditingController(), _state = TextEditingController(text: 'Uttar Pradesh'), _pin = TextEditingController();
+  final _area = TextEditingController(text: 'DEFAULT');
   String? _error;
   @override
-  void dispose() { _name.dispose(); _phone.dispose(); _line.dispose(); _city.dispose(); _state.dispose(); _pin.dispose(); super.dispose(); }
+  void dispose() { _name.dispose(); _phone.dispose(); _line.dispose(); _city.dispose(); _state.dispose(); _pin.dispose(); _area.dispose(); super.dispose(); }
   void _submit() {
     final address = {'recipient_name': _name.text.trim(), 'phone': _phone.text.trim(), 'address_line1': _line.text.trim(),
-      'city': _city.text.trim(), 'state': _state.text.trim(), 'postal_code': _pin.text.trim()};
+      'city': _city.text.trim(), 'state': _state.text.trim(), 'postal_code': _pin.text.trim(), 'area_code': _area.text.trim().isEmpty ? 'DEFAULT' : _area.text.trim().toUpperCase()};
     if (address.values.any((v) => v.isEmpty) || address['recipient_name']!.length < 2 || address['phone']!.length < 8 ||
         address['address_line1']!.length < 3 || address['postal_code']!.length < 5) {
       setState(() => _error = 'Complete all fields and check the phone number and PIN code.'); return;
@@ -787,6 +788,7 @@ class _AddressDialogState extends State<AddressDialog> {
       const SizedBox(height: 8), TextField(controller: _city, decoration: const InputDecoration(labelText: 'City / district')),
       const SizedBox(height: 8), TextField(controller: _state, decoration: const InputDecoration(labelText: 'State')),
       const SizedBox(height: 8), TextField(controller: _pin, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN code')),
+      const SizedBox(height: 8), TextField(controller: _area, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText: 'Service area code', helperText: 'Use the area code enabled by Alteo admin.')),
       if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
     ])),
     actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')), FilledButton(onPressed: _submit, child: const Text('Save address'))]);
