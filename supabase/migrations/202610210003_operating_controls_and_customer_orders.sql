@@ -89,7 +89,7 @@ create policy orders_read_authorized on public.orders for select to authenticate
   using (
     customer_id = (select auth.uid())
     or exists (select 1 from public.sellers s where s.id = seller_id and s.owner_id = (select auth.uid()))
-    or exists (select 1 from public.delivery_jobs dj where dj.order_id = id and dj.delivery_partner_id = (select auth.uid()))
+    or exists (select 1 from public.delivery_jobs dj where dj.order_id = orders.id and dj.delivery_partner_id = (select auth.uid()))
     or (select private.has_role('admin'))
   );
 drop policy if exists order_items_read_authorized on public.order_items;
