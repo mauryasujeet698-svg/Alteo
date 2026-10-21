@@ -376,7 +376,6 @@ class HomePage extends StatelessWidget {
       }),
       const SizedBox(height: 18), const Text('Availability and prices depend on your launch area.', style: TextStyle(color: Colors.black54, fontSize: 12)),
     ]));
-  }
 }
 
 class LivePromotions extends StatefulWidget {
@@ -447,7 +446,6 @@ class _LivePromotionsState extends State<LivePromotions> {
     }),
     const SizedBox(height: 4),
   ]);
-  }
 }
 
 class ServiceTile extends StatelessWidget {
