@@ -3,7 +3,6 @@ import 'package:customer/features/cart/cart_store.dart';
 import 'package:customer/features/checkout/checkout_screen.dart';
 import 'package:customer/features/explore/explore_screen.dart';
 import 'package:customer/features/favorites/favorites_screen.dart';
-import 'package:customer/features/favorites/favorite_store.dart';
 import 'package:customer/features/home/home_screen.dart';
 import 'package:customer/features/location/location_store.dart';
 import 'package:customer/features/orders/orders_screen.dart';
