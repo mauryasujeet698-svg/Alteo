@@ -7,6 +7,8 @@ import 'package:customer/features/home/home_screen.dart';
 import 'package:customer/features/location/location_store.dart';
 import 'package:customer/features/orders/orders_screen.dart';
 import 'package:customer/features/profile/profile_screen.dart';
+import 'package:customer/features/preferences/customer_settings_screen.dart';
+import 'package:customer/features/addresses/saved_addresses_screen.dart';
 import 'package:customer/features/services/service_hub_screen.dart';
 import 'package:customer/features/catalog/presentation/product_detail_screen.dart';
 import 'package:customer/features/shell/customer_shell.dart';
@@ -68,6 +70,22 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/addresses',
+        builder: (context, state) => const SavedAddressesScreen(),
+      ),
+      GoRoute(
+        path: '/settings',
+        builder: (context, state) => const CustomerSettingsScreen(),
+      ),
+      GoRoute(
+        path: '/help',
+        builder: (context, state) => const HelpSupportScreen(),
+      ),
+      GoRoute(
+        path: '/privacy',
+        builder: (context, state) => const PrivacyAccountScreen(),
       ),
       GoRoute(
         path: '/favorites',
