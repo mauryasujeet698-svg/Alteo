@@ -7,6 +7,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  supabase_flutter: ^2.8.0
   alteo_role_app:
     path: ../../packages/role_app
 dev_dependencies:
