@@ -5,6 +5,7 @@ import 'package:customer/features/explore/explore_screen.dart';
 import 'package:customer/features/home/home_screen.dart';
 import 'package:customer/features/orders/orders_screen.dart';
 import 'package:customer/features/profile/profile_screen.dart';
+import 'package:customer/features/services/service_hub_screen.dart';
 import 'package:customer/features/catalog/presentation/product_detail_screen.dart';
 import 'package:customer/features/shell/customer_shell.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -58,6 +59,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ],
           ),
         ],
+      ),
+      GoRoute(
+        path: '/service/:serviceType',
+        builder: (context, state) => ServiceHubScreen(
+          serviceType: state.pathParameters['serviceType'] ?? 'shop',
+        ),
       ),
       GoRoute(
         path: '/cart',
