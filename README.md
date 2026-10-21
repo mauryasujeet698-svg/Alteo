@@ -1,35 +1,25 @@
 # Alteo
 
-Alteo is a multi-service platform planned around six separate app experiences:
+Alteo is a planned multi-service platform with six app experiences: Customer, Admin, Delivery Partner, Driver Partner, Seller and Dark Store.
 
-1. **Customer** — shopping, food, rides, parcels, orders and account management.
-2. **Admin** — platform operations, approvals, support, reporting and configuration.
-3. **Delivery Partner** — order delivery assignments, navigation, delivery status and earnings.
-4. **Driver Partner** — ride availability, trip assignments, trip status and earnings.
-5. **Seller** — catalogue, pricing, inventory and order fulfilment.
-6. **Dark Store** — stock management, picking, packing and dispatch.
+## Repository status
 
-## Project status
-
-This repository was created as a clean starting point. No application implementation has been started yet.
-
-- **Mobile apps:** Flutter / Dart is the intended app stack.
-- **Backend:** A dedicated Supabase project named `Alteo` has been created.
-- **Authentication:** Provider and role flows still need to be designed and configured.
-- **Database:** Application tables and migrations have not yet been added.
-- **Payments, maps, notifications and fulfilment:** To be designed and integrated after requirements are agreed.
+- Customer app source: `apps/customer` (Flutter/Dart).
+- Dedicated Supabase project: a separate, clean project named Alteo.
+- Go Ride repository and backend are separate and have not been changed.
+- Current customer screens use clearly labelled preview catalogue data. Real orders, payments, ride dispatch and live inventory are not yet connected.
+- Supabase application schema and authentication settings have not been applied; proposed contracts live under `docs/`.
 
 ## Architecture principles
 
-- Keep the six app experiences logically separated, while sharing one documented backend and common domain rules where appropriate.
-- Treat the database and trusted server-side functions as the authority for order status, pricing, stock, permissions and payments.
-- Enforce Row Level Security for exposed database tables and test access rules for every role.
-- Never commit secrets, service-role keys, signing keys, passwords, or production credentials.
-- Store schema changes as reviewed, version-controlled migrations.
-- Use mock data only in explicitly labelled development/demo flows; production flows must use real, validated services.
+- Cross-platform Flutter codebase for Android and iOS.
+- Guest-first browsing; Google sign-in for account-dependent actions.
+- Server-side authority for price, inventory, roles, order transitions and payments.
+- Reviewed, version-controlled migrations and tested Row Level Security.
+- No privileged keys or signing secrets in client code or source control.
 
-## Repository setup
+## Development
 
-This repository is currently an empty project scaffold. The app structure, CI, database migrations, environment configuration and automated tests will be added deliberately in subsequent steps.
+See [apps/customer/README.md](apps/customer/README.md) for setup, [docs/backend-contract.md](docs/backend-contract.md) for the proposed backend contract, and [docs/implementation-status.md](docs/implementation-status.md) for implementation status and limitations.
 
-Before production work, review repository visibility and protect the default branch.
+The CI workflow checks formatting, static analysis, tests and a debug Android APK build. A passing CI build is not proof of production readiness or Play Store approval.
