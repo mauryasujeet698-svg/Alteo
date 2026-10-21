@@ -1,5 +1,4 @@
 import 'package:customer/core/theme/alteo_theme.dart';
-import 'package:customer/features/location/location_store.dart';
 import 'package:customer/routing/app_router.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
