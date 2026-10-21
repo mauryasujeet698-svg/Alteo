@@ -264,10 +264,23 @@ class _OrdersTab extends StatefulWidget {
 }
 class _OrdersTabState extends State<_OrdersTab> {
   late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
   @override
   void initState() { super.initState(); _refresh(); }
-  void _refresh() { _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id'); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
   void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
   Future<void> _assign(Map<String, dynamic> order) async {
     if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
     final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
@@ -281,7 +294,7 @@ class _OrdersTabState extends State<_OrdersTab> {
     catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
   }
   @override
-  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _orders; },
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
     child: ListView(padding: const EdgeInsets.all(16), children: [
       Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
       const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
@@ -297,6 +310,26 @@ class _OrdersTabState extends State<_OrdersTab> {
             title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
             subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
             trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
           ));
         }).toList());
       }),
