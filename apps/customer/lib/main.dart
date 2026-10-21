@@ -258,7 +258,7 @@ class _CustomerShellState extends State<CustomerShell> {
       HomePage(client: widget.client, user: widget.user, products: _products, search: _search,
         onSearch: (v) => setState(() { _search = v; _kindFilter = null; _products = _loadProducts(v); }),
         onRefresh: () => setState(() => _products = _loadProducts(_search, _kindFilter)), onAdd: _add, onService: _service),
-      OrdersPage(client: widget.client, user: widget.user),
+      ActivityPage(client: widget.client, user: widget.user),
       CartPage(cart: _cart, totalMinor: _total, onQuantity: _quantity, onCheckout: _checkout),
       AccountPage(user: widget.user, client: widget.client),
     ];
@@ -695,32 +695,106 @@ class ServiceTile extends StatelessWidget {
       ])));
 }
 
-class OrdersPage extends StatelessWidget {
-  const OrdersPage({super.key, required this.client, required this.user});
+class ActivityPage extends StatelessWidget {
+  const ActivityPage({super.key, required this.client, required this.user});
   final SupabaseClient client;
   final User user;
+
   @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Your orders')),
-    body: FutureBuilder<List<Map<String, dynamic>>>(
-      future: client.from('orders').select('id,status,payment_status,total_minor,currency,created_at')
-        .eq('customer_id', user.id).order('created_at', ascending: false).limit(50)
-        .then((rows) => rows.map((row) => Map<String, dynamic>.from(row)).toList()),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
-        if (snapshot.hasError) return const EmptyPanel(icon: Icons.cloud_off_outlined, title: 'Orders unavailable', subtitle: 'Check your connection and try again.');
-        final rows = snapshot.data ?? [];
-        if (rows.isEmpty) return const EmptyPanel(icon: Icons.receipt_long_outlined, title: 'No orders yet', subtitle: 'Your orders and payment status will appear here.');
-        return ListView.separated(padding: const EdgeInsets.all(16), itemCount: rows.length, separatorBuilder: (_, __) => const SizedBox(height: 8),
+  Widget build(BuildContext context) => DefaultTabController(length: 3, child: Scaffold(
+    appBar: AppBar(title: const Text('Your activity'), bottom: const TabBar(tabs: [
+      Tab(text: 'Orders'), Tab(text: 'Rides'), Tab(text: 'Parcels'),
+    ])),
+    body: TabBarView(children: [
+      _ActivityList(client: client, user: user, type: 'orders'),
+      _ActivityList(client: client, user: user, type: 'rides'),
+      _ActivityList(client: client, user: user, type: 'parcels'),
+    ]),
+  ));
+}
+
+class _ActivityList extends StatelessWidget {
+  const _ActivityList({required this.client, required this.user, required this.type});
+  final SupabaseClient client;
+  final User user;
+  final String type;
+
+  Future<List<Map<String, dynamic>>> _load() async {
+    if (type == 'orders') {
+      final rows = await client.from('orders').select('id,status,payment_status,total_minor,currency,created_at')
+        .eq('customer_id', user.id).order('created_at', ascending: false).limit(50);
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    }
+    if (type == 'rides') {
+      final rows = await client.from('rides').select('id,status,pickup_label,destination_label,fare_minor,estimated_distance_m,created_at')
+        .eq('customer_id', user.id).order('created_at', ascending: false).limit(50);
+      return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+    }
+    final rows = await client.from('delivery_jobs').select('id,status,pickup_label,destination_label,item_description,fare_minor,created_at')
+      .eq('customer_id', user.id).eq('job_type', 'parcel').order('created_at', ascending: false).limit(50);
+    return rows.map((r) => Map<String, dynamic>.from(r)).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<Map<String, dynamic>>>(
+    future: _load(),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) return const Center(child: CircularProgressIndicator());
+      if (snapshot.hasError) return const _ActivityMessage(title: 'Activity unavailable', subtitle: 'Check your connection and refresh.');
+      final rows = snapshot.data ?? [];
+      if (rows.isEmpty) {
+        final title = type == 'orders' ? 'No orders yet' : type == 'rides' ? 'No rides yet' : 'No parcels yet';
+        return _ActivityMessage(title: title, subtitle: 'Your ' + type + ' will appear here when you book them.');
+      }
+      return RefreshIndicator(
+        onRefresh: () async {},
+        child: ListView.separated(
+          padding: const EdgeInsets.all(16),
+          itemCount: rows.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 8),
           itemBuilder: (context, i) {
             final row = rows[i];
-            final total = ((row['total_minor'] as num?)?.toInt() ?? 0) / 100;
-            return Card(child: ListTile(leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
-              title: Text('Order ' + row['id'].toString().substring(0, 8).toUpperCase()),
-              subtitle: Text(_capitalize((row['status'] ?? '').toString().replaceAll('_', ' ')) + ' • Payment: ' + _capitalize((row['payment_status'] ?? '').toString())),
-              trailing: Text('₹' + total.toStringAsFixed(2), style: const TextStyle(fontWeight: FontWeight.w800))));
-          });
-      }));
+            final fare = ((row['total_minor'] ?? row['fare_minor']) as num?)?.toInt() ?? 0;
+            final amount = (fare / 100).toStringAsFixed(2);
+            final id = row['id'].toString();
+            if (type == 'orders') {
+              return Card(child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.receipt_long_outlined)),
+                title: Text('Order ' + id.substring(0, 8).toUpperCase()),
+                subtitle: Text(_capitalize((row['status'] ?? '').toString().replaceAll('_', ' ')) + ' • Payment: ' + _capitalize((row['payment_status'] ?? '').toString())),
+                trailing: Text('₹' + amount, style: const TextStyle(fontWeight: FontWeight.w800)),
+              ));
+            }
+            return Card(child: ListTile(
+              leading: Icon(type == 'rides' ? Icons.directions_car_outlined : Icons.local_shipping_outlined, color: const Color(0xFF176B57)),
+              title: Text((type == 'rides' ? 'Ride ' : 'Parcel ') + id.substring(0, 8).toUpperCase()),
+              subtitle: Text(_capitalize((row['status'] ?? '').toString().replaceAll('_', ' ')) +
+                '\nFrom: ' + (row['pickup_label']?.toString() ?? '—') +
+                '\nTo: ' + (row['destination_label']?.toString() ?? '—') +
+                ((row['item_description']?.toString() ?? '').isNotEmpty ? '\nItems: ' + row['item_description'].toString() : '')),
+              isThreeLine: true,
+              trailing: Text('₹' + amount, style: const TextStyle(fontWeight: FontWeight.w800)),
+            ));
+          },
+        ),
+      );
+    },
+  );
 }
+
+class _ActivityMessage extends StatelessWidget {
+  const _ActivityMessage({required this.title, required this.subtitle});
+  final String title, subtitle;
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
+    mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.history, size: 46, color: Color(0xFF176B57)),
+      const SizedBox(height: 12), Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), Text(subtitle, textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
+    ],
+  )));
+}
+
 
 class CartPage extends StatelessWidget {
   const CartPage({super.key, required this.cart, required this.totalMinor, required this.onQuantity, required this.onCheckout});
