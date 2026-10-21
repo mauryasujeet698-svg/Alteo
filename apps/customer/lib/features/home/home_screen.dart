@@ -3,6 +3,7 @@ import 'package:customer/core/theme/alteo_theme.dart';
 import 'package:customer/core/widgets/catalogue_preview_notice.dart';
 import 'package:customer/core/widgets/section_heading.dart';
 import 'package:customer/features/catalog/data/preview_products.dart';
+import 'package:customer/features/location/location_picker_sheet.dart';
 import 'package:customer/features/catalog/presentation/product_card.dart';
 import 'package:customer/routing/app_router.dart';
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ class HomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cart = ref.watch(cartStoreProvider);
+    final location = ref.watch(locationStoreProvider).label;
     return ListenableBuilder(
       listenable: cart,
       builder: (context, child) {
@@ -75,27 +77,9 @@ class HomeScreen extends ConsumerWidget {
                           borderRadius: BorderRadius.circular(14),
                           onTap: () => showModalBottomSheet<void>(
                             context: context,
+                            isScrollControlled: true,
                             showDragHandle: true,
-                            builder: (context) => SafeArea(
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('Choose your location', style: Theme.of(context).textTheme.headlineMedium),
-                                    const SizedBox(height: 8),
-                                    const Text('Location search and serviceability will be connected after the maps and backend configuration is reviewed.'),
-                                    const SizedBox(height: 16),
-                                    FilledButton.icon(
-                                      onPressed: () => Navigator.pop(context),
-                                      icon: const Icon(Icons.place_outlined),
-                                      label: const Text('Continue browsing'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                            builder: (context) => const LocationPickerSheet(),
                           ),
                           child: Row(
                             children: [
@@ -107,7 +91,7 @@ class HomeScreen extends ConsumerWidget {
                                   children: [
                                     Text('DELIVER TO', style: Theme.of(context).textTheme.labelSmall?.copyWith(letterSpacing: 1.1, fontWeight: FontWeight.w800)),
                                     const SizedBox(height: 2),
-                                    Text('Choose your location', style: Theme.of(context).textTheme.titleMedium),
+                                    Text(location, style: Theme.of(context).textTheme.titleMedium),
                                   ],
                                 ),
                               ),
