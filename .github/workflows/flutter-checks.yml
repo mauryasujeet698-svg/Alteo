@@ -79,6 +79,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: alteo-${{ matrix.name }}-arm64-apk
-          path: apps/${{ matrix.app }}/build/app/outputs/flutter-apk/app-release.apk
+          path: ${{ matrix.app }}/build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
