@@ -24,7 +24,8 @@ void main() {
   testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
     await tester.tap(find.text('Orders'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Your orders will appear here'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
     await tester.tap(find.text('Account'));
