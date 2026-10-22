@@ -2,7 +2,7 @@ name: Flutter checks and Android builds
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
     branches: [main]
 concurrency:
