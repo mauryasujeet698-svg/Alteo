@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'src/config/app_config.dart';
 import 'src/features/services/service_browse_page.dart';
+import 'src/features/search/customer_search_page.dart';
+import 'src/features/location/customer_location_page.dart';
 import 'src/services/mapbox_service.dart';
 
 Future<void> main() async {
@@ -175,13 +177,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         child: TextField(
           controller: _searchController,
           textInputAction: TextInputAction.search,
-          onSubmitted: (_) => _showComingSoon('Search'),
+          onSubmitted: (_) => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerSearchPage())),
           decoration: InputDecoration(
             hintText: 'Search food, shops, rides and more',
             prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF176B57)),
             suffixIcon: IconButton(
               tooltip: 'Search',
-              onPressed: () => _showComingSoon('Search'),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerSearchPage())),
               icon: const Icon(Icons.tune_rounded),
             ),
             filled: true,
@@ -256,7 +258,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   Widget _buildLocationCard() => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
         child: InkWell(
-          onTap: () => _showComingSoon('Map and location selection'),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<String>(builder: (_) => const CustomerLocationPage())).then((address) { if (address != null && mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Selected location: ' + address))); } }),
           borderRadius: BorderRadius.circular(20),
           child: Container(
             padding: const EdgeInsets.all(17),
