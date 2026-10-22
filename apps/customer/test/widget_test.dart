@@ -3,6 +3,11 @@ import 'package:alteo_customer/main.dart';
 
 void main() {
   testWidgets('customer home shows Alteo services and location prompt', (tester) async {
+    await tester.view.setPhysicalSize(const Size(800, 1000));
+    await tester.view.setDevicePixelRatio(1);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(const AlteoCustomerApp());
 
     expect(find.text('DELIVERING TO'), findsOneWidget);
@@ -14,8 +19,14 @@ void main() {
   });
 
   testWidgets('tapping a service opens its browse page', (tester) async {
+    await tester.view.setPhysicalSize(const Size(800, 1000));
+    await tester.view.setDevicePixelRatio(1);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
     await tester.pumpWidget(const AlteoCustomerApp());
 
+    await tester.ensureVisible(find.text('Food'));
     await tester.tap(find.text('Food'));
     await tester.pumpAndSettle();
 
