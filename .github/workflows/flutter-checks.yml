@@ -50,9 +50,9 @@ jobs:
               if path.exists():
                   data = path.read_text()
                   if path.suffix == '.kts':
-                      data = re.sub(r'applicationId\\s*=\\s*"[^"]+"', f'applicationId = "{package_ids[app]}"', data)
+                      data = re.sub(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{package_ids[app]}"', data)
                   else:
-                      data = re.sub(r'applicationId\\s+"[^"]+"', f'applicationId "{package_ids[app]}"', data)
+                      data = re.sub(r'applicationId\s+"[^"]+"', f'applicationId "{package_ids[app]}"', data)
                   path.write_text(data)
           PY
           python3 - <<'PY'
