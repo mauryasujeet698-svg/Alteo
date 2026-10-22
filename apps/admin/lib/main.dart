@@ -84,16 +84,26 @@ class _AdminLogin extends StatefulWidget {
 class _AdminLoginState extends State<_AdminLogin> {
   final _phone = TextEditingController();
   final _otp = TextEditingController();
-  bool _sent = false, _busy = false;
+  bool _sent = false, _busy = false, _usePhone = false;
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
+  Future<void> _googleSignIn() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.client.auth.signInWithOAuth(OAuthProvider.google, redirectTo: 'alteo://login-callback');
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Google sign-in could not start. Check Supabase Google provider and redirect settings.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
   Future<void> _submit() async {
     final phone = _phone.text.trim();
-    if (!_sent && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
+    if (!_sent && !RegExp(r'^\\+[1-9]\\d{7,14}$').hasMatch(phone)) {
       setState(() => _error = 'Enter the phone with country code, e.g. +919876543210.'); return;
     }
-    if (_sent && !RegExp(r'^\d{6}$').hasMatch(_otp.text.trim())) {
+    if (_sent && !RegExp(r'^\\d{6}$').hasMatch(_otp.text.trim())) {
       setState(() => _error = 'Enter the six-digit code.'); return;
     }
     setState(() { _busy = true; _error = null; });
@@ -120,25 +130,22 @@ class _AdminLoginState extends State<_AdminLogin> {
         Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
         const SizedBox(height: 28),
-        TextField(controller: _phone, keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(labelText: 'Admin mobile number', hintText: '+919876543210')),
-        if (_sent) ...[
-          const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
-            decoration: const InputDecoration(labelText: 'SMS verification code')),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
         ],
-        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12),
-          child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        const SizedBox(height: 16),
-        FilledButton(onPressed: _busy ? null : _submit, child: _busy
-          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : Text(_sent ? 'Verify and continue' : 'Send OTP')),
-        if (_sent) TextButton(onPressed: _busy ? null : () => setState(() { _sent = false; _otp.clear(); _error = null; }),
-          child: const Text('Change mobile number')),
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
       ],
     )),
   ))));
 }
-
 class _AdminRoleGate extends StatefulWidget {
   const _AdminRoleGate({required this.client, required this.user});
   final SupabaseClient client;
