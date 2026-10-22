@@ -1,26 +1,71 @@
-name: Flutter checks
+name: Customer Android APK
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+    paths:
+      - 'apps/customer/**'
+      - '.github/workflows/flutter-checks.yml'
+      - 'packages/**'
+  workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
-  analyze-customer:
+  customer-apk:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/customer
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-      - name: Resolve customer dependencies
-        working-directory: apps/customer
+      - name: Generate Android project files if absent
+        shell: bash
+        run: |
+          if [ ! -d android ]; then
+            flutter create --platforms=android --project-name alteo_customer .
+          fi
+      - name: Resolve dependencies
         run: flutter pub get
-      - name: Analyze customer app
-        working-directory: apps/customer
+      - name: Align Android compile SDK with Mapbox dependencies
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          app_gradle = Path("android/app/build.gradle")
+          app_kts = Path("android/app/build.gradle.kts")
+          target = app_gradle if app_gradle.exists() else app_kts
+          if target.exists():
+              text = target.read_text()
+              if target.suffix == ".kts":
+                  text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', text)
+                  text = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 36', text)
+              else:
+                  text = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', text)
+                  text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+              target.write_text(text)
+          plugin = Path.home() / ".pub-cache/hosted/pub.dev/mapbox_maps_flutter-2.10.0/android/build.gradle"
+          if plugin.exists():
+              text = plugin.read_text()
+              text = re.sub(r'compileSdkVersion\s+33\b', 'compileSdkVersion 36', text)
+              text = re.sub(r'compileSdk\s*=\s*33\b', 'compileSdk = 36', text)
+              plugin.write_text(text)
+          PY
+      - name: Analyze
         run: flutter analyze
-      - name: Run customer tests
-        working-directory: apps/customer
+      - name: Test
         run: flutter test
+      - name: Build release APK
+        run: flutter build apk --release --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL }} --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }} --dart-define=MAPBOX_PUBLIC_TOKEN=${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+      - name: Upload customer APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: alteo-customer-release-apk
+          path: apps/customer/build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
