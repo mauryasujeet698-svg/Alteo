@@ -1,18 +1,9 @@
-import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
-
-/// Only a public, platform-restricted Mapbox token may be shipped in the app.
+/// Lightweight map configuration. Only a public, URL-restricted Mapbox token
+/// may be shipped in the client. OpenStreetMap tiles are used as a fallback.
 class MapboxService {
-  MapboxService._();
-  static bool _configured = false;
-
-  static void configure(String publicToken) {
-    if (publicToken.trim().isEmpty) {
-      _configured = false;
-      return;
-    }
-    MapboxOptions.setAccessToken(publicToken);
-    _configured = true;
-  }
-
-  static bool get isConfigured => _configured;
+ MapboxService._();
+ static String _publicToken='';
+ static void configure(String publicToken)=>_publicToken=publicToken.trim();
+ static bool get isConfigured=>_publicToken.isNotEmpty;
+ static String get publicToken=>_publicToken;
 }
