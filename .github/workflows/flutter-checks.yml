@@ -24,6 +24,10 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Report Flutter and Java versions
+        run: |
+          flutter --version
+          java -version
       - name: Generate Android platform scaffold and OAuth redirect
         working-directory: apps/${{ matrix.app }}
         run: |
