@@ -52,11 +52,11 @@ jobs:
                   continue
               text = target.read_text()
               if target.suffix == '.kts':
-                  text = re.sub(r'compileSdk\\s*=\\s*flutter\\.compileSdkVersion', 'compileSdk = 36', text)
-                  text = re.sub(r'compileSdk\\s*=\\s*\\d+', 'compileSdk = 36', text)
+                  text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', text)
+                  text = re.sub(r'compileSdk\s*=\s*\\d+', 'compileSdk = 36', text)
               else:
-                  text = re.sub(r'compileSdkVersion\\s+flutter\\.compileSdkVersion', 'compileSdkVersion 36', text)
-                  text = re.sub(r'compileSdkVersion\\s+\\d+', 'compileSdkVersion 36', text)
+                  text = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', text)
+                  text = re.sub(r'compileSdkVersion\s+\\d+', 'compileSdkVersion 36', text)
               target.write_text(text)
           cache = Path.home() / '.pub-cache/hosted/pub.dev'
           for plugin_dir in cache.glob('mapbox_maps_flutter-*'):
@@ -64,8 +64,8 @@ jobs:
                   if not target.exists():
                       continue
                   text = target.read_text()
-                  text = re.sub(r'compileSdkVersion\\s+\\d+', 'compileSdkVersion 36', text)
-                  text = re.sub(r'compileSdk\\s*=\\s*\\d+', 'compileSdk = 36', text)
+                  text = re.sub(r'compileSdkVersion\s+\\d+', 'compileSdkVersion 36', text)
+                  text = re.sub(r'compileSdk\s*=\s*\\d+', 'compileSdk = 36', text)
                   target.write_text(text)
           PY
       - name: Analyze
