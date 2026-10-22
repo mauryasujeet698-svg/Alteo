@@ -116,10 +116,24 @@ class PhoneSignIn extends StatefulWidget {
 class _PhoneSignInState extends State<PhoneSignIn> {
   final _phone = TextEditingController();
   final _otp = TextEditingController();
-  bool _sent = false, _busy = false;
+  bool _sent = false, _busy = false, _usePhone = false;
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
+
+  Future<void> _googleSignIn() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'alteo://login-callback',
+      );
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Google sign-in could not start. Check Supabase Google provider and redirect settings.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
 
   Future<void> _submit() async {
     final phone = _phone.text.trim();
@@ -154,26 +168,40 @@ class _PhoneSignInState extends State<PhoneSignIn> {
           style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
         const SizedBox(height: 8), const Text('Food, shopping, rides and deliveries — together in one app.', textAlign: TextAlign.center),
         const SizedBox(height: 28),
-        TextField(controller: _phone, keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+919876543210', prefixIcon: Icon(Icons.phone_android))),
-        if (_sent) ...[
-          const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
-            decoration: const InputDecoration(labelText: 'SMS verification code')),
+        if (!_usePhone) ...[
+          FilledButton.icon(
+            onPressed: _busy ? null : _googleSignIn,
+            icon: const Icon(Icons.g_mobiledata, size: 28),
+            label: const Text('Continue with Google'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(
+            onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }),
+            child: const Text('Use phone number instead'),
+          ),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'Mobile number (optional)', hintText: '+919876543210', prefixIcon: Icon(Icons.phone_android))),
+          if (_sent) ...[
+            const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
+              decoration: const InputDecoration(labelText: 'SMS verification code')),
+          ],
+          const SizedBox(height: 18),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy
+            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
+            : Text(_sent ? 'Verify and continue' : 'Continue with mobile')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }),
+            child: const Text('Back to Google sign-in')),
+          const SizedBox(height: 8),
+          const Text('Phone sign-in is optional and requires SMS provider setup.', textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: Colors.black54)),
         ],
         if (_error != null) Padding(padding: const EdgeInsets.only(top: 12),
           child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        const SizedBox(height: 18),
-        FilledButton(onPressed: _busy ? null : _submit, child: _busy
-          ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : Text(_sent ? 'Verify and continue' : 'Continue with mobile')),
-        if (_sent) TextButton(onPressed: _busy ? null : () => setState(() { _sent = false; _otp.clear(); _error = null; }),
-          child: const Text('Change mobile number')),
-        const SizedBox(height: 16), const Text('Your number helps secure your account and bookings.',
-          textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Colors.black54)),
-    ])),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ])),
   ))));
 }
-
 class CartLine {
   CartLine(this.product, [this.quantity = 1]);
   final Map<String, dynamic> product;
