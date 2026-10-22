@@ -5,6 +5,8 @@ import 'src/config/app_config.dart';
 import 'src/features/services/service_browse_page.dart';
 import 'src/features/search/customer_search_page.dart';
 import 'src/features/location/customer_location_page.dart';
+import 'src/features/orders/customer_orders_page.dart';
+import 'src/features/account/customer_account_page.dart';
 import 'src/services/mapbox_service.dart';
 
 Future<void> main() async {
@@ -118,10 +120,14 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedTab,
         onDestinationSelected: (index) {
-          setState(() => _selectedTab = index);
-          if (index != 0) {
-            _showComingSoon(const ['Home', 'Orders', 'Account'][index]);
+          if (index == 0) {
+            setState(() => _selectedTab = 0);
+            return;
           }
+          final page = index == 1
+              ? const CustomerOrdersPage()
+              : const CustomerAccountPage();
+          Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => page));
         },
         destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
