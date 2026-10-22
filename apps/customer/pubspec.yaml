@@ -10,7 +10,7 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.0
-  mapbox_maps_flutter: ^3.0.2
+  mapbox_maps_flutter: ^2.31.1
   http: ^1.2.2
 
 dev_dependencies:
