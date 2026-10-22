@@ -1,44 +1,34 @@
-import 'dart:ui' show Size;
-
-import 'package:flutter/material.dart' show Scrollable;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:alteo_customer/main.dart';
 
 void main() {
-  testWidgets('customer home shows Alteo services and location prompt', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp());
-
-    expect(find.text('DELIVERING TO'), findsOneWidget);
-    expect(find.text('What do you need today?'), findsOneWidget);
-    expect(find.text('Food'), findsOneWidget);
-    expect(find.text('Quick'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.text('Rides'),
-      150,
-      scrollable: find.byType(Scrollable).first,
+  setUpAll(() async {
+    await Supabase.initialize(
+      url: 'https://example.supabase.co',
+      publishableKey: 'test-public-key-for-widget-tests',
     );
-    expect(find.text('Rides'), findsOneWidget);
-
-    await tester.scrollUntilVisible(
-      find.text('Set your delivery location'),
-      150,
-      scrollable: find.byType(Scrollable).first,
-    );
-    expect(find.text('Set your delivery location'), findsOneWidget);
   });
 
-  testWidgets('tapping a service opens its browse page', (tester) async {
-    tester.view.physicalSize = const Size(800, 1000);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.resetPhysicalSize);
-    addTearDown(tester.view.resetDevicePixelRatio);
-
+  testWidgets('home and persistent bottom navigation render', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
-    await tester.tap(find.text('Food'));
-    await tester.pumpAndSettle();
+    expect(find.text('DELIVERING TO'), findsOneWidget);
+    expect(find.text('Explore services'), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Orders'), findsOneWidget);
+    expect(find.text('Account'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+  });
 
-    expect(find.text('Good food, made easy'), findsOneWidget);
-    expect(find.text('Restaurants'), findsOneWidget);
+  testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
+    await tester.pumpWidget(const AlteoCustomerApp());
+    await tester.tap(find.text('Orders'));
+    await tester.pumpAndSettle();
+    expect(find.text('Your orders will appear here'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+    await tester.tap(find.text('Account'));
+    await tester.pumpAndSettle();
+    expect(find.text('Sign in / Create account'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
