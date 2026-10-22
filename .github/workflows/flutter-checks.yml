@@ -62,6 +62,30 @@ jobs:
       - name: Resolve dependencies
         working-directory: apps/${{ matrix.app }}
         run: flutter pub get
+      - name: Raise Mapbox Android library compile SDK
+        if: matrix.app == 'customer'
+        working-directory: apps/customer
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          roots = [Path.home() / '.pub-cache' / 'hosted' / 'pub.dev']
+          matches = []
+          for root in roots:
+              if root.exists():
+                  matches.extend(root.glob('mapbox_maps_flutter-*/android/build.gradle'))
+                  matches.extend(root.glob('mapbox_maps_flutter-*/android/build.gradle.kts'))
+          if not matches:
+              raise SystemExit('Mapbox Android Gradle file not found in pub cache')
+          for path in matches:
+              text = path.read_text()
+              updated = re.sub(r'compileSdkVersion\\s+33\\b', 'compileSdkVersion 36', text)
+              updated = re.sub(r'compileSdk\\s*=\\s*33\\b', 'compileSdk = 36', updated)
+              if updated == text and re.search(r'compileSdk(?:Version)?\\s*(?:=\\s*)?33\\b', text):
+                  raise SystemExit(f'Could not patch compile SDK in {path}')
+              path.write_text(updated)
+              print(f'Patched {path}')
+          PY
       - name: Analyze
         working-directory: apps/${{ matrix.app }}
         run: flutter analyze --no-pub --no-fatal-infos --no-fatal-warnings
