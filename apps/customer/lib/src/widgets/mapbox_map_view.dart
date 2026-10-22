@@ -23,9 +23,7 @@ class MapboxMapView extends StatelessWidget {
       return const Center(child: Text('Map is unavailable. Configure MAPBOX_PUBLIC_TOKEN.'));
     }
     return MapWidget(
-      // Mapbox Maps Flutter still accepts cameraOptions for initial positioning.
-      // ignore: deprecated_member_use
-      cameraOptions: CameraOptions(
+      viewport: CameraViewportState(
         center: Point(coordinates: Position(longitude, latitude)),
         zoom: zoom,
       ),
