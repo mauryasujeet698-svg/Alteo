@@ -27,13 +27,12 @@ void main() {
   });
 
   testWidgets('tapping a service opens its browse page', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp());
+    tester.view.physicalSize = const Size(800, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
 
-    await tester.scrollUntilVisible(
-      find.text('Food'),
-      150,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.pumpWidget(const AlteoCustomerApp());
     await tester.tap(find.text('Food'));
     await tester.pumpAndSettle();
 
