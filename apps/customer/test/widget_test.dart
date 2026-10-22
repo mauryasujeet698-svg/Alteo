@@ -1,10 +1,12 @@
+import 'dart:ui' show Size;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:alteo_customer/main.dart';
 
 void main() {
   testWidgets('customer home shows Alteo services and location prompt', (tester) async {
-    await tester.view.setPhysicalSize(const Size(800, 1000));
-    await tester.view.setDevicePixelRatio(1);
+    await tester.view.physicalSize = const Size(800, 1000);
+    await tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
