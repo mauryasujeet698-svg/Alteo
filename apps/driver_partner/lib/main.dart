@@ -31,13 +31,13 @@ class _RoleGateState extends State<RoleGate> {
  @override void dispose(){phone.dispose();code.dispose();super.dispose();}
  Future<void> send() async {
   if(!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone.text.trim())){setState(()=>error='Enter phone with country code, e.g. +919876543210.');return;}
-  setState(()=>{busy=true,error=null});
+  setState(() { busy=true; error=null; });
   try{await Supabase.instance.client.auth.signInWithOtp(phone:phone.text.trim());setState(()=>sent=true);}
   catch(e){setState(()=>error='Could not send OTP. Ensure the Supabase phone provider and SMS gateway are configured. $e');}
   finally{if(mounted)setState(()=>busy=false);}
  }
  Future<void> verify() async {
-  setState(()=>{busy=true,error=null});
+  setState(() { busy=true; error=null; });
   try{
    await Supabase.instance.client.auth.verifyOTP(phone:phone.text.trim(),token:code.text.trim(),type:OtpType.sms);
    final user=Supabase.instance.client.auth.currentUser!;
