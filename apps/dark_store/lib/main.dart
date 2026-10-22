@@ -81,18 +81,66 @@ class _LoginScreenState extends State<_LoginScreen>{
     finally{if(mounted)setState(()=>_busy=false);}
   }
   @override
-  Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:ConstrainedBox(
-    constraints:const BoxConstraints(maxWidth:420),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
-      const Icon(Icons.warehouse_outlined,size:60,color:Color(0xFF176B57)),
-      const SizedBox(height:12),Text('Dark-store operator sign-in',textAlign:TextAlign.center,style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w800)),
-      const SizedBox(height:8),const Text('Use your approved operator mobile number.',textAlign:TextAlign.center),
-      const SizedBox(height:24),TextField(controller:_phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Mobile number',hintText:'+919876543210')),
-      if(_sent)...[const SizedBox(height:12),TextField(controller:_otp,keyboardType:TextInputType.number,maxLength:6,decoration:const InputDecoration(labelText:'SMS code'))],
-      if(_error!=null)Padding(padding:const EdgeInsets.only(top:10),child:Text(_error!,style:TextStyle(color:Theme.of(context).colorScheme.error))),
-      const SizedBox(height:16),FilledButton(onPressed:_busy?null:_submit,child:_busy?const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)):Text(_sent?'Verify and continue':'Send OTP')),
-      if(_sent)TextButton(onPressed:_busy?null:()=>setState(()=>_sent=false),child:const Text('Change mobile number')),
-    ])),
-  ))));
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Icon(Icons.warehouse_outlined, size: 60, color: Color(0xFF176B57)),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Dark-store operator sign-in',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('Use your approved operator mobile number.', textAlign: TextAlign.center),
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: _phone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+919876543210'),
+                  ),
+                  if (_sent) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _otp,
+                      keyboardType: TextInputType.number,
+                      maxLength: 6,
+                      decoration: const InputDecoration(labelText: 'SMS code'),
+                    ),
+                  ],
+                  if (_error != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                    ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _busy ? null : _submit,
+                    child: _busy
+                        ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(_sent ? 'Verify and continue' : 'Send OTP'),
+                  ),
+                  if (_sent)
+                    TextButton(
+                      onPressed: _busy ? null : () => setState(() => _sent = false),
+                      child: const Text('Change mobile number'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 class _StoreRouter extends StatefulWidget {
   const _StoreRouter({required this.client,required this.user});
