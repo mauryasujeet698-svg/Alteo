@@ -32,6 +32,17 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: |
           flutter create --platforms=android --project-name=alteo_${{ matrix.app }} .
+          python3 - <<'PY'
+          from pathlib import Path
+          # Mapbox's AndroidX dependencies require a recent Android API compile SDK.
+          for name in ('android/app/build.gradle.kts', 'android/app/build.gradle'):
+              path = Path(name)
+              if path.exists():
+                  text = path.read_text()
+                  text = text.replace('compileSdk = flutter.compileSdkVersion', 'compileSdk = 36')
+                  text = text.replace('compileSdkVersion flutter.compileSdkVersion', 'compileSdkVersion 36')
+                  path.write_text(text)
+          PY
           rm -f test/widget_test.dart
           python3 - <<'PY'
           from pathlib import Path
