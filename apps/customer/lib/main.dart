@@ -100,7 +100,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
                     final service = _services[index];
                     return _ServiceCard(
                       service: service,
-                      onTap: () => _showComingSoon(service.title),
+                      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ServiceBrowsePage(service: service.title))),
                     );
                   },
                   childCount: _services.length,
