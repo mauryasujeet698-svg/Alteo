@@ -1,0 +1,474 @@
+-- Customer ride/parcel booking and partner-owned status transitions.
+-- This migration is additive and keeps payment-provider secrets off mobile clients.
+
+alter table public.delivery_jobs
+  add column if not exists job_type text not null default 'order',
+  add column if not exists pickup_label text,
+  add column if not exists pickup_latitude double precision,
+  add column if not exists pickup_longitude double precision,
+  add column if not exists destination_label text,
+  add column if not exists destination_latitude double precision,
+  add column if not exists destination_longitude double precision,
+  add column if not exists item_description text,
+  add column if not exists fare_minor bigint,
+  add column if not exists idempotency_key text;
+
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_job_type_check check (job_type in ('order','parcel'));
+exception when duplicate_object then null;
+end $$;
+
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_pickup_lat_check check (pickup_latitude is null or pickup_latitude between -90 and 90);
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_pickup_lon_check check (pickup_longitude is null or pickup_longitude between -180 and 180);
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_destination_lat_check check (destination_latitude is null or destination_latitude between -90 and 90);
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_destination_lon_check check (destination_longitude is null or destination_longitude between -180 and 180);
+exception when duplicate_object then null;
+end $$;
+do $$
+begin
+  alter table public.delivery_jobs add constraint delivery_jobs_fare_minor_check check (fare_minor is null or fare_minor >= 0);
+exception when duplicate_object then null;
+end $$;
+create unique index if not exists delivery_jobs_customer_idempotency_idx
+  on public.delivery_jobs(customer_id, idempotency_key) where idempotency_key is not null;
+create index if not exists delivery_jobs_type_status_idx on public.delivery_jobs(job_type, status, created_at desc);
+
+-- Every marketplace order gets a delivery job in the same database transaction.
+create or replace function public.create_delivery_job_for_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.delivery_jobs(order_id, customer_id, seller_id, status, job_type)
+  values (new.id, new.customer_id, new.seller_id, 'pending', 'order')
+  on conflict (order_id) do nothing;
+  return new;
+end;
+$$;
+revoke all on function public.create_delivery_job_for_order() from public, anon, authenticated;
+drop trigger if exists orders_create_delivery_job on public.orders;
+create trigger orders_create_delivery_job after insert on public.orders
+for each row execute function public.create_delivery_job_for_order();
+
+create or replace function public.create_customer_ride(
+  p_pickup_label text,
+  p_pickup_latitude double precision,
+  p_pickup_longitude double precision,
+  p_destination_label text,
+  p_destination_latitude double precision,
+  p_destination_longitude double precision,
+  p_idempotency_key text,
+  p_area_code text default 'DEFAULT'
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_customer uuid := auth.uid();
+  v_area text := upper(trim(coalesce(p_area_code,'DEFAULT')));
+  v_straight_m integer;
+  v_estimated_m integer;
+  v_base bigint;
+  v_per_km bigint;
+  v_minimum bigint;
+  v_fare bigint;
+  v_ride uuid;
+begin
+  if v_customer is null then raise exception 'sign-in required' using errcode = '42501'; end if;
+  if coalesce(length(trim(p_pickup_label)),0) < 2 or coalesce(length(trim(p_destination_label)),0) < 2 then
+    raise exception 'pickup and destination are required' using errcode = '22023';
+  end if;
+  if p_pickup_latitude not between -90 and 90 or p_destination_latitude not between -90 and 90
+     or p_pickup_longitude not between -180 and 180 or p_destination_longitude not between -180 and 180 then
+    raise exception 'invalid pickup or destination coordinates' using errcode = '22023';
+  end if;
+  if p_idempotency_key is null or char_length(p_idempotency_key) < 16 or char_length(p_idempotency_key) > 128 then
+    raise exception 'invalid idempotency key' using errcode = '22023';
+  end if;
+  select id into v_ride from public.rides where customer_id = v_customer and idempotency_key = p_idempotency_key;
+  if v_ride is not null then return v_ride; end if;
+
+  if not exists (select 1 from public.service_controls sc where sc.service='ride' and sc.enabled=true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'ride service is not enabled for this area' using errcode = 'P0002';
+  end if;
+  v_straight_m := ceil(6371000 * 2 * asin(sqrt(
+    power(sin(radians(p_destination_latitude-p_pickup_latitude)/2),2)
+    + cos(radians(p_pickup_latitude))*cos(radians(p_destination_latitude))
+      * power(sin(radians(p_destination_longitude-p_pickup_longitude)/2),2)
+  )))::integer;
+  if v_straight_m < 100 or v_straight_m > 500000 then raise exception 'ride distance is outside supported limits' using errcode = '22023'; end if;
+  -- Until a routing provider is configured server-side, use a conservative 1.35x straight-line estimate.
+  v_estimated_m := ceil(v_straight_m * 1.35)::integer;
+  select base_fee_minor, per_km_minor, minimum_fee_minor into v_base, v_per_km, v_minimum
+    from public.pricing_rules
+    where service = 'ride' and active = true and city_code in (v_area,'DEFAULT')
+    order by case when city_code = v_area then 0 else 1 end limit 1;
+  if not found then raise exception 'ride service is not enabled for this area' using errcode = 'P0002'; end if;
+  v_fare := greatest(v_minimum, v_base + ceil(v_estimated_m / 1000.0)::bigint * v_per_km);
+  insert into public.rides(customer_id,status,pickup_label,destination_label,pickup_latitude,pickup_longitude,
+    destination_latitude,destination_longitude,estimated_distance_m,fare_minor,idempotency_key)
+  values (v_customer,'requested',trim(p_pickup_label),trim(p_destination_label),p_pickup_latitude,p_pickup_longitude,
+    p_destination_latitude,p_destination_longitude,v_estimated_m,v_fare,p_idempotency_key)
+  returning id into v_ride;
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values (v_customer,'ride.requested','ride',v_ride,jsonb_build_object('area_code',v_area,'estimated_distance_m',v_estimated_m));
+  return v_ride;
+exception when unique_violation then
+  select id into v_ride from public.rides where customer_id = auth.uid() and idempotency_key = p_idempotency_key;
+  if v_ride is not null then return v_ride; end if;
+  raise;
+end;
+$$;
+revoke all on function public.create_customer_ride(text,double precision,double precision,text,double precision,double precision,text,text) from public, anon;
+grant execute on function public.create_customer_ride(text,double precision,double precision,text,double precision,double precision,text,text) to authenticated;
+
+create or replace function public.create_customer_parcel(
+  p_pickup_label text,
+  p_pickup_latitude double precision,
+  p_pickup_longitude double precision,
+  p_destination_label text,
+  p_destination_latitude double precision,
+  p_destination_longitude double precision,
+  p_item_description text,
+  p_idempotency_key text,
+  p_area_code text default 'DEFAULT'
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_customer uuid := auth.uid();
+  v_area text := upper(trim(coalesce(p_area_code,'DEFAULT')));
+  v_straight_m integer;
+  v_estimated_m integer;
+  v_base bigint;
+  v_per_km bigint;
+  v_minimum bigint;
+  v_fare bigint;
+  v_job uuid;
+begin
+  if v_customer is null then raise exception 'sign-in required' using errcode = '42501'; end if;
+  if coalesce(length(trim(p_pickup_label)),0) < 2 or coalesce(length(trim(p_destination_label)),0) < 2 then
+    raise exception 'pickup and destination are required' using errcode = '22023';
+  end if;
+  if coalesce(length(trim(p_item_description)),0) < 2 or char_length(p_item_description) > 300 then
+    raise exception 'provide a short item description' using errcode = '22023';
+  end if;
+  if p_pickup_latitude not between -90 and 90 or p_destination_latitude not between -90 and 90
+     or p_pickup_longitude not between -180 and 180 or p_destination_longitude not between -180 and 180 then
+    raise exception 'invalid pickup or destination coordinates' using errcode = '22023';
+  end if;
+  if p_idempotency_key is null or char_length(p_idempotency_key) < 16 or char_length(p_idempotency_key) > 128 then
+    raise exception 'invalid idempotency key' using errcode = '22023';
+  end if;
+  select id into v_job from public.delivery_jobs where customer_id = v_customer and idempotency_key = p_idempotency_key;
+  if v_job is not null then return v_job; end if;
+
+  if not exists (select 1 from public.service_controls sc where sc.service='parcel' and sc.enabled=true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'parcel service is not enabled for this area' using errcode = 'P0002';
+  end if;
+  v_straight_m := ceil(6371000 * 2 * asin(sqrt(
+    power(sin(radians(p_destination_latitude-p_pickup_latitude)/2),2)
+    + cos(radians(p_pickup_latitude))*cos(radians(p_destination_latitude))
+      * power(sin(radians(p_destination_longitude-p_pickup_longitude)/2),2)
+  )))::integer;
+  if v_straight_m < 100 or v_straight_m > 300000 then raise exception 'parcel distance is outside supported limits' using errcode = '22023'; end if;
+  v_estimated_m := ceil(v_straight_m * 1.5)::integer;
+  select base_fee_minor, per_km_minor, minimum_fee_minor into v_base, v_per_km, v_minimum
+    from public.pricing_rules
+    where service = 'parcel' and active = true and city_code in (v_area,'DEFAULT')
+    order by case when city_code = v_area then 0 else 1 end limit 1;
+  if not found then raise exception 'parcel service is not enabled for this area' using errcode = 'P0002'; end if;
+  v_fare := greatest(v_minimum, v_base + ceil(v_estimated_m / 1000.0)::bigint * v_per_km);
+  insert into public.delivery_jobs(customer_id,status,job_type,pickup_label,pickup_latitude,pickup_longitude,
+    destination_label,destination_latitude,destination_longitude,item_description,fare_minor,idempotency_key)
+  values (v_customer,'pending','parcel',trim(p_pickup_label),p_pickup_latitude,p_pickup_longitude,
+    trim(p_destination_label),p_destination_latitude,p_destination_longitude,trim(p_item_description),v_fare,p_idempotency_key)
+  returning id into v_job;
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values (v_customer,'parcel.requested','delivery_job',v_job,jsonb_build_object('area_code',v_area,'estimated_distance_m',v_estimated_m));
+  return v_job;
+exception when unique_violation then
+  select id into v_job from public.delivery_jobs where customer_id = auth.uid() and idempotency_key = p_idempotency_key;
+  if v_job is not null then return v_job; end if;
+  raise;
+end;
+$$;
+revoke all on function public.create_customer_parcel(text,double precision,double precision,text,double precision,double precision,text,text,text) from public, anon;
+grant execute on function public.create_customer_parcel(text,double precision,double precision,text,double precision,double precision,text,text,text) to authenticated;
+
+create or replace function public.partner_update_delivery_status(p_delivery_job_id uuid, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.delivery_jobs%rowtype;
+  v_order_payment text;
+begin
+  if (select auth.uid()) is null then raise exception 'sign-in required' using errcode = '42501'; end if;
+  select * into v_job from public.delivery_jobs where id = p_delivery_job_id for update;
+  if not found or v_job.delivery_partner_id <> (select auth.uid()) then
+    raise exception 'this delivery is not assigned to you' using errcode = '42501';
+  end if;
+  if p_action = 'accept' then
+    update public.delivery_assignments set status='accepted',updated_at=now()
+      where delivery_job_id=p_delivery_job_id and partner_id=(select auth.uid()) and status='offered';
+    if not found then raise exception 'no pending offer found' using errcode = '22023'; end if;
+  elsif p_action = 'reject' then
+    update public.delivery_assignments set status='rejected',updated_at=now()
+      where delivery_job_id=p_delivery_job_id and partner_id=(select auth.uid()) and status in ('offered','accepted');
+    update public.delivery_jobs set delivery_partner_id=null,status='pending',updated_at=now() where id=p_delivery_job_id;
+  elsif p_action = 'picked_up' then
+    if not exists(select 1 from public.delivery_assignments where delivery_job_id=p_delivery_job_id and partner_id=(select auth.uid()) and status='accepted') then
+      raise exception 'accept the assignment first' using errcode='22023';
+    end if;
+    if v_job.status <> 'assigned' then raise exception 'delivery is not ready for pickup' using errcode='22023'; end if;
+    if v_job.order_id is not null then
+      select payment_status into v_order_payment from public.orders where id=v_job.order_id;
+      if v_order_payment <> 'paid' then raise exception 'order payment is not confirmed' using errcode='22023'; end if;
+    end if;
+    update public.delivery_jobs set status='picked_up',updated_at=now() where id=p_delivery_job_id;
+    if v_job.order_id is not null then update public.orders set status='out_for_delivery',updated_at=now() where id=v_job.order_id; end if;
+  elsif p_action = 'in_transit' then
+    if v_job.status <> 'picked_up' then raise exception 'item must be picked up first' using errcode='22023'; end if;
+    update public.delivery_jobs set status='in_transit',updated_at=now() where id=p_delivery_job_id;
+  elsif p_action = 'delivered' then
+    if v_job.status <> 'in_transit' then raise exception 'delivery must be in transit first' using errcode='22023'; end if;
+    update public.delivery_jobs set status='delivered',updated_at=now() where id=p_delivery_job_id;
+    update public.delivery_assignments set status='completed',updated_at=now()
+      where delivery_job_id=p_delivery_job_id and partner_id=(select auth.uid()) and status='accepted';
+    if v_job.order_id is not null then update public.orders set status='completed',updated_at=now() where id=v_job.order_id and payment_status='paid'; end if;
+  else
+    raise exception 'invalid delivery action' using errcode='22023';
+  end if;
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values ((select auth.uid()),'delivery.'||p_action,'delivery_job',p_delivery_job_id,jsonb_build_object('status_before',v_job.status,'action',p_action));
+end;
+$$;
+revoke all on function public.partner_update_delivery_status(uuid,text) from public, anon;
+grant execute on function public.partner_update_delivery_status(uuid,text) to authenticated;
+
+create or replace function public.driver_update_ride_status(p_ride_id uuid, p_action text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_ride public.rides%rowtype;
+begin
+  if (select auth.uid()) is null then raise exception 'sign-in required' using errcode='42501'; end if;
+  select * into v_ride from public.rides where id=p_ride_id for update;
+  if not found or v_ride.driver_id <> (select auth.uid()) then
+    raise exception 'this ride is not assigned to you' using errcode='42501';
+  end if;
+  if p_action='accept' and v_ride.status='requested' then
+    update public.rides set status='accepted',updated_at=now() where id=p_ride_id;
+  elsif p_action='arrived' and v_ride.status='accepted' then
+    update public.rides set status='arrived',updated_at=now() where id=p_ride_id;
+  elsif p_action='start' and v_ride.status='arrived' then
+    update public.rides set status='in_progress',updated_at=now() where id=p_ride_id;
+  elsif p_action='complete' and v_ride.status='in_progress' then
+    update public.rides set status='completed',updated_at=now() where id=p_ride_id;
+  elsif p_action='cancel' and v_ride.status in ('requested','accepted','arrived') then
+    update public.rides set status='cancelled',updated_at=now() where id=p_ride_id;
+  else
+    raise exception 'ride action is not allowed in its current state' using errcode='22023';
+  end if;
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values ((select auth.uid()),'ride.'||p_action,'ride',p_ride_id,jsonb_build_object('status_before',v_ride.status,'action',p_action));
+end;
+$$;
+revoke all on function public.driver_update_ride_status(uuid,text) from public, anon;
+grant execute on function public.driver_update_ride_status(uuid,text) to authenticated;
+
+comment on table public.delivery_jobs is 'Delivery and parcel jobs. Partner sees only assigned jobs; item details inherit the assigned order access policy.';
+
+
+-- Pricing administration: inactive rules are still visible and editable to an authorized admin.
+grant insert, update, delete on public.pricing_rules to authenticated;
+drop policy if exists pricing_rules_admin_all on public.pricing_rules;
+create policy pricing_rules_admin_all on public.pricing_rules for all to authenticated
+  using ((select private.has_role('admin'))) with check ((select private.has_role('admin')));
+
+-- The customer-provided delivery fee is deliberately ignored. Pricing is calculated server-side.
+create or replace function public.create_customer_order(
+  p_items jsonb,
+  p_delivery_address jsonb,
+  p_idempotency_key text,
+  p_delivery_fee_minor bigint default 0
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_customer_id uuid := auth.uid();
+  v_item jsonb;
+  v_product_id uuid;
+  v_quantity integer;
+  v_product record;
+  v_seller_id uuid;
+  v_kind text;
+  v_subtotal bigint := 0;
+  v_delivery_fee bigint;
+  v_base bigint;
+  v_minimum bigint;
+  v_area text := upper(trim(coalesce(p_delivery_address->>'area_code','DEFAULT')));
+  v_order_id uuid;
+begin
+  if v_customer_id is null then raise exception 'sign-in required' using errcode = '42501'; end if;
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) < 1 or jsonb_array_length(p_items) > 50 then
+    raise exception 'cart must contain 1 to 50 items' using errcode = '22023';
+  end if;
+  if p_idempotency_key is null or char_length(p_idempotency_key) < 16 or char_length(p_idempotency_key) > 128 then
+    raise exception 'invalid idempotency key' using errcode = '22023';
+  end if;
+  if p_delivery_fee_minor is not null and p_delivery_fee_minor < 0 then
+    raise exception 'invalid delivery fee parameter' using errcode = '22023';
+  end if;
+  if jsonb_typeof(p_delivery_address) <> 'object'
+     or coalesce(length(trim(p_delivery_address->>'recipient_name')),0) < 2
+     or coalesce(length(trim(p_delivery_address->>'phone')),0) < 8
+     or coalesce(length(trim(p_delivery_address->>'address_line1')),0) < 3
+     or coalesce(length(trim(p_delivery_address->>'city')),0) < 2
+     or coalesce(length(trim(p_delivery_address->>'state')),0) < 2
+     or coalesce(length(trim(p_delivery_address->>'postal_code')),0) < 5 then
+    raise exception 'complete delivery address required' using errcode = '22023';
+  end if;
+
+  select id into v_order_id from public.orders
+    where customer_id = v_customer_id and idempotency_key = p_idempotency_key;
+  if v_order_id is not null then return v_order_id; end if;
+
+  for v_item in select value from jsonb_array_elements(p_items)
+  loop
+    if jsonb_typeof(v_item) <> 'object' then raise exception 'invalid cart item' using errcode = '22023'; end if;
+    v_product_id := (v_item->>'product_id')::uuid;
+    v_quantity := (v_item->>'quantity')::integer;
+    if v_quantity < 1 or v_quantity > 99 then raise exception 'quantity must be between 1 and 99' using errcode = '22023'; end if;
+    if exists (
+      select 1 from jsonb_array_elements(p_items) x
+      where x.value->>'product_id' = v_product_id::text
+      group by x.value->>'product_id' having count(*) > 1
+    ) then raise exception 'duplicate products must be combined into one cart line' using errcode = '22023'; end if;
+    select p.id, p.seller_id, p.name, p.price_minor, p.kind
+      into v_product
+      from public.seller_products p join public.sellers s on s.id = p.seller_id
+      where p.id = v_product_id and p.status = 'active' and s.status = 'approved'
+      for share of p, s;
+    if not found then raise exception 'an item is unavailable' using errcode = 'P0002'; end if;
+    if v_seller_id is null then v_seller_id := v_product.seller_id;
+    elsif v_seller_id <> v_product.seller_id then
+      raise exception 'checkout currently supports one seller per order' using errcode = '22023';
+    end if;
+    if v_kind is null then v_kind := v_product.kind;
+    elsif v_kind <> v_product.kind then raise exception 'separate service categories into different orders' using errcode = '22023';
+    end if;
+    v_subtotal := v_subtotal + (v_product.price_minor * v_quantity);
+  end loop;
+  if v_subtotal > 1000000000 then raise exception 'cart total exceeds allowed limit' using errcode = '22023'; end if;
+
+  if not exists (select 1 from public.service_controls sc where sc.service = v_kind and sc.enabled = true and sc.area_code in (v_area,'DEFAULT')) then
+    raise exception 'checkout is not enabled for this service area yet' using errcode = 'P0002';
+  end if;
+  select base_fee_minor, minimum_fee_minor into v_base, v_minimum
+    from public.pricing_rules
+    where service = v_kind and active = true and city_code in (v_area,'DEFAULT')
+    order by case when city_code = v_area then 0 else 1 end limit 1;
+  if not found then raise exception 'checkout is not enabled for this service area yet' using errcode = 'P0002'; end if;
+  v_delivery_fee := greatest(v_base, v_minimum);
+
+  insert into public.orders(customer_id,seller_id,idempotency_key,status,payment_status,subtotal_minor,delivery_fee_minor,total_minor,delivery_address_snapshot)
+  values (v_customer_id,v_seller_id,p_idempotency_key,'pending_payment','pending',v_subtotal,v_delivery_fee,v_subtotal+v_delivery_fee,p_delivery_address)
+  returning id into v_order_id;
+
+  for v_item in select value from jsonb_array_elements(p_items)
+  loop
+    v_product_id := (v_item->>'product_id')::uuid;
+    v_quantity := (v_item->>'quantity')::integer;
+    select p.id, p.name, p.price_minor into v_product
+      from public.seller_products p join public.sellers s on s.id = p.seller_id
+      where p.id = v_product_id and p.status = 'active' and s.status = 'approved'
+      for share of p, s;
+    if not found then raise exception 'an item became unavailable' using errcode = 'P0002'; end if;
+    insert into public.order_items(order_id,product_id,product_name_snapshot,quantity,unit_price_minor,line_total_minor)
+    values (v_order_id,v_product.id,v_product.name,v_quantity,v_product.price_minor,v_product.price_minor*v_quantity);
+  end loop;
+  insert into public.order_events(order_id,actor_id,action,detail)
+    values (v_order_id,v_customer_id,'order.created',jsonb_build_object('payment_status','pending','service',v_kind));
+  return v_order_id;
+exception when unique_violation then
+  select id into v_order_id from public.orders where customer_id=auth.uid() and idempotency_key=p_idempotency_key;
+  if v_order_id is not null then return v_order_id; end if;
+  raise;
+end;
+$$;
+revoke all on function public.create_customer_order(jsonb,jsonb,text,bigint) from public, anon;
+grant execute on function public.create_customer_order(jsonb,jsonb,text,bigint) to authenticated;
+
+
+-- Enforce payment status in the trusted dispatch boundary, not only in admin UI.
+create or replace function public.admin_assign_delivery_partner(p_delivery_job_id uuid, p_partner_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_job public.delivery_jobs%rowtype;
+  v_payment_status text;
+begin
+  if (select auth.uid()) is null or not (select private.has_role('admin')) then
+    raise exception 'administrator role required' using errcode = '42501';
+  end if;
+  if not exists (select 1 from public.user_roles ur where ur.user_id = p_partner_id and ur.role = 'delivery_partner') then
+    raise exception 'user is not an approved delivery partner' using errcode = '42501';
+  end if;
+  select * into v_job from public.delivery_jobs where id = p_delivery_job_id for update;
+  if not found then raise exception 'delivery job not found' using errcode = 'P0002'; end if;
+  if v_job.status in ('delivered','cancelled','failed') then
+    raise exception 'cannot assign a closed delivery job' using errcode = '22023';
+  end if;
+  if v_job.order_id is not null then
+    select payment_status into v_payment_status from public.orders where id = v_job.order_id;
+    if v_payment_status <> 'paid' then
+      raise exception 'order payment is not confirmed' using errcode = '22023';
+    end if;
+  end if;
+  update public.delivery_assignments set status='revoked',updated_at=now()
+    where delivery_job_id=p_delivery_job_id and status in ('offered','accepted');
+  update public.delivery_jobs set delivery_partner_id=p_partner_id,status='assigned',updated_at=now() where id=p_delivery_job_id;
+  insert into public.delivery_assignments(delivery_job_id,partner_id,assigned_by,status)
+    values (p_delivery_job_id,p_partner_id,(select auth.uid()),'offered');
+  insert into public.audit_events(actor_id,action,entity_type,entity_id,metadata)
+    values ((select auth.uid()),'delivery.partner_assigned','delivery_job',p_delivery_job_id,
+      jsonb_build_object('partner_id',p_partner_id,'assigned_manually',true));
+end;
+$$;
+revoke all on function public.admin_assign_delivery_partner(uuid,uuid) from public, anon;
+grant execute on function public.admin_assign_delivery_partner(uuid,uuid) to authenticated;

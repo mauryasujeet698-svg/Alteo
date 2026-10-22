@@ -1,0 +1,3586 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+const _rolesList = ['admin','driver_partner','delivery_partner','seller','dark_store'];
+const _services = ['ride','parcel','food','shopping','quick'];
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const url = String.fromEnvironment('SUPABASE_URL');
+  const key = String.fromEnvironment('SUPABASE_ANON_KEY');
+  SupabaseClient? client;
+  String? error;
+  if (url.isEmpty || key.isEmpty) {
+    error = 'Build with SUPABASE_URL and SUPABASE_ANON_KEY to connect this admin app.';
+  } else {
+    try {
+      await Supabase.initialize(url: url, anonKey: key);
+      client = Supabase.instance.client;
+    } catch (_) { error = 'Supabase could not be initialized. Check the app configuration.'; }
+  }
+  runApp(AlteoAdminApp(client: client, configError: error));
+}
+
+class AlteoAdminApp extends StatelessWidget {
+  const AlteoAdminApp({super.key, required this.client, required this.configError});
+  final SupabaseClient? client;
+  final String? configError;
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Alteo Admin', debugShowCheckedModeBanner: false,
+    theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57)),
+      scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+      inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder(), filled: true, fillColor: Colors.white)),
+    home: client == null ? _ConfigurationScreen(message: configError ?? 'Configuration required.') : _AuthRoot(client: client!),
+  );
+}
+
+class _ConfigurationScreen extends StatelessWidget {
+  const _ConfigurationScreen({required this.message});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      const Icon(Icons.admin_panel_settings_outlined, size: 56, color: Color(0xFF176B57)),
+      const SizedBox(height: 14), Text('Alteo Admin', style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 12), Text(message, textAlign: TextAlign.center),
+    ]),
+  ))));
+}
+
+class _AuthRoot extends StatefulWidget {
+  const _AuthRoot({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_AuthRoot> createState() => _AuthRootState();
+}
+class _AuthRootState extends State<_AuthRoot> {
+  User? _user;
+  late final StreamSubscription<AuthState> _subscription;
+  @override
+  void initState() {
+    super.initState();
+    _user = widget.client.auth.currentUser;
+    _subscription = widget.client.auth.onAuthStateChange.listen((event) {
+      if (mounted) setState(() => _user = event.session?.user);
+    });
+  }
+  @override
+  void dispose() { _subscription.cancel(); super.dispose(); }
+  @override
+  Widget build(BuildContext context) => _user == null
+    ? _AdminLogin(client: widget.client)
+    : _AdminRoleGate(client: widget.client, user: _user!);
+}
+
+class _AdminLogin extends StatefulWidget {
+  const _AdminLogin({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_AdminLogin> createState() => _AdminLoginState();
+}
+class _AdminLoginState extends State<_AdminLogin> {
+  final _phone = TextEditingController();
+  final _otp = TextEditingController();
+  bool _sent = false, _busy = false, _usePhone = false;
+  String? _error;
+  @override
+  void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
+  Future<void> _googleSignIn() async {
+    setState(() { _busy = true; _error = null; });
+    try {
+      await widget.client.auth.signInWithOAuth(OAuthProvider.google, redirectTo: 'alteo://login-callback');
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Google sign-in could not start. Check Supabase Google provider and redirect settings.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  Future<void> _submit() async {
+    final phone = _phone.text.trim();
+    if (!_sent && !RegExp(r'^\+[1-9]\d{7,14}).hasMatch(phone)) {
+      setState(() => _error = 'Enter the phone with country code, e.g. +919876543210.'); return;
+    }
+    if (_sent && !RegExp(r'^\d{6}).hasMatch(_otp.text.trim())) {
+      setState(() => _error = 'Enter the six-digit code.'); return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (!_sent) {
+        await widget.client.auth.signInWithOtp(phone: phone);
+        if (mounted) setState(() => _sent = true);
+      } else {
+        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not sign in. Check Supabase SMS provider configuration.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 62, color: Color(0xFF176B57)),
+        const SizedBox(height: 14),
+        Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
+        const SizedBox(height: 28),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ],
+    )),
+  ))));
+}
+class _AdminRoleGate extends StatefulWidget {
+  const _AdminRoleGate({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminRoleGate> createState() => _AdminRoleGateState();
+}
+class _AdminRoleGateState extends State<_AdminRoleGate> {
+  late Future<bool> _access;
+  @override
+  void initState() { super.initState(); _access = _check(); }
+  Future<bool> _check() async {
+    final rows = await widget.client.from('user_roles').select('role')
+      .eq('user_id', widget.user.id).eq('role', 'admin').limit(1);
+    return rows.isNotEmpty;
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(future: _access, builder: (context, snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (snapshot.hasError || snapshot.data != true) {
+      return Scaffold(appBar: AppBar(title: const Text('Alteo Admin')), body: Center(child: Padding(padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline, size: 52), const SizedBox(height: 12),
+          const Text('Administrator access has not been granted to this account.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text('For the first administrator, add an admin role to your user ID in the Supabase SQL Editor. Role changes are never self-service.', textAlign: TextAlign.center),
+          const SizedBox(height: 16), OutlinedButton(onPressed: () async => widget.client.auth.signOut(), child: const Text('Sign out')),
+        ]))));
+    }
+    return _AdminShell(client: widget.client, user: widget.user);
+  });
+}
+
+Future<List<Map<String, dynamic>>> _loadRows(SupabaseClient client, String table, String columns) async {
+  final rows = await client.from(table).select(columns).order('created_at', ascending: false).limit(100);
+  return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+}
+
+class _AdminShell extends StatefulWidget {
+  const _AdminShell({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminShell> createState() => _AdminShellState();
+}
+class _AdminShellState extends State<_AdminShell> {
+  int _index = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _OverviewTab(client: widget.client),
+      _OrdersTab(client: widget.client),
+      _OnboardingTab(client: widget.client),
+      _ServicesTab(client: widget.client),
+      _ContentTab(client: widget.client),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Alteo Admin', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'Sign out', onPressed: () async => widget.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: (v) => setState(() => _index = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Orders'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Onboarding'),
+          NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.campaign_outlined), selectedIcon: Icon(Icons.campaign), label: 'Content'),
+        ]),
+    );
+  }
+}
+
+class _OverviewTab extends StatefulWidget {
+  const _OverviewTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+class _OverviewTabState extends State<_OverviewTab> {
+  late Future<Map<String, dynamic>> _stats;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Operations overview', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Live totals are based on records accessible to this administrator. Gross paid order value is not net revenue.'),
+      const SizedBox(height: 16),
+      FutureBuilder<Map<String, dynamic>>(future: _stats, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
+        final s = snapshot.data!;
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
+          _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      const _InfoCard(icon: Icons.security, title: 'Admin actions are audited', detail: 'Partner roles, seller decisions and manual assignments are recorded in the audit log.'),
+      const SizedBox(height: 10),
+      const _InfoCard(icon: Icons.payments_outlined, title: 'Payment integration required', detail: 'Orders remain pending until a payment provider confirms payment. Do not dispatch unpaid orders.'),
+    ]));
+}
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+class _OrdersTabState extends State<_OrdersTab> {
+  late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
+  Future<void> _assign(Map<String, dynamic> order) async {
+    if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
+    final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
+    if (partnerId == null || partnerId.trim().isEmpty || !mounted) return;
+    try {
+      final job = await widget.client.from('delivery_jobs').select('id').eq('order_id', order['id']).maybeSingle();
+      if (job == null) { _snack('This order has no delivery job yet.'); return; }
+      await widget.client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partnerId.trim()});
+      if (mounted) { setState(_refresh); _snack('Delivery partner assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _orders, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Orders unavailable', detail: 'Check Supabase permissions and retry.', retry: () => setState(_refresh));
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No orders yet', detail: 'New customer orders will appear here.');
+        return Column(children: rows.map((order) {
+          final total = ((order['total_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
+            subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _OnboardingTab extends StatefulWidget {
+  const _OnboardingTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OnboardingTab> createState() => _OnboardingTabState();
+}
+class _OnboardingTabState extends State<_OnboardingTab> {
+  late Future<List<Map<String, dynamic>>> _sellers;
+  late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
+    _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _setSellerStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_seller_status', params: {'p_seller_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
+  }
+  Future<void> _grantRole() async {
+    final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
+    if (id == null || id.trim().isEmpty || !mounted) return;
+    final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
+      title: const Text('Select role'),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
+    ));
+    if (role == null || !mounted) return;
+    try {
+      await widget.client.rpc('admin_grant_user_role', params: {'p_user_id': id.trim(), 'p_role': role});
+      if (mounted) { setState(_refresh); _snack('Role granted and audit record created.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        FilledButton.tonalIcon(onPressed: _grantRole, icon: const Icon(Icons.person_add_alt), label: const Text('Grant role')),
+      ]),
+      const SizedBox(height: 12), Text('Sellers', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _sellers, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load sellers.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.store_outlined, title: 'No seller applications', detail: 'Applications appear when sellers sign up.');
+        return Column(children: rows.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(row['display_name']?.toString() ?? 'Seller', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4), Text(row['status'].toString() + ' • owner ' + row['owner_id'].toString()),
+          if ((row['phone']?.toString() ?? '').isNotEmpty) Text(row['phone'].toString()),
+          Wrap(spacing: 8, children: [
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'approved'), child: const Text('Approve')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'rejected'), child: const Text('Reject')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
+          ]),
+        ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
+      }),
+      const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load role assignments.');
+        final rows = (snapshot.data ?? []).where((r) => r['role'] != 'customer').toList();
+        if (rows.isEmpty) return const Text('No privileged roles granted yet.');
+        return Column(children: rows.take(100).map((r) => Card(child: ListTile(
+          title: Text(r['role'].toString().replaceAll('_', ' ')), subtitle: Text(r['user_id'].toString()),
+          leading: const Icon(Icons.verified_user_outlined),
+        ))).toList());
+      }),
+    ]));
+}
+
+class _ServicesTab extends StatefulWidget {
+  const _ServicesTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+class _ServicesTabState extends State<_ServicesTab> {
+  late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
+  Future<void> _edit({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
+    String service = row?['service']?.toString() ?? 'food';
+    bool enabled = row?['enabled'] == true;
+    bool automatic = row?['automatic_assignment'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
+      title: Text(row == null ? 'Add service control' : 'Edit service control'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code (e.g. PRATAPGARH)')),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+          items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+        SwitchListTile(title: const Text('Service enabled'), value: enabled, onChanged: (v) => setDialog(() => enabled = v)),
+        SwitchListTile(title: const Text('Automatic assignment'), subtitle: const Text('Stores the mode preference; automated dispatch still needs an executor.'), value: automatic, onChanged: (v) => setDialog(() => automatic = v)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'area': area.text.trim(), 'service': service, 'enabled': enabled, 'automatic': automatic}), child: const Text('Save')),
+      ],
+    )));
+    area.dispose();
+    if (result == null || result['area'] == '' || !mounted) return;
+    try {
+      await widget.client.rpc('admin_set_service_control', params: {'p_area_code': result['area'], 'p_service': result['service'], 'p_enabled': result['enabled'], 'p_automatic_assignment': result['automatic']});
+      if (mounted) { setState(_refresh); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service control saved.'))); }
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
+  }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add service', onPressed: () => _edit(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const SizedBox(height: 8),
+      const _InfoCard(icon: Icons.map_outlined, title: 'Area-based controls', detail: 'Create a control for each launch area and service. Keep services disabled until operations are ready.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _controls, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load service controls.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No service controls yet', detail: 'Add an area and service to configure availability.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: Icon(r['enabled'] == true ? Icons.check_circle : Icons.pause_circle_outline, color: r['enabled'] == true ? Colors.green : Colors.orange),
+          title: Text(r['service'].toString() + ' • ' + r['area_code'].toString()),
+          subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
+          trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
+        ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+class _ContentTabState extends State<_ContentTab> with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() { super.initState(); _tabs = TabController(length: 2, vsync: this); _refresh(); }
+  @override
+  void dispose() { _tabs.dispose(); super.dispose(); }
+  void _refresh() {
+    _banners = _loadRows(widget.client, 'app_banners', 'id,title,subtitle,active,area_code,priority,created_at');
+    _offers = _loadRows(widget.client, 'offers', 'id,code,title,service,discount_type,discount_value,active,area_code,created_at');
+  }
+  Future<void> _setActive(String table, String id, bool active) async {
+    try {
+      await widget.client.from(table).update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createBanner() async {
+    final title = TextEditingController(), subtitle = TextEditingController(), area = TextEditingController(text: 'DEFAULT');
+    final v = await showDialog<Map<String,String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Create banner'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+        const SizedBox(height: 8), TextField(controller: subtitle, decoration: const InputDecoration(labelText: 'Subtitle')),
+        const SizedBox(height: 8), TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'title':title.text.trim(),'subtitle':subtitle.text.trim(),'area':area.text.trim()}), child: const Text('Create'))],
+    ));
+    title.dispose(); subtitle.dispose(); area.dispose();
+    if (v == null || v['title']!.length < 2 || !mounted) return;
+    try {
+      await widget.client.from('app_banners').insert({'title':v['title'],'subtitle':v['subtitle'],'area_code':v['area']!.isEmpty?'DEFAULT':v['area'],'created_by':widget.client.auth.currentUser?.id,'active':false,'priority':100});
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createOffer() async {
+    final code = TextEditingController(), title = TextEditingController(), description = TextEditingController();
+    final area = TextEditingController(text: 'DEFAULT'), amount = TextEditingController(text: '10');
+    String service = 'food', type = 'percent';
+    final v = await showDialog<Map<String,dynamic>>(context: context, builder: (context) => StatefulBuilder(builder:(context, setDialog)=>AlertDialog(
+      title: const Text('Create offer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText:'Code (e.g. WELCOME10)')),
+        const SizedBox(height:8), TextField(controller:title, decoration: const InputDecoration(labelText:'Title')),
+        const SizedBox(height:8), TextField(controller:description, decoration: const InputDecoration(labelText:'Description')),
+        const SizedBox(height:8), TextField(controller:area, decoration: const InputDecoration(labelText:'Area code')),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:service, decoration:const InputDecoration(labelText:'Service'),
+          items:_services.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v){if(v!=null)setDialog(()=>service=v);}),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:type, decoration:const InputDecoration(labelText:'Discount type'),
+          items:const [DropdownMenuItem(value:'percent',child:Text('Percent')),DropdownMenuItem(value:'flat',child:Text('Flat amount in paise'))],onChanged:(v){if(v!=null)setDialog(()=>type=v);}),
+        const SizedBox(height:8), TextField(controller:amount, keyboardType:TextInputType.number, decoration:InputDecoration(labelText:type=='percent'?'Percent (1–100)':'Amount in paise')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(context,{'code':code.text.trim().toUpperCase(),'title':title.text.trim(),'description':description.text.trim(),'area':area.text.trim(),'service':service,'type':type,'amount':int.tryParse(amount.text.trim())??0}),child:const Text('Create'))],
+    )));
+    code.dispose(); title.dispose(); description.dispose(); area.dispose(); amount.dispose();
+    if(v==null || v['code'].toString().length<3 || v['title'].toString().length<2 || v['amount']<=0 || (v['type']=='percent' && v['amount']>100) || !mounted) return;
+    try {
+      await widget.client.from('offers').insert({'code':v['code'],'title':v['title'],'description':v['description'],'area_code':v['area'].toString().isEmpty?'DEFAULT':v['area'],
+        'service':v['service'],'discount_type':v['type'],'discount_value':v['amount'],'created_by':widget.client.auth.currentUser?.id,'active':false});
+      if(mounted)setState(_refresh);
+    } on PostgrestException catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.message)));}
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Material(color: Theme.of(context).colorScheme.surface, child: TabBar(controller:_tabs,tabs:const [Tab(text:'Banners'),Tab(text:'Offers')])),
+    Expanded(child: TabBarView(controller:_tabs,children:[
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _banners;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Customer banners',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createBanner,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_banners,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load banners.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Offers and discounts',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createOffer,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_offers,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load offers.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+    ])),
+  ]);
+}
+
+Future<String?> _textPrompt(BuildContext context, {required String title, required String label}) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    title: Text(title), content: TextField(controller: controller, decoration: InputDecoration(labelText: label)),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Continue'))],
+  ));
+  controller.dispose();
+  return result;
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.title, required this.value, required this.icon});
+  final String title, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, color: const Color(0xFF176B57)), const Spacer(),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(title, style: const TextStyle(color: Colors.black54)),
+    ])));
+}
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.detail});
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(leading: Icon(icon, color: const Color(0xFF176B57)), title: Text(title), subtitle: Text(detail)));
+}
+class _MessagePanel extends StatelessWidget {
+  const _MessagePanel({required this.title, required this.detail, this.retry});
+  final String title, detail;
+  final VoidCallback? retry;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.inbox_outlined, size: 42), const SizedBox(height: 10),
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+    const SizedBox(height: 6), Text(detail, textAlign: TextAlign.center),
+    if (retry != null) TextButton(onPressed: retry, child: const Text('Retry')),
+  ]));
+}
+).hasMatch(phone)) {
+      setState(() => _error = 'Enter the phone with country code, e.g. +919876543210.'); return;
+    }
+    if (_sent && !RegExp(r'^\\d{6}$').hasMatch(_otp.text.trim())) {
+      setState(() => _error = 'Enter the six-digit code.'); return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (!_sent) {
+        await widget.client.auth.signInWithOtp(phone: phone);
+        if (mounted) setState(() => _sent = true);
+      } else {
+        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not sign in. Check Supabase SMS provider configuration.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 62, color: Color(0xFF176B57)),
+        const SizedBox(height: 14),
+        Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
+        const SizedBox(height: 28),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ],
+    )),
+  ))));
+}
+class _AdminRoleGate extends StatefulWidget {
+  const _AdminRoleGate({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminRoleGate> createState() => _AdminRoleGateState();
+}
+class _AdminRoleGateState extends State<_AdminRoleGate> {
+  late Future<bool> _access;
+  @override
+  void initState() { super.initState(); _access = _check(); }
+  Future<bool> _check() async {
+    final rows = await widget.client.from('user_roles').select('role')
+      .eq('user_id', widget.user.id).eq('role', 'admin').limit(1);
+    return rows.isNotEmpty;
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(future: _access, builder: (context, snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (snapshot.hasError || snapshot.data != true) {
+      return Scaffold(appBar: AppBar(title: const Text('Alteo Admin')), body: Center(child: Padding(padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline, size: 52), const SizedBox(height: 12),
+          const Text('Administrator access has not been granted to this account.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text('For the first administrator, add an admin role to your user ID in the Supabase SQL Editor. Role changes are never self-service.', textAlign: TextAlign.center),
+          const SizedBox(height: 16), OutlinedButton(onPressed: () async => widget.client.auth.signOut(), child: const Text('Sign out')),
+        ]))));
+    }
+    return _AdminShell(client: widget.client, user: widget.user);
+  });
+}
+
+Future<List<Map<String, dynamic>>> _loadRows(SupabaseClient client, String table, String columns) async {
+  final rows = await client.from(table).select(columns).order('created_at', ascending: false).limit(100);
+  return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+}
+
+class _AdminShell extends StatefulWidget {
+  const _AdminShell({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminShell> createState() => _AdminShellState();
+}
+class _AdminShellState extends State<_AdminShell> {
+  int _index = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _OverviewTab(client: widget.client),
+      _OrdersTab(client: widget.client),
+      _OnboardingTab(client: widget.client),
+      _ServicesTab(client: widget.client),
+      _ContentTab(client: widget.client),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Alteo Admin', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'Sign out', onPressed: () async => widget.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: (v) => setState(() => _index = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Orders'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Onboarding'),
+          NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.campaign_outlined), selectedIcon: Icon(Icons.campaign), label: 'Content'),
+        ]),
+    );
+  }
+}
+
+class _OverviewTab extends StatefulWidget {
+  const _OverviewTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+class _OverviewTabState extends State<_OverviewTab> {
+  late Future<Map<String, dynamic>> _stats;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Operations overview', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Live totals are based on records accessible to this administrator. Gross paid order value is not net revenue.'),
+      const SizedBox(height: 16),
+      FutureBuilder<Map<String, dynamic>>(future: _stats, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
+        final s = snapshot.data!;
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
+          _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      const _InfoCard(icon: Icons.security, title: 'Admin actions are audited', detail: 'Partner roles, seller decisions and manual assignments are recorded in the audit log.'),
+      const SizedBox(height: 10),
+      const _InfoCard(icon: Icons.payments_outlined, title: 'Payment integration required', detail: 'Orders remain pending until a payment provider confirms payment. Do not dispatch unpaid orders.'),
+    ]));
+}
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+class _OrdersTabState extends State<_OrdersTab> {
+  late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
+  Future<void> _assign(Map<String, dynamic> order) async {
+    if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
+    final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
+    if (partnerId == null || partnerId.trim().isEmpty || !mounted) return;
+    try {
+      final job = await widget.client.from('delivery_jobs').select('id').eq('order_id', order['id']).maybeSingle();
+      if (job == null) { _snack('This order has no delivery job yet.'); return; }
+      await widget.client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partnerId.trim()});
+      if (mounted) { setState(_refresh); _snack('Delivery partner assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _orders, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Orders unavailable', detail: 'Check Supabase permissions and retry.', retry: () => setState(_refresh));
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No orders yet', detail: 'New customer orders will appear here.');
+        return Column(children: rows.map((order) {
+          final total = ((order['total_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
+            subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _OnboardingTab extends StatefulWidget {
+  const _OnboardingTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OnboardingTab> createState() => _OnboardingTabState();
+}
+class _OnboardingTabState extends State<_OnboardingTab> {
+  late Future<List<Map<String, dynamic>>> _sellers;
+  late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
+    _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _setSellerStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_seller_status', params: {'p_seller_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
+  }
+  Future<void> _grantRole() async {
+    final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
+    if (id == null || id.trim().isEmpty || !mounted) return;
+    final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
+      title: const Text('Select role'),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
+    ));
+    if (role == null || !mounted) return;
+    try {
+      await widget.client.rpc('admin_grant_user_role', params: {'p_user_id': id.trim(), 'p_role': role});
+      if (mounted) { setState(_refresh); _snack('Role granted and audit record created.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        FilledButton.tonalIcon(onPressed: _grantRole, icon: const Icon(Icons.person_add_alt), label: const Text('Grant role')),
+      ]),
+      const SizedBox(height: 12), Text('Sellers', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _sellers, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load sellers.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.store_outlined, title: 'No seller applications', detail: 'Applications appear when sellers sign up.');
+        return Column(children: rows.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(row['display_name']?.toString() ?? 'Seller', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4), Text(row['status'].toString() + ' • owner ' + row['owner_id'].toString()),
+          if ((row['phone']?.toString() ?? '').isNotEmpty) Text(row['phone'].toString()),
+          Wrap(spacing: 8, children: [
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'approved'), child: const Text('Approve')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'rejected'), child: const Text('Reject')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
+          ]),
+        ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
+      }),
+      const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load role assignments.');
+        final rows = (snapshot.data ?? []).where((r) => r['role'] != 'customer').toList();
+        if (rows.isEmpty) return const Text('No privileged roles granted yet.');
+        return Column(children: rows.take(100).map((r) => Card(child: ListTile(
+          title: Text(r['role'].toString().replaceAll('_', ' ')), subtitle: Text(r['user_id'].toString()),
+          leading: const Icon(Icons.verified_user_outlined),
+        ))).toList());
+      }),
+    ]));
+}
+
+class _ServicesTab extends StatefulWidget {
+  const _ServicesTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+class _ServicesTabState extends State<_ServicesTab> {
+  late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
+  Future<void> _edit({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
+    String service = row?['service']?.toString() ?? 'food';
+    bool enabled = row?['enabled'] == true;
+    bool automatic = row?['automatic_assignment'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
+      title: Text(row == null ? 'Add service control' : 'Edit service control'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code (e.g. PRATAPGARH)')),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+          items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+        SwitchListTile(title: const Text('Service enabled'), value: enabled, onChanged: (v) => setDialog(() => enabled = v)),
+        SwitchListTile(title: const Text('Automatic assignment'), subtitle: const Text('Stores the mode preference; automated dispatch still needs an executor.'), value: automatic, onChanged: (v) => setDialog(() => automatic = v)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'area': area.text.trim(), 'service': service, 'enabled': enabled, 'automatic': automatic}), child: const Text('Save')),
+      ],
+    )));
+    area.dispose();
+    if (result == null || result['area'] == '' || !mounted) return;
+    try {
+      await widget.client.rpc('admin_set_service_control', params: {'p_area_code': result['area'], 'p_service': result['service'], 'p_enabled': result['enabled'], 'p_automatic_assignment': result['automatic']});
+      if (mounted) { setState(_refresh); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service control saved.'))); }
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
+  }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add service', onPressed: () => _edit(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const SizedBox(height: 8),
+      const _InfoCard(icon: Icons.map_outlined, title: 'Area-based controls', detail: 'Create a control for each launch area and service. Keep services disabled until operations are ready.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _controls, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load service controls.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No service controls yet', detail: 'Add an area and service to configure availability.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: Icon(r['enabled'] == true ? Icons.check_circle : Icons.pause_circle_outline, color: r['enabled'] == true ? Colors.green : Colors.orange),
+          title: Text(r['service'].toString() + ' • ' + r['area_code'].toString()),
+          subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
+          trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
+        ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+class _ContentTabState extends State<_ContentTab> with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() { super.initState(); _tabs = TabController(length: 2, vsync: this); _refresh(); }
+  @override
+  void dispose() { _tabs.dispose(); super.dispose(); }
+  void _refresh() {
+    _banners = _loadRows(widget.client, 'app_banners', 'id,title,subtitle,active,area_code,priority,created_at');
+    _offers = _loadRows(widget.client, 'offers', 'id,code,title,service,discount_type,discount_value,active,area_code,created_at');
+  }
+  Future<void> _setActive(String table, String id, bool active) async {
+    try {
+      await widget.client.from(table).update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createBanner() async {
+    final title = TextEditingController(), subtitle = TextEditingController(), area = TextEditingController(text: 'DEFAULT');
+    final v = await showDialog<Map<String,String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Create banner'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+        const SizedBox(height: 8), TextField(controller: subtitle, decoration: const InputDecoration(labelText: 'Subtitle')),
+        const SizedBox(height: 8), TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'title':title.text.trim(),'subtitle':subtitle.text.trim(),'area':area.text.trim()}), child: const Text('Create'))],
+    ));
+    title.dispose(); subtitle.dispose(); area.dispose();
+    if (v == null || v['title']!.length < 2 || !mounted) return;
+    try {
+      await widget.client.from('app_banners').insert({'title':v['title'],'subtitle':v['subtitle'],'area_code':v['area']!.isEmpty?'DEFAULT':v['area'],'created_by':widget.client.auth.currentUser?.id,'active':false,'priority':100});
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createOffer() async {
+    final code = TextEditingController(), title = TextEditingController(), description = TextEditingController();
+    final area = TextEditingController(text: 'DEFAULT'), amount = TextEditingController(text: '10');
+    String service = 'food', type = 'percent';
+    final v = await showDialog<Map<String,dynamic>>(context: context, builder: (context) => StatefulBuilder(builder:(context, setDialog)=>AlertDialog(
+      title: const Text('Create offer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText:'Code (e.g. WELCOME10)')),
+        const SizedBox(height:8), TextField(controller:title, decoration: const InputDecoration(labelText:'Title')),
+        const SizedBox(height:8), TextField(controller:description, decoration: const InputDecoration(labelText:'Description')),
+        const SizedBox(height:8), TextField(controller:area, decoration: const InputDecoration(labelText:'Area code')),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:service, decoration:const InputDecoration(labelText:'Service'),
+          items:_services.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v){if(v!=null)setDialog(()=>service=v);}),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:type, decoration:const InputDecoration(labelText:'Discount type'),
+          items:const [DropdownMenuItem(value:'percent',child:Text('Percent')),DropdownMenuItem(value:'flat',child:Text('Flat amount in paise'))],onChanged:(v){if(v!=null)setDialog(()=>type=v);}),
+        const SizedBox(height:8), TextField(controller:amount, keyboardType:TextInputType.number, decoration:InputDecoration(labelText:type=='percent'?'Percent (1–100)':'Amount in paise')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(context,{'code':code.text.trim().toUpperCase(),'title':title.text.trim(),'description':description.text.trim(),'area':area.text.trim(),'service':service,'type':type,'amount':int.tryParse(amount.text.trim())??0}),child:const Text('Create'))],
+    )));
+    code.dispose(); title.dispose(); description.dispose(); area.dispose(); amount.dispose();
+    if(v==null || v['code'].toString().length<3 || v['title'].toString().length<2 || v['amount']<=0 || (v['type']=='percent' && v['amount']>100) || !mounted) return;
+    try {
+      await widget.client.from('offers').insert({'code':v['code'],'title':v['title'],'description':v['description'],'area_code':v['area'].toString().isEmpty?'DEFAULT':v['area'],
+        'service':v['service'],'discount_type':v['type'],'discount_value':v['amount'],'created_by':widget.client.auth.currentUser?.id,'active':false});
+      if(mounted)setState(_refresh);
+    } on PostgrestException catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.message)));}
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Material(color: Theme.of(context).colorScheme.surface, child: TabBar(controller:_tabs,tabs:const [Tab(text:'Banners'),Tab(text:'Offers')])),
+    Expanded(child: TabBarView(controller:_tabs,children:[
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _banners;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Customer banners',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createBanner,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_banners,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load banners.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Offers and discounts',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createOffer,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_offers,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load offers.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+    ])),
+  ]);
+}
+
+Future<String?> _textPrompt(BuildContext context, {required String title, required String label}) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    title: Text(title), content: TextField(controller: controller, decoration: InputDecoration(labelText: label)),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Continue'))],
+  ));
+  controller.dispose();
+  return result;
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.title, required this.value, required this.icon});
+  final String title, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, color: const Color(0xFF176B57)), const Spacer(),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(title, style: const TextStyle(color: Colors.black54)),
+    ])));
+}
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.detail});
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(leading: Icon(icon, color: const Color(0xFF176B57)), title: Text(title), subtitle: Text(detail)));
+}
+class _MessagePanel extends StatelessWidget {
+  const _MessagePanel({required this.title, required this.detail, this.retry});
+  final String title, detail;
+  final VoidCallback? retry;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.inbox_outlined, size: 42), const SizedBox(height: 10),
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+    const SizedBox(height: 6), Text(detail, textAlign: TextAlign.center),
+    if (retry != null) TextButton(onPressed: retry, child: const Text('Retry')),
+  ]));
+}
+).hasMatch(_otp.text.trim())) {
+      setState(() => _error = 'Enter the six-digit code.'); return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (!_sent) {
+        await widget.client.auth.signInWithOtp(phone: phone);
+        if (mounted) setState(() => _sent = true);
+      } else {
+        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not sign in. Check Supabase SMS provider configuration.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 62, color: Color(0xFF176B57)),
+        const SizedBox(height: 14),
+        Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
+        const SizedBox(height: 28),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ],
+    )),
+  ))));
+}
+class _AdminRoleGate extends StatefulWidget {
+  const _AdminRoleGate({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminRoleGate> createState() => _AdminRoleGateState();
+}
+class _AdminRoleGateState extends State<_AdminRoleGate> {
+  late Future<bool> _access;
+  @override
+  void initState() { super.initState(); _access = _check(); }
+  Future<bool> _check() async {
+    final rows = await widget.client.from('user_roles').select('role')
+      .eq('user_id', widget.user.id).eq('role', 'admin').limit(1);
+    return rows.isNotEmpty;
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(future: _access, builder: (context, snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (snapshot.hasError || snapshot.data != true) {
+      return Scaffold(appBar: AppBar(title: const Text('Alteo Admin')), body: Center(child: Padding(padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline, size: 52), const SizedBox(height: 12),
+          const Text('Administrator access has not been granted to this account.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text('For the first administrator, add an admin role to your user ID in the Supabase SQL Editor. Role changes are never self-service.', textAlign: TextAlign.center),
+          const SizedBox(height: 16), OutlinedButton(onPressed: () async => widget.client.auth.signOut(), child: const Text('Sign out')),
+        ]))));
+    }
+    return _AdminShell(client: widget.client, user: widget.user);
+  });
+}
+
+Future<List<Map<String, dynamic>>> _loadRows(SupabaseClient client, String table, String columns) async {
+  final rows = await client.from(table).select(columns).order('created_at', ascending: false).limit(100);
+  return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+}
+
+class _AdminShell extends StatefulWidget {
+  const _AdminShell({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminShell> createState() => _AdminShellState();
+}
+class _AdminShellState extends State<_AdminShell> {
+  int _index = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _OverviewTab(client: widget.client),
+      _OrdersTab(client: widget.client),
+      _OnboardingTab(client: widget.client),
+      _ServicesTab(client: widget.client),
+      _ContentTab(client: widget.client),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Alteo Admin', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'Sign out', onPressed: () async => widget.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: (v) => setState(() => _index = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Orders'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Onboarding'),
+          NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.campaign_outlined), selectedIcon: Icon(Icons.campaign), label: 'Content'),
+        ]),
+    );
+  }
+}
+
+class _OverviewTab extends StatefulWidget {
+  const _OverviewTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+class _OverviewTabState extends State<_OverviewTab> {
+  late Future<Map<String, dynamic>> _stats;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Operations overview', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Live totals are based on records accessible to this administrator. Gross paid order value is not net revenue.'),
+      const SizedBox(height: 16),
+      FutureBuilder<Map<String, dynamic>>(future: _stats, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
+        final s = snapshot.data!;
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
+          _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      const _InfoCard(icon: Icons.security, title: 'Admin actions are audited', detail: 'Partner roles, seller decisions and manual assignments are recorded in the audit log.'),
+      const SizedBox(height: 10),
+      const _InfoCard(icon: Icons.payments_outlined, title: 'Payment integration required', detail: 'Orders remain pending until a payment provider confirms payment. Do not dispatch unpaid orders.'),
+    ]));
+}
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+class _OrdersTabState extends State<_OrdersTab> {
+  late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
+  Future<void> _assign(Map<String, dynamic> order) async {
+    if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
+    final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
+    if (partnerId == null || partnerId.trim().isEmpty || !mounted) return;
+    try {
+      final job = await widget.client.from('delivery_jobs').select('id').eq('order_id', order['id']).maybeSingle();
+      if (job == null) { _snack('This order has no delivery job yet.'); return; }
+      await widget.client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partnerId.trim()});
+      if (mounted) { setState(_refresh); _snack('Delivery partner assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _orders, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Orders unavailable', detail: 'Check Supabase permissions and retry.', retry: () => setState(_refresh));
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No orders yet', detail: 'New customer orders will appear here.');
+        return Column(children: rows.map((order) {
+          final total = ((order['total_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
+            subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _OnboardingTab extends StatefulWidget {
+  const _OnboardingTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OnboardingTab> createState() => _OnboardingTabState();
+}
+class _OnboardingTabState extends State<_OnboardingTab> {
+  late Future<List<Map<String, dynamic>>> _sellers;
+  late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
+    _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _setSellerStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_seller_status', params: {'p_seller_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
+  }
+  Future<void> _grantRole() async {
+    final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
+    if (id == null || id.trim().isEmpty || !mounted) return;
+    final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
+      title: const Text('Select role'),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
+    ));
+    if (role == null || !mounted) return;
+    try {
+      await widget.client.rpc('admin_grant_user_role', params: {'p_user_id': id.trim(), 'p_role': role});
+      if (mounted) { setState(_refresh); _snack('Role granted and audit record created.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        FilledButton.tonalIcon(onPressed: _grantRole, icon: const Icon(Icons.person_add_alt), label: const Text('Grant role')),
+      ]),
+      const SizedBox(height: 12), Text('Sellers', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _sellers, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load sellers.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.store_outlined, title: 'No seller applications', detail: 'Applications appear when sellers sign up.');
+        return Column(children: rows.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(row['display_name']?.toString() ?? 'Seller', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4), Text(row['status'].toString() + ' • owner ' + row['owner_id'].toString()),
+          if ((row['phone']?.toString() ?? '').isNotEmpty) Text(row['phone'].toString()),
+          Wrap(spacing: 8, children: [
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'approved'), child: const Text('Approve')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'rejected'), child: const Text('Reject')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
+          ]),
+        ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
+      }),
+      const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load role assignments.');
+        final rows = (snapshot.data ?? []).where((r) => r['role'] != 'customer').toList();
+        if (rows.isEmpty) return const Text('No privileged roles granted yet.');
+        return Column(children: rows.take(100).map((r) => Card(child: ListTile(
+          title: Text(r['role'].toString().replaceAll('_', ' ')), subtitle: Text(r['user_id'].toString()),
+          leading: const Icon(Icons.verified_user_outlined),
+        ))).toList());
+      }),
+    ]));
+}
+
+class _ServicesTab extends StatefulWidget {
+  const _ServicesTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+class _ServicesTabState extends State<_ServicesTab> {
+  late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
+  Future<void> _edit({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
+    String service = row?['service']?.toString() ?? 'food';
+    bool enabled = row?['enabled'] == true;
+    bool automatic = row?['automatic_assignment'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
+      title: Text(row == null ? 'Add service control' : 'Edit service control'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code (e.g. PRATAPGARH)')),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+          items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+        SwitchListTile(title: const Text('Service enabled'), value: enabled, onChanged: (v) => setDialog(() => enabled = v)),
+        SwitchListTile(title: const Text('Automatic assignment'), subtitle: const Text('Stores the mode preference; automated dispatch still needs an executor.'), value: automatic, onChanged: (v) => setDialog(() => automatic = v)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'area': area.text.trim(), 'service': service, 'enabled': enabled, 'automatic': automatic}), child: const Text('Save')),
+      ],
+    )));
+    area.dispose();
+    if (result == null || result['area'] == '' || !mounted) return;
+    try {
+      await widget.client.rpc('admin_set_service_control', params: {'p_area_code': result['area'], 'p_service': result['service'], 'p_enabled': result['enabled'], 'p_automatic_assignment': result['automatic']});
+      if (mounted) { setState(_refresh); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service control saved.'))); }
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
+  }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add service', onPressed: () => _edit(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const SizedBox(height: 8),
+      const _InfoCard(icon: Icons.map_outlined, title: 'Area-based controls', detail: 'Create a control for each launch area and service. Keep services disabled until operations are ready.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _controls, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load service controls.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No service controls yet', detail: 'Add an area and service to configure availability.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: Icon(r['enabled'] == true ? Icons.check_circle : Icons.pause_circle_outline, color: r['enabled'] == true ? Colors.green : Colors.orange),
+          title: Text(r['service'].toString() + ' • ' + r['area_code'].toString()),
+          subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
+          trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
+        ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+class _ContentTabState extends State<_ContentTab> with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() { super.initState(); _tabs = TabController(length: 2, vsync: this); _refresh(); }
+  @override
+  void dispose() { _tabs.dispose(); super.dispose(); }
+  void _refresh() {
+    _banners = _loadRows(widget.client, 'app_banners', 'id,title,subtitle,active,area_code,priority,created_at');
+    _offers = _loadRows(widget.client, 'offers', 'id,code,title,service,discount_type,discount_value,active,area_code,created_at');
+  }
+  Future<void> _setActive(String table, String id, bool active) async {
+    try {
+      await widget.client.from(table).update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createBanner() async {
+    final title = TextEditingController(), subtitle = TextEditingController(), area = TextEditingController(text: 'DEFAULT');
+    final v = await showDialog<Map<String,String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Create banner'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+        const SizedBox(height: 8), TextField(controller: subtitle, decoration: const InputDecoration(labelText: 'Subtitle')),
+        const SizedBox(height: 8), TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'title':title.text.trim(),'subtitle':subtitle.text.trim(),'area':area.text.trim()}), child: const Text('Create'))],
+    ));
+    title.dispose(); subtitle.dispose(); area.dispose();
+    if (v == null || v['title']!.length < 2 || !mounted) return;
+    try {
+      await widget.client.from('app_banners').insert({'title':v['title'],'subtitle':v['subtitle'],'area_code':v['area']!.isEmpty?'DEFAULT':v['area'],'created_by':widget.client.auth.currentUser?.id,'active':false,'priority':100});
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createOffer() async {
+    final code = TextEditingController(), title = TextEditingController(), description = TextEditingController();
+    final area = TextEditingController(text: 'DEFAULT'), amount = TextEditingController(text: '10');
+    String service = 'food', type = 'percent';
+    final v = await showDialog<Map<String,dynamic>>(context: context, builder: (context) => StatefulBuilder(builder:(context, setDialog)=>AlertDialog(
+      title: const Text('Create offer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText:'Code (e.g. WELCOME10)')),
+        const SizedBox(height:8), TextField(controller:title, decoration: const InputDecoration(labelText:'Title')),
+        const SizedBox(height:8), TextField(controller:description, decoration: const InputDecoration(labelText:'Description')),
+        const SizedBox(height:8), TextField(controller:area, decoration: const InputDecoration(labelText:'Area code')),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:service, decoration:const InputDecoration(labelText:'Service'),
+          items:_services.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v){if(v!=null)setDialog(()=>service=v);}),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:type, decoration:const InputDecoration(labelText:'Discount type'),
+          items:const [DropdownMenuItem(value:'percent',child:Text('Percent')),DropdownMenuItem(value:'flat',child:Text('Flat amount in paise'))],onChanged:(v){if(v!=null)setDialog(()=>type=v);}),
+        const SizedBox(height:8), TextField(controller:amount, keyboardType:TextInputType.number, decoration:InputDecoration(labelText:type=='percent'?'Percent (1–100)':'Amount in paise')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(context,{'code':code.text.trim().toUpperCase(),'title':title.text.trim(),'description':description.text.trim(),'area':area.text.trim(),'service':service,'type':type,'amount':int.tryParse(amount.text.trim())??0}),child:const Text('Create'))],
+    )));
+    code.dispose(); title.dispose(); description.dispose(); area.dispose(); amount.dispose();
+    if(v==null || v['code'].toString().length<3 || v['title'].toString().length<2 || v['amount']<=0 || (v['type']=='percent' && v['amount']>100) || !mounted) return;
+    try {
+      await widget.client.from('offers').insert({'code':v['code'],'title':v['title'],'description':v['description'],'area_code':v['area'].toString().isEmpty?'DEFAULT':v['area'],
+        'service':v['service'],'discount_type':v['type'],'discount_value':v['amount'],'created_by':widget.client.auth.currentUser?.id,'active':false});
+      if(mounted)setState(_refresh);
+    } on PostgrestException catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.message)));}
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Material(color: Theme.of(context).colorScheme.surface, child: TabBar(controller:_tabs,tabs:const [Tab(text:'Banners'),Tab(text:'Offers')])),
+    Expanded(child: TabBarView(controller:_tabs,children:[
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _banners;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Customer banners',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createBanner,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_banners,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load banners.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Offers and discounts',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createOffer,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_offers,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load offers.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+    ])),
+  ]);
+}
+
+Future<String?> _textPrompt(BuildContext context, {required String title, required String label}) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    title: Text(title), content: TextField(controller: controller, decoration: InputDecoration(labelText: label)),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Continue'))],
+  ));
+  controller.dispose();
+  return result;
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.title, required this.value, required this.icon});
+  final String title, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, color: const Color(0xFF176B57)), const Spacer(),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(title, style: const TextStyle(color: Colors.black54)),
+    ])));
+}
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.detail});
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(leading: Icon(icon, color: const Color(0xFF176B57)), title: Text(title), subtitle: Text(detail)));
+}
+class _MessagePanel extends StatelessWidget {
+  const _MessagePanel({required this.title, required this.detail, this.retry});
+  final String title, detail;
+  final VoidCallback? retry;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.inbox_outlined, size: 42), const SizedBox(height: 10),
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+    const SizedBox(height: 6), Text(detail, textAlign: TextAlign.center),
+    if (retry != null) TextButton(onPressed: retry, child: const Text('Retry')),
+  ]));
+}
+).hasMatch(phone)) {
+      setState(() => _error = 'Enter the phone with country code, e.g. +919876543210.'); return;
+    }
+    if (_sent && !RegExp(r'^\d{6}).hasMatch(_otp.text.trim())) {
+      setState(() => _error = 'Enter the six-digit code.'); return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (!_sent) {
+        await widget.client.auth.signInWithOtp(phone: phone);
+        if (mounted) setState(() => _sent = true);
+      } else {
+        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not sign in. Check Supabase SMS provider configuration.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 62, color: Color(0xFF176B57)),
+        const SizedBox(height: 14),
+        Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
+        const SizedBox(height: 28),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ],
+    )),
+  ))));
+}
+class _AdminRoleGate extends StatefulWidget {
+  const _AdminRoleGate({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminRoleGate> createState() => _AdminRoleGateState();
+}
+class _AdminRoleGateState extends State<_AdminRoleGate> {
+  late Future<bool> _access;
+  @override
+  void initState() { super.initState(); _access = _check(); }
+  Future<bool> _check() async {
+    final rows = await widget.client.from('user_roles').select('role')
+      .eq('user_id', widget.user.id).eq('role', 'admin').limit(1);
+    return rows.isNotEmpty;
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(future: _access, builder: (context, snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (snapshot.hasError || snapshot.data != true) {
+      return Scaffold(appBar: AppBar(title: const Text('Alteo Admin')), body: Center(child: Padding(padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline, size: 52), const SizedBox(height: 12),
+          const Text('Administrator access has not been granted to this account.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text('For the first administrator, add an admin role to your user ID in the Supabase SQL Editor. Role changes are never self-service.', textAlign: TextAlign.center),
+          const SizedBox(height: 16), OutlinedButton(onPressed: () async => widget.client.auth.signOut(), child: const Text('Sign out')),
+        ]))));
+    }
+    return _AdminShell(client: widget.client, user: widget.user);
+  });
+}
+
+Future<List<Map<String, dynamic>>> _loadRows(SupabaseClient client, String table, String columns) async {
+  final rows = await client.from(table).select(columns).order('created_at', ascending: false).limit(100);
+  return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+}
+
+class _AdminShell extends StatefulWidget {
+  const _AdminShell({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminShell> createState() => _AdminShellState();
+}
+class _AdminShellState extends State<_AdminShell> {
+  int _index = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _OverviewTab(client: widget.client),
+      _OrdersTab(client: widget.client),
+      _OnboardingTab(client: widget.client),
+      _ServicesTab(client: widget.client),
+      _ContentTab(client: widget.client),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Alteo Admin', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'Sign out', onPressed: () async => widget.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: (v) => setState(() => _index = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Orders'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Onboarding'),
+          NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.campaign_outlined), selectedIcon: Icon(Icons.campaign), label: 'Content'),
+        ]),
+    );
+  }
+}
+
+class _OverviewTab extends StatefulWidget {
+  const _OverviewTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+class _OverviewTabState extends State<_OverviewTab> {
+  late Future<Map<String, dynamic>> _stats;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Operations overview', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Live totals are based on records accessible to this administrator. Gross paid order value is not net revenue.'),
+      const SizedBox(height: 16),
+      FutureBuilder<Map<String, dynamic>>(future: _stats, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
+        final s = snapshot.data!;
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
+          _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      const _InfoCard(icon: Icons.security, title: 'Admin actions are audited', detail: 'Partner roles, seller decisions and manual assignments are recorded in the audit log.'),
+      const SizedBox(height: 10),
+      const _InfoCard(icon: Icons.payments_outlined, title: 'Payment integration required', detail: 'Orders remain pending until a payment provider confirms payment. Do not dispatch unpaid orders.'),
+    ]));
+}
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+class _OrdersTabState extends State<_OrdersTab> {
+  late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
+  Future<void> _assign(Map<String, dynamic> order) async {
+    if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
+    final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
+    if (partnerId == null || partnerId.trim().isEmpty || !mounted) return;
+    try {
+      final job = await widget.client.from('delivery_jobs').select('id').eq('order_id', order['id']).maybeSingle();
+      if (job == null) { _snack('This order has no delivery job yet.'); return; }
+      await widget.client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partnerId.trim()});
+      if (mounted) { setState(_refresh); _snack('Delivery partner assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _orders, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Orders unavailable', detail: 'Check Supabase permissions and retry.', retry: () => setState(_refresh));
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No orders yet', detail: 'New customer orders will appear here.');
+        return Column(children: rows.map((order) {
+          final total = ((order['total_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
+            subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _OnboardingTab extends StatefulWidget {
+  const _OnboardingTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OnboardingTab> createState() => _OnboardingTabState();
+}
+class _OnboardingTabState extends State<_OnboardingTab> {
+  late Future<List<Map<String, dynamic>>> _sellers;
+  late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
+    _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _setSellerStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_seller_status', params: {'p_seller_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
+  }
+  Future<void> _grantRole() async {
+    final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
+    if (id == null || id.trim().isEmpty || !mounted) return;
+    final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
+      title: const Text('Select role'),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
+    ));
+    if (role == null || !mounted) return;
+    try {
+      await widget.client.rpc('admin_grant_user_role', params: {'p_user_id': id.trim(), 'p_role': role});
+      if (mounted) { setState(_refresh); _snack('Role granted and audit record created.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        FilledButton.tonalIcon(onPressed: _grantRole, icon: const Icon(Icons.person_add_alt), label: const Text('Grant role')),
+      ]),
+      const SizedBox(height: 12), Text('Sellers', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _sellers, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load sellers.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.store_outlined, title: 'No seller applications', detail: 'Applications appear when sellers sign up.');
+        return Column(children: rows.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(row['display_name']?.toString() ?? 'Seller', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4), Text(row['status'].toString() + ' • owner ' + row['owner_id'].toString()),
+          if ((row['phone']?.toString() ?? '').isNotEmpty) Text(row['phone'].toString()),
+          Wrap(spacing: 8, children: [
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'approved'), child: const Text('Approve')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'rejected'), child: const Text('Reject')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
+          ]),
+        ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
+      }),
+      const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load role assignments.');
+        final rows = (snapshot.data ?? []).where((r) => r['role'] != 'customer').toList();
+        if (rows.isEmpty) return const Text('No privileged roles granted yet.');
+        return Column(children: rows.take(100).map((r) => Card(child: ListTile(
+          title: Text(r['role'].toString().replaceAll('_', ' ')), subtitle: Text(r['user_id'].toString()),
+          leading: const Icon(Icons.verified_user_outlined),
+        ))).toList());
+      }),
+    ]));
+}
+
+class _ServicesTab extends StatefulWidget {
+  const _ServicesTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+class _ServicesTabState extends State<_ServicesTab> {
+  late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
+  Future<void> _edit({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
+    String service = row?['service']?.toString() ?? 'food';
+    bool enabled = row?['enabled'] == true;
+    bool automatic = row?['automatic_assignment'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
+      title: Text(row == null ? 'Add service control' : 'Edit service control'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code (e.g. PRATAPGARH)')),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+          items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+        SwitchListTile(title: const Text('Service enabled'), value: enabled, onChanged: (v) => setDialog(() => enabled = v)),
+        SwitchListTile(title: const Text('Automatic assignment'), subtitle: const Text('Stores the mode preference; automated dispatch still needs an executor.'), value: automatic, onChanged: (v) => setDialog(() => automatic = v)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'area': area.text.trim(), 'service': service, 'enabled': enabled, 'automatic': automatic}), child: const Text('Save')),
+      ],
+    )));
+    area.dispose();
+    if (result == null || result['area'] == '' || !mounted) return;
+    try {
+      await widget.client.rpc('admin_set_service_control', params: {'p_area_code': result['area'], 'p_service': result['service'], 'p_enabled': result['enabled'], 'p_automatic_assignment': result['automatic']});
+      if (mounted) { setState(_refresh); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service control saved.'))); }
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
+  }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add service', onPressed: () => _edit(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const SizedBox(height: 8),
+      const _InfoCard(icon: Icons.map_outlined, title: 'Area-based controls', detail: 'Create a control for each launch area and service. Keep services disabled until operations are ready.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _controls, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load service controls.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No service controls yet', detail: 'Add an area and service to configure availability.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: Icon(r['enabled'] == true ? Icons.check_circle : Icons.pause_circle_outline, color: r['enabled'] == true ? Colors.green : Colors.orange),
+          title: Text(r['service'].toString() + ' • ' + r['area_code'].toString()),
+          subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
+          trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
+        ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+class _ContentTabState extends State<_ContentTab> with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() { super.initState(); _tabs = TabController(length: 2, vsync: this); _refresh(); }
+  @override
+  void dispose() { _tabs.dispose(); super.dispose(); }
+  void _refresh() {
+    _banners = _loadRows(widget.client, 'app_banners', 'id,title,subtitle,active,area_code,priority,created_at');
+    _offers = _loadRows(widget.client, 'offers', 'id,code,title,service,discount_type,discount_value,active,area_code,created_at');
+  }
+  Future<void> _setActive(String table, String id, bool active) async {
+    try {
+      await widget.client.from(table).update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createBanner() async {
+    final title = TextEditingController(), subtitle = TextEditingController(), area = TextEditingController(text: 'DEFAULT');
+    final v = await showDialog<Map<String,String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Create banner'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+        const SizedBox(height: 8), TextField(controller: subtitle, decoration: const InputDecoration(labelText: 'Subtitle')),
+        const SizedBox(height: 8), TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'title':title.text.trim(),'subtitle':subtitle.text.trim(),'area':area.text.trim()}), child: const Text('Create'))],
+    ));
+    title.dispose(); subtitle.dispose(); area.dispose();
+    if (v == null || v['title']!.length < 2 || !mounted) return;
+    try {
+      await widget.client.from('app_banners').insert({'title':v['title'],'subtitle':v['subtitle'],'area_code':v['area']!.isEmpty?'DEFAULT':v['area'],'created_by':widget.client.auth.currentUser?.id,'active':false,'priority':100});
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createOffer() async {
+    final code = TextEditingController(), title = TextEditingController(), description = TextEditingController();
+    final area = TextEditingController(text: 'DEFAULT'), amount = TextEditingController(text: '10');
+    String service = 'food', type = 'percent';
+    final v = await showDialog<Map<String,dynamic>>(context: context, builder: (context) => StatefulBuilder(builder:(context, setDialog)=>AlertDialog(
+      title: const Text('Create offer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText:'Code (e.g. WELCOME10)')),
+        const SizedBox(height:8), TextField(controller:title, decoration: const InputDecoration(labelText:'Title')),
+        const SizedBox(height:8), TextField(controller:description, decoration: const InputDecoration(labelText:'Description')),
+        const SizedBox(height:8), TextField(controller:area, decoration: const InputDecoration(labelText:'Area code')),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:service, decoration:const InputDecoration(labelText:'Service'),
+          items:_services.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v){if(v!=null)setDialog(()=>service=v);}),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:type, decoration:const InputDecoration(labelText:'Discount type'),
+          items:const [DropdownMenuItem(value:'percent',child:Text('Percent')),DropdownMenuItem(value:'flat',child:Text('Flat amount in paise'))],onChanged:(v){if(v!=null)setDialog(()=>type=v);}),
+        const SizedBox(height:8), TextField(controller:amount, keyboardType:TextInputType.number, decoration:InputDecoration(labelText:type=='percent'?'Percent (1–100)':'Amount in paise')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(context,{'code':code.text.trim().toUpperCase(),'title':title.text.trim(),'description':description.text.trim(),'area':area.text.trim(),'service':service,'type':type,'amount':int.tryParse(amount.text.trim())??0}),child:const Text('Create'))],
+    )));
+    code.dispose(); title.dispose(); description.dispose(); area.dispose(); amount.dispose();
+    if(v==null || v['code'].toString().length<3 || v['title'].toString().length<2 || v['amount']<=0 || (v['type']=='percent' && v['amount']>100) || !mounted) return;
+    try {
+      await widget.client.from('offers').insert({'code':v['code'],'title':v['title'],'description':v['description'],'area_code':v['area'].toString().isEmpty?'DEFAULT':v['area'],
+        'service':v['service'],'discount_type':v['type'],'discount_value':v['amount'],'created_by':widget.client.auth.currentUser?.id,'active':false});
+      if(mounted)setState(_refresh);
+    } on PostgrestException catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.message)));}
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Material(color: Theme.of(context).colorScheme.surface, child: TabBar(controller:_tabs,tabs:const [Tab(text:'Banners'),Tab(text:'Offers')])),
+    Expanded(child: TabBarView(controller:_tabs,children:[
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _banners;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Customer banners',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createBanner,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_banners,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load banners.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Offers and discounts',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createOffer,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_offers,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load offers.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+    ])),
+  ]);
+}
+
+Future<String?> _textPrompt(BuildContext context, {required String title, required String label}) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    title: Text(title), content: TextField(controller: controller, decoration: InputDecoration(labelText: label)),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Continue'))],
+  ));
+  controller.dispose();
+  return result;
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.title, required this.value, required this.icon});
+  final String title, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, color: const Color(0xFF176B57)), const Spacer(),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(title, style: const TextStyle(color: Colors.black54)),
+    ])));
+}
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.detail});
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(leading: Icon(icon, color: const Color(0xFF176B57)), title: Text(title), subtitle: Text(detail)));
+}
+class _MessagePanel extends StatelessWidget {
+  const _MessagePanel({required this.title, required this.detail, this.retry});
+  final String title, detail;
+  final VoidCallback? retry;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.inbox_outlined, size: 42), const SizedBox(height: 10),
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+    const SizedBox(height: 6), Text(detail, textAlign: TextAlign.center),
+    if (retry != null) TextButton(onPressed: retry, child: const Text('Retry')),
+  ]));
+}
+).hasMatch(_otp.text.trim())) {
+      setState(() => _error = 'Enter the six-digit code.'); return;
+    }
+    setState(() { _busy = true; _error = null; });
+    try {
+      if (!_sent) {
+        await widget.client.auth.signInWithOtp(phone: phone);
+        if (mounted) setState(() => _sent = true);
+      } else {
+        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not sign in. Check Supabase SMS provider configuration.');
+    } finally { if (mounted) setState(() => _busy = false); }
+  }
+  @override
+  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
+    padding: const EdgeInsets.all(24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const Icon(Icons.admin_panel_settings_outlined, size: 62, color: Color(0xFF176B57)),
+        const SizedBox(height: 14),
+        Text('Alteo Admin', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 8), const Text('Secure operations for services, partners and orders.', textAlign: TextAlign.center),
+        const SizedBox(height: 28),
+        if (!_usePhone) ...[
+          FilledButton.icon(onPressed: _busy ? null : _googleSignIn, icon: const Icon(Icons.g_mobiledata, size: 28), label: const Text('Continue with Google')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }), child: const Text('Use phone number instead')),
+        ] else ...[
+          TextField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Admin mobile number (optional)', hintText: '+919876543210')),
+          if (_sent) ...[const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code'))],
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _busy ? null : _submit, child: _busy ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)) : Text(_sent ? 'Verify and continue' : 'Send OTP')),
+          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }), child: const Text('Back to Google sign-in')),
+        ],
+        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
+        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
+      ],
+    )),
+  ))));
+}
+class _AdminRoleGate extends StatefulWidget {
+  const _AdminRoleGate({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminRoleGate> createState() => _AdminRoleGateState();
+}
+class _AdminRoleGateState extends State<_AdminRoleGate> {
+  late Future<bool> _access;
+  @override
+  void initState() { super.initState(); _access = _check(); }
+  Future<bool> _check() async {
+    final rows = await widget.client.from('user_roles').select('role')
+      .eq('user_id', widget.user.id).eq('role', 'admin').limit(1);
+    return rows.isNotEmpty;
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<bool>(future: _access, builder: (context, snapshot) {
+    if (snapshot.connectionState != ConnectionState.done) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (snapshot.hasError || snapshot.data != true) {
+      return Scaffold(appBar: AppBar(title: const Text('Alteo Admin')), body: Center(child: Padding(padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.lock_outline, size: 52), const SizedBox(height: 12),
+          const Text('Administrator access has not been granted to this account.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          const Text('For the first administrator, add an admin role to your user ID in the Supabase SQL Editor. Role changes are never self-service.', textAlign: TextAlign.center),
+          const SizedBox(height: 16), OutlinedButton(onPressed: () async => widget.client.auth.signOut(), child: const Text('Sign out')),
+        ]))));
+    }
+    return _AdminShell(client: widget.client, user: widget.user);
+  });
+}
+
+Future<List<Map<String, dynamic>>> _loadRows(SupabaseClient client, String table, String columns) async {
+  final rows = await client.from(table).select(columns).order('created_at', ascending: false).limit(100);
+  return rows.map((row) => Map<String, dynamic>.from(row)).toList();
+}
+
+class _AdminShell extends StatefulWidget {
+  const _AdminShell({required this.client, required this.user});
+  final SupabaseClient client;
+  final User user;
+  @override
+  State<_AdminShell> createState() => _AdminShellState();
+}
+class _AdminShellState extends State<_AdminShell> {
+  int _index = 0;
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      _OverviewTab(client: widget.client),
+      _OrdersTab(client: widget.client),
+      _OnboardingTab(client: widget.client),
+      _ServicesTab(client: widget.client),
+      _ContentTab(client: widget.client),
+    ];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Alteo Admin', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [IconButton(tooltip: 'Sign out', onPressed: () async => widget.client.auth.signOut(), icon: const Icon(Icons.logout))]),
+      body: IndexedStack(index: _index, children: pages),
+      bottomNavigationBar: NavigationBar(selectedIndex: _index, onDestinationSelected: (v) => setState(() => _index = v),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.dashboard_outlined), selectedIcon: Icon(Icons.dashboard), label: 'Overview'),
+          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Orders'),
+          NavigationDestination(icon: Icon(Icons.people_outline), selectedIcon: Icon(Icons.people), label: 'Onboarding'),
+          NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: 'Services'),
+          NavigationDestination(icon: Icon(Icons.campaign_outlined), selectedIcon: Icon(Icons.campaign), label: 'Content'),
+        ]),
+    );
+  }
+}
+
+class _OverviewTab extends StatefulWidget {
+  const _OverviewTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OverviewTab> createState() => _OverviewTabState();
+}
+class _OverviewTabState extends State<_OverviewTab> {
+  late Future<Map<String, dynamic>> _stats;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _stats = widget.client.rpc('admin_operations_summary')
+      .then((result) => Map<String, dynamic>.from(result as Map));
+
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await _stats; },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Operations overview', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Live totals are based on records accessible to this administrator. Gross paid order value is not net revenue.'),
+      const SizedBox(height: 16),
+      FutureBuilder<Map<String, dynamic>>(future: _stats, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(40), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Dashboard unavailable', detail: 'Check database policies and try refreshing.', retry: () => setState(_refresh));
+        final s = snapshot.data!;
+        final paid = (((s['gross_paid_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        final refunds = (((s['refunds_succeeded_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+        return GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, childAspectRatio: 1.35, crossAxisSpacing: 10, mainAxisSpacing: 10, children: [
+          _Metric(title: 'All orders', value: (s['orders_total'] ?? 0).toString(), icon: Icons.receipt_long),
+          _Metric(title: 'Gross paid', value: '₹' + paid, icon: Icons.currency_rupee),
+          _Metric(title: 'Pending payment', value: (s['orders_pending_payment'] ?? 0).toString(), icon: Icons.pending_actions),
+          _Metric(title: 'Refunds succeeded', value: '₹' + refunds, icon: Icons.currency_exchange),
+          _Metric(title: 'Approved sellers', value: (s['sellers_approved'] ?? 0).toString(), icon: Icons.storefront),
+          _Metric(title: 'Pending sellers', value: (s['sellers_pending'] ?? 0).toString(), icon: Icons.store),
+          _Metric(title: 'Open deliveries', value: (s['delivery_jobs_open'] ?? 0).toString(), icon: Icons.local_shipping),
+          _Metric(title: 'Active dark stores', value: (s['dark_stores_active'] ?? 0).toString(), icon: Icons.warehouse_outlined),
+        ]);
+      }),
+      const SizedBox(height: 18),
+      const _InfoCard(icon: Icons.security, title: 'Admin actions are audited', detail: 'Partner roles, seller decisions and manual assignments are recorded in the audit log.'),
+      const SizedBox(height: 10),
+      const _InfoCard(icon: Icons.payments_outlined, title: 'Payment integration required', detail: 'Orders remain pending until a payment provider confirms payment. Do not dispatch unpaid orders.'),
+    ]));
+}
+
+class _OrdersTab extends StatefulWidget {
+  const _OrdersTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OrdersTab> createState() => _OrdersTabState();
+}
+class _OrdersTabState extends State<_OrdersTab> {
+  late Future<List<Map<String, dynamic>>> _orders;
+  late Future<List<Map<String, dynamic>>> _rides;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _orders = _loadRows(widget.client, 'orders', 'id,status,payment_status,total_minor,currency,created_at,seller_id');
+    _rides = _loadRows(widget.client, 'rides', 'id,status,driver_id,pickup_label,destination_label,fare_minor,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _assignDriver(Map<String, dynamic> ride) async {
+    final driverId = await _textPrompt(context, title: 'Assign driver', label: 'Approved driver partner user UUID');
+    if (driverId == null || driverId.trim().isEmpty || !mounted) return;
+    try {
+      await widget.client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': driverId.trim()});
+      if (mounted) { setState(_refresh); _snack('Driver assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Driver assignment failed. Check the user UUID and ride status.'); }
+  }
+  Future<void> _assign(Map<String, dynamic> order) async {
+    if (order['payment_status'] != 'paid') { _snack('Payment is not confirmed. This order cannot be dispatched.'); return; }
+    final partnerId = await _textPrompt(context, title: 'Assign delivery partner', label: 'Approved delivery partner user ID');
+    if (partnerId == null || partnerId.trim().isEmpty || !mounted) return;
+    try {
+      final job = await widget.client.from('delivery_jobs').select('id').eq('order_id', order['id']).maybeSingle();
+      if (job == null) { _snack('This order has no delivery job yet.'); return; }
+      await widget.client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partnerId.trim()});
+      if (mounted) { setState(_refresh); _snack('Delivery partner assignment saved.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Assignment failed. Check partner ID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_orders, _rides]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Text('Orders', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6), const Text('Manual dispatch is available for payment-confirmed orders.'),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _orders, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const Padding(padding: EdgeInsets.all(30), child: Center(child: CircularProgressIndicator()));
+        if (snapshot.hasError) return _MessagePanel(title: 'Orders unavailable', detail: 'Check Supabase permissions and retry.', retry: () => setState(_refresh));
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No orders yet', detail: 'New customer orders will appear here.');
+        return Column(children: rows.map((order) {
+          final total = ((order['total_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            title: Text('Order ' + order['id'].toString().substring(0, 8).toUpperCase()),
+            subtitle: Text(order['status'].toString() + ' • ' + order['payment_status'].toString() + ' • ₹' + total.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign delivery', onPressed: () => _assign(order), icon: const Icon(Icons.local_shipping_outlined)),
+          ));
+        }).toList());
+      }),
+      const SizedBox(height: 22),
+      Text('Ride requests', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 6),
+      const Text('Assign an approved driver manually, or enable automatic assignment in Service areas.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _rides, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Ride requests unavailable.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No ride requests', detail: 'New customer ride requests appear here.');
+        return Column(children: rows.map((ride) {
+          final fare = ((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100;
+          final driver = (ride['driver_id']?.toString() ?? '').isEmpty ? 'Unassigned' : 'Driver assigned';
+          return Card(child: ListTile(
+            leading: const Icon(Icons.directions_car_outlined),
+            title: Text(ride['pickup_label'].toString() + ' → ' + ride['destination_label'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(ride['status'].toString() + ' • ' + driver + ' • ₹' + fare.toStringAsFixed(2)),
+            trailing: IconButton(tooltip: 'Assign driver', onPressed: () => _assignDriver(ride), icon: const Icon(Icons.person_add_alt)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _OnboardingTab extends StatefulWidget {
+  const _OnboardingTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_OnboardingTab> createState() => _OnboardingTabState();
+}
+class _OnboardingTabState extends State<_OnboardingTab> {
+  late Future<List<Map<String, dynamic>>> _sellers;
+  late Future<List<Map<String, dynamic>>> _roles;
+  late Future<List<Map<String, dynamic>>> _stores;
+  late Future<List<Map<String, dynamic>>> _products;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _sellers = _loadRows(widget.client, 'sellers', 'id,owner_id,display_name,phone,contact_email,status,created_at');
+    _roles = _loadRows(widget.client, 'user_roles', 'id,user_id,role,created_at');
+    _stores = _loadRows(widget.client, 'dark_stores', 'id,owner_user_id,name,locality,status,created_at');
+    _products = _loadRows(widget.client, 'seller_products', 'id,seller_id,name,kind,price_minor,status,created_at');
+  }
+  void _snack(String message) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _setSellerStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_seller_status', params: {'p_seller_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Seller status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update seller status.'); }
+  }
+  Future<void> _setProductStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_product_status', params: {'p_product_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Product status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update product status.'); }
+  }
+  Future<void> _setStoreStatus(String id, String status) async {
+    try {
+      await widget.client.rpc('admin_set_dark_store_status', params: {'p_store_id': id, 'p_status': status});
+      if (mounted) { setState(_refresh); _snack('Dark-store status updated.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not update dark-store status.'); }
+  }
+  Future<void> _createDarkStore() async {
+    final owner = await _textPrompt(context, title: 'Onboard dark store', label: 'Existing operator Supabase user UUID');
+    if (owner == null || owner.trim().isEmpty || !mounted) return;
+    final name = await _textPrompt(context, title: 'Dark-store name', label: 'Store name');
+    if (name == null || name.trim().length < 2 || !mounted) return;
+    final locality = await _textPrompt(context, title: 'Dark-store locality', label: 'Village / locality / city (optional)');
+    if (!mounted) return;
+    try {
+      await widget.client.rpc('admin_create_dark_store', params: {
+        'p_owner_user_id': owner.trim(), 'p_name': name.trim(), 'p_locality': locality?.trim() ?? '',
+      });
+      if (mounted) { setState(_refresh); _snack('Dark store created as pending and operator role granted.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Could not create dark store. Check the user UUID.'); }
+  }
+  Future<void> _grantRole() async {
+    final id = await _textPrompt(context, title: 'Provision partner access', label: 'Existing Supabase user UUID');
+    if (id == null || id.trim().isEmpty || !mounted) return;
+    final role = await showDialog<String>(context: context, builder: (context) => SimpleDialog(
+      title: const Text('Select role'),
+      children: _rolesList.map((r) => SimpleDialogOption(onPressed: () => Navigator.pop(context, r), child: Text(r.replaceAll('_', ' ')))).toList(),
+    ));
+    if (role == null || !mounted) return;
+    try {
+      await widget.client.rpc('admin_grant_user_role', params: {'p_user_id': id.trim(), 'p_role': role});
+      if (mounted) { setState(_refresh); _snack('Role granted and audit record created.'); }
+    } on PostgrestException catch (e) { if (mounted) _snack(e.message); }
+    catch (_) { if (mounted) _snack('Role could not be granted. Check the UUID and permissions.'); }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_sellers, _roles, _stores, _products]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Onboarding', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        FilledButton.tonalIcon(onPressed: _grantRole, icon: const Icon(Icons.person_add_alt), label: const Text('Grant role')),
+      ]),
+      const SizedBox(height: 12), Text('Sellers', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _sellers, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load sellers.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.store_outlined, title: 'No seller applications', detail: 'Applications appear when sellers sign up.');
+        return Column(children: rows.map((row) => Card(child: Padding(padding: const EdgeInsets.all(12), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(row['display_name']?.toString() ?? 'Seller', style: const TextStyle(fontWeight: FontWeight.w800)),
+          const SizedBox(height: 4), Text(row['status'].toString() + ' • owner ' + row['owner_id'].toString()),
+          if ((row['phone']?.toString() ?? '').isNotEmpty) Text(row['phone'].toString()),
+          Wrap(spacing: 8, children: [
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'approved'), child: const Text('Approve')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'rejected'), child: const Text('Reject')),
+            TextButton(onPressed: () => _setSellerStatus(row['id'].toString(), 'suspended'), child: const Text('Suspend')),
+          ]),
+        ])))).toList());
+      }),
+      const SizedBox(height: 18),
+      Row(children: [
+        Expanded(child: Text('Dark stores', style: Theme.of(context).textTheme.titleLarge)),
+        FilledButton.tonalIcon(onPressed: _createDarkStore, icon: const Icon(Icons.add_business_outlined), label: const Text('Add store')),
+      ]),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _stores, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load dark stores.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.warehouse_outlined, title: 'No dark stores', detail: 'Create a store for an existing operator account.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: const Icon(Icons.warehouse_outlined),
+          title: Text(r['name'].toString()),
+          subtitle: Text((r['locality']?.toString() ?? '') + ' • ' + r['status'].toString() + ' • ' + r['owner_user_id'].toString()),
+          trailing: PopupMenuButton<String>(
+            onSelected: (s) => _setStoreStatus(r['id'].toString(), s),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'active', child: Text('Activate')),
+              PopupMenuItem(value: 'pending', child: Text('Set pending')),
+              PopupMenuItem(value: 'suspended', child: Text('Suspend')),
+            ],
+          ),
+        ))).toList());
+      }),
+      const SizedBox(height: 18),
+      Text('Product listing moderation', style: Theme.of(context).textTheme.titleLarge),
+      const Text('Activate only listings belonging to approved sellers.'),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _products, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load product listings.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _InfoCard(icon: Icons.inventory_2_outlined, title: 'No product listings', detail: 'Seller drafts appear here for moderation.');
+        return Column(children: rows.take(100).map((p) {
+          final price = ((p['price_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: Padding(padding: const EdgeInsets.all(10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(p['name'].toString(), style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3), Text(p['kind'].toString() + ' • ₹' + price.toStringAsFixed(2) + ' • ' + p['status'].toString()),
+            Wrap(spacing: 6, children: [
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'active'), child: const Text('Activate')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'paused'), child: const Text('Pause')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'rejected'), child: const Text('Reject')),
+              TextButton(onPressed: () => _setProductStatus(p['id'].toString(), 'draft'), child: const Text('Return to draft')),
+            ]),
+          ])));
+        }).toList());
+      }),
+      const SizedBox(height: 16), Text('Granted partner and admin roles', style: Theme.of(context).textTheme.titleLarge),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _roles, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load role assignments.');
+        final rows = (snapshot.data ?? []).where((r) => r['role'] != 'customer').toList();
+        if (rows.isEmpty) return const Text('No privileged roles granted yet.');
+        return Column(children: rows.take(100).map((r) => Card(child: ListTile(
+          title: Text(r['role'].toString().replaceAll('_', ' ')), subtitle: Text(r['user_id'].toString()),
+          leading: const Icon(Icons.verified_user_outlined),
+        ))).toList());
+      }),
+    ]));
+}
+
+class _ServicesTab extends StatefulWidget {
+  const _ServicesTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ServicesTab> createState() => _ServicesTabState();
+}
+class _ServicesTabState extends State<_ServicesTab> {
+  late Future<List<Map<String, dynamic>>> _controls;
+  late Future<List<Map<String, dynamic>>> _pricing;
+  @override
+  void initState() { super.initState(); _refresh(); }
+  void _refresh() {
+    _controls = _loadRows(widget.client, 'service_controls', 'id,area_code,service,enabled,automatic_assignment,updated_at');
+    _pricing = _loadRows(widget.client, 'pricing_rules', 'id,service,city_code,base_fee_minor,per_km_minor,minimum_fee_minor,active,updated_at');
+  }
+  Future<void> _edit({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['area_code']?.toString() ?? 'DEFAULT');
+    String service = row?['service']?.toString() ?? 'food';
+    bool enabled = row?['enabled'] == true;
+    bool automatic = row?['automatic_assignment'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(builder: (context, setDialog) => AlertDialog(
+      title: Text(row == null ? 'Add service control' : 'Edit service control'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code (e.g. PRATAPGARH)')),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+          items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(), onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+        SwitchListTile(title: const Text('Service enabled'), value: enabled, onChanged: (v) => setDialog(() => enabled = v)),
+        SwitchListTile(title: const Text('Automatic assignment'), subtitle: const Text('Stores the mode preference; automated dispatch still needs an executor.'), value: automatic, onChanged: (v) => setDialog(() => automatic = v)),
+      ])),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'area': area.text.trim(), 'service': service, 'enabled': enabled, 'automatic': automatic}), child: const Text('Save')),
+      ],
+    )));
+    area.dispose();
+    if (result == null || result['area'] == '' || !mounted) return;
+    try {
+      await widget.client.rpc('admin_set_service_control', params: {'p_area_code': result['area'], 'p_service': result['service'], 'p_enabled': result['enabled'], 'p_automatic_assignment': result['automatic']});
+      if (mounted) { setState(_refresh); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Service control saved.'))); }
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+    catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save service control.'))); }
+  }
+  Future<void> _editPricing({Map<String, dynamic>? row}) async {
+    final area = TextEditingController(text: row?['city_code']?.toString() ?? 'DEFAULT');
+    final base = TextEditingController(text: row?['base_fee_minor']?.toString() ?? '0');
+    final perKm = TextEditingController(text: row?['per_km_minor']?.toString() ?? '0');
+    final minimum = TextEditingController(text: row?['minimum_fee_minor']?.toString() ?? '0');
+    String service = row?['service']?.toString() ?? 'food';
+    bool active = row?['active'] == true;
+    final result = await showDialog<Map<String, dynamic>>(context: context, builder: (context) => StatefulBuilder(
+      builder: (context, setDialog) => AlertDialog(
+        title: Text(row == null ? 'Add pricing rule' : 'Edit pricing rule'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: area, textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(labelText: 'City / area code', helperText: 'Must match the checkout area code or DEFAULT.')),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: service, decoration: const InputDecoration(labelText: 'Service'),
+            items: _services.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+            onChanged: (v) { if (v != null) setDialog(() => service = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per-kilometre fee (paise)')),
+          const SizedBox(height: 10),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (paise)')),
+          SwitchListTile(title: const Text('Pricing active'), subtitle: const Text('Activating pricing does not enable the service area by itself.'), value: active, onChanged: (v) => setDialog(() => active = v)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(context, {
+            'area': area.text.trim().isEmpty ? 'DEFAULT' : area.text.trim().toUpperCase(),
+            'service': service,
+            'base': int.tryParse(base.text.trim()),
+            'per_km': int.tryParse(perKm.text.trim()),
+            'minimum': int.tryParse(minimum.text.trim()),
+            'active': active,
+          }), child: const Text('Save')),
+        ],
+      ),
+    ));
+    area.dispose(); base.dispose(); perKm.dispose(); minimum.dispose();
+    if (result == null || !mounted) return;
+    final baseValue = result['base'] as int?;
+    final perKmValue = result['per_km'] as int?;
+    final minimumValue = result['minimum'] as int?;
+    if ((result['area'] as String).isEmpty || baseValue == null || perKmValue == null || minimumValue == null ||
+        baseValue < 0 || perKmValue < 0 || minimumValue < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid area code and non-negative integer fees in paise.')));
+      return;
+    }
+    try {
+      await widget.client.from('pricing_rules').upsert({
+        'service': result['service'],
+        'city_code': result['area'],
+        'base_fee_minor': baseValue,
+        'per_km_minor': perKmValue,
+        'minimum_fee_minor': minimumValue,
+        'active': result['active'],
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      if (mounted) {
+        setState(_refresh);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pricing rule saved. Fees are stored in paise.')));
+      }
+    } on PostgrestException catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    } catch (_) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save pricing rule. Check administrator permissions.')));
+    }
+  }
+  @override
+  Widget build(BuildContext context) => RefreshIndicator(onRefresh: () async { setState(_refresh); await Future.wait([_controls, _pricing]); },
+    child: ListView(padding: const EdgeInsets.all(16), children: [
+      Row(children: [
+        Expanded(child: Text('Service areas', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add service', onPressed: () => _edit(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const SizedBox(height: 8),
+      const _InfoCard(icon: Icons.map_outlined, title: 'Area-based controls', detail: 'Create a control for each launch area and service. Keep services disabled until operations are ready.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _controls, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load service controls.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No service controls yet', detail: 'Add an area and service to configure availability.');
+        return Column(children: rows.map((r) => Card(child: ListTile(
+          leading: Icon(r['enabled'] == true ? Icons.check_circle : Icons.pause_circle_outline, color: r['enabled'] == true ? Colors.green : Colors.orange),
+          title: Text(r['service'].toString() + ' • ' + r['area_code'].toString()),
+          subtitle: Text('Service ' + (r['enabled'] == true ? 'enabled' : 'disabled') + ' • automatic assignment ' + (r['automatic_assignment'] == true ? 'on' : 'off')),
+          trailing: IconButton(tooltip: 'Edit', onPressed: () => _edit(row: r), icon: const Icon(Icons.edit_outlined)),
+        ))).toList());
+      }),
+      const SizedBox(height: 22),
+      Row(children: [
+        Expanded(child: Text('Pricing rules', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800))),
+        IconButton(tooltip: 'Add pricing rule', onPressed: () => _editPricing(), icon: const Icon(Icons.add_circle_outline)),
+      ]),
+      const _InfoCard(icon: Icons.currency_rupee, title: 'Fees are entered in paise', detail: 'For example, ₹10.00 is 1000 paise. Activate a pricing rule and enable the same service in the matching area before accepting requests.'),
+      const SizedBox(height: 10),
+      FutureBuilder<List<Map<String, dynamic>>>(future: _pricing, builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) return const LinearProgressIndicator();
+        if (snapshot.hasError) return const Text('Could not load pricing rules.');
+        final rows = snapshot.data ?? [];
+        if (rows.isEmpty) return const _MessagePanel(title: 'No pricing rules configured', detail: 'Add a rule for each service and launch area before accepting bookings.');
+        return Column(children: rows.map((r) {
+          final base = ((r['base_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          final perKm = ((r['per_km_minor'] as num?)?.toInt() ?? 0) / 100;
+          final minimum = ((r['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100;
+          return Card(child: ListTile(
+            leading: Icon(r['active'] == true ? Icons.price_check : Icons.price_change_outlined,
+              color: r['active'] == true ? Colors.green : Colors.orange),
+            title: Text(r['service'].toString() + ' • ' + r['city_code'].toString()),
+            subtitle: Text('Base ₹' + base.toStringAsFixed(2) + ' • per km ₹' + perKm.toStringAsFixed(2) + ' • minimum ₹' + minimum.toStringAsFixed(2) + (r['active'] == true ? ' • Active' : ' • Inactive')),
+            trailing: IconButton(tooltip: 'Edit pricing', onPressed: () => _editPricing(row: r), icon: const Icon(Icons.edit_outlined)),
+          ));
+        }).toList());
+      }),
+    ]));
+}
+
+class _ContentTab extends StatefulWidget {
+  const _ContentTab({required this.client});
+  final SupabaseClient client;
+  @override
+  State<_ContentTab> createState() => _ContentTabState();
+}
+class _ContentTabState extends State<_ContentTab> with SingleTickerProviderStateMixin {
+  late final TabController _tabs;
+  late Future<List<Map<String, dynamic>>> _banners;
+  late Future<List<Map<String, dynamic>>> _offers;
+  @override
+  void initState() { super.initState(); _tabs = TabController(length: 2, vsync: this); _refresh(); }
+  @override
+  void dispose() { _tabs.dispose(); super.dispose(); }
+  void _refresh() {
+    _banners = _loadRows(widget.client, 'app_banners', 'id,title,subtitle,active,area_code,priority,created_at');
+    _offers = _loadRows(widget.client, 'offers', 'id,code,title,service,discount_type,discount_value,active,area_code,created_at');
+  }
+  Future<void> _setActive(String table, String id, bool active) async {
+    try {
+      await widget.client.from(table).update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', id);
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createBanner() async {
+    final title = TextEditingController(), subtitle = TextEditingController(), area = TextEditingController(text: 'DEFAULT');
+    final v = await showDialog<Map<String,String>>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Create banner'), content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: title, decoration: const InputDecoration(labelText: 'Title')),
+        const SizedBox(height: 8), TextField(controller: subtitle, decoration: const InputDecoration(labelText: 'Subtitle')),
+        const SizedBox(height: 8), TextField(controller: area, decoration: const InputDecoration(labelText: 'Area code')),
+      ])),
+      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(onPressed: () => Navigator.pop(context, {'title':title.text.trim(),'subtitle':subtitle.text.trim(),'area':area.text.trim()}), child: const Text('Create'))],
+    ));
+    title.dispose(); subtitle.dispose(); area.dispose();
+    if (v == null || v['title']!.length < 2 || !mounted) return;
+    try {
+      await widget.client.from('app_banners').insert({'title':v['title'],'subtitle':v['subtitle'],'area_code':v['area']!.isEmpty?'DEFAULT':v['area'],'created_by':widget.client.auth.currentUser?.id,'active':false,'priority':100});
+      if (mounted) setState(_refresh);
+    } on PostgrestException catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message))); }
+  }
+  Future<void> _createOffer() async {
+    final code = TextEditingController(), title = TextEditingController(), description = TextEditingController();
+    final area = TextEditingController(text: 'DEFAULT'), amount = TextEditingController(text: '10');
+    String service = 'food', type = 'percent';
+    final v = await showDialog<Map<String,dynamic>>(context: context, builder: (context) => StatefulBuilder(builder:(context, setDialog)=>AlertDialog(
+      title: const Text('Create offer'),
+      content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        TextField(controller: code, textCapitalization: TextCapitalization.characters, decoration: const InputDecoration(labelText:'Code (e.g. WELCOME10)')),
+        const SizedBox(height:8), TextField(controller:title, decoration: const InputDecoration(labelText:'Title')),
+        const SizedBox(height:8), TextField(controller:description, decoration: const InputDecoration(labelText:'Description')),
+        const SizedBox(height:8), TextField(controller:area, decoration: const InputDecoration(labelText:'Area code')),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:service, decoration:const InputDecoration(labelText:'Service'),
+          items:_services.map((s)=>DropdownMenuItem(value:s,child:Text(s))).toList(),onChanged:(v){if(v!=null)setDialog(()=>service=v);}),
+        const SizedBox(height:8), DropdownButtonFormField<String>(value:type, decoration:const InputDecoration(labelText:'Discount type'),
+          items:const [DropdownMenuItem(value:'percent',child:Text('Percent')),DropdownMenuItem(value:'flat',child:Text('Flat amount in paise'))],onChanged:(v){if(v!=null)setDialog(()=>type=v);}),
+        const SizedBox(height:8), TextField(controller:amount, keyboardType:TextInputType.number, decoration:InputDecoration(labelText:type=='percent'?'Percent (1–100)':'Amount in paise')),
+      ])),
+      actions:[TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Cancel')),
+        FilledButton(onPressed:()=>Navigator.pop(context,{'code':code.text.trim().toUpperCase(),'title':title.text.trim(),'description':description.text.trim(),'area':area.text.trim(),'service':service,'type':type,'amount':int.tryParse(amount.text.trim())??0}),child:const Text('Create'))],
+    )));
+    code.dispose(); title.dispose(); description.dispose(); area.dispose(); amount.dispose();
+    if(v==null || v['code'].toString().length<3 || v['title'].toString().length<2 || v['amount']<=0 || (v['type']=='percent' && v['amount']>100) || !mounted) return;
+    try {
+      await widget.client.from('offers').insert({'code':v['code'],'title':v['title'],'description':v['description'],'area_code':v['area'].toString().isEmpty?'DEFAULT':v['area'],
+        'service':v['service'],'discount_type':v['type'],'discount_value':v['amount'],'created_by':widget.client.auth.currentUser?.id,'active':false});
+      if(mounted)setState(_refresh);
+    } on PostgrestException catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(e.message)));}
+  }
+  @override
+  Widget build(BuildContext context) => Column(children: [
+    Material(color: Theme.of(context).colorScheme.surface, child: TabBar(controller:_tabs,tabs:const [Tab(text:'Banners'),Tab(text:'Offers')])),
+    Expanded(child: TabBarView(controller:_tabs,children:[
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _banners;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Customer banners',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createBanner,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_banners,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load banners.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No banners yet',detail:'Create a banner and activate it when content is ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString()), subtitle: Text(r['area_code'].toString() + ' • priority ' + r['priority'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('app_banners', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+      RefreshIndicator(onRefresh:() async {setState(_refresh); await _offers;},child:ListView(padding:const EdgeInsets.all(16),children:[
+        Row(children:[Expanded(child:Text('Offers and discounts',style:Theme.of(context).textTheme.titleLarge)),IconButton(onPressed:_createOffer,icon:const Icon(Icons.add_circle_outline))]),
+        FutureBuilder<List<Map<String,dynamic>>>(future:_offers,builder:(context,snapshot){
+          if(snapshot.connectionState!=ConnectionState.done)return const LinearProgressIndicator();
+          if(snapshot.hasError)return const Text('Could not load offers.');
+          final rows=snapshot.data??[];
+          if(rows.isEmpty)return const _MessagePanel(title:'No offers yet',detail:'Create offers and activate them when ready.');
+          return Column(children: rows.map((r) => Card(child: SwitchListTile(title: Text(r['title'].toString() + ' (' + r['code'].toString() + ')'), subtitle: Text(r['service'].toString() + ' • ' + r['discount_type'].toString() + ' ' + r['discount_value'].toString() + ' • ' + r['area_code'].toString()), value: r['active'] == true, onChanged: (v) => _setActive('offers', r['id'].toString(), v)))).toList());
+        }),
+      ])),
+    ])),
+  ]);
+}
+
+Future<String?> _textPrompt(BuildContext context, {required String title, required String label}) async {
+  final controller = TextEditingController();
+  final result = await showDialog<String>(context: context, builder: (context) => AlertDialog(
+    title: Text(title), content: TextField(controller: controller, decoration: InputDecoration(labelText: label)),
+    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Continue'))],
+  ));
+  controller.dispose();
+  return result;
+}
+
+class _Metric extends StatelessWidget {
+  const _Metric({required this.title, required this.value, required this.icon});
+  final String title, value;
+  final IconData icon;
+  @override
+  Widget build(BuildContext context) => Card(child: Padding(padding: const EdgeInsets.all(14), child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.center, children: [
+      Icon(icon, color: const Color(0xFF176B57)), const Spacer(),
+      Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+      Text(title, style: const TextStyle(color: Colors.black54)),
+    ])));
+}
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({required this.icon, required this.title, required this.detail});
+  final IconData icon;
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Card(child: ListTile(leading: Icon(icon, color: const Color(0xFF176B57)), title: Text(title), subtitle: Text(detail)));
+}
+class _MessagePanel extends StatelessWidget {
+  const _MessagePanel({required this.title, required this.detail, this.retry});
+  final String title, detail;
+  final VoidCallback? retry;
+  @override
+  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.all(20), child: Column(mainAxisSize: MainAxisSize.min, children: [
+    const Icon(Icons.inbox_outlined, size: 42), const SizedBox(height: 10),
+    Text(title, style: const TextStyle(fontWeight: FontWeight.w800), textAlign: TextAlign.center),
+    const SizedBox(height: 6), Text(detail, textAlign: TextAlign.center),
+    if (retry != null) TextButton(onPressed: retry, child: const Text('Retry')),
+  ]));
+}
