@@ -16,7 +16,7 @@ Future<void> main() async {
   if (config.supabaseUrl.isNotEmpty && config.supabaseAnonKey.isNotEmpty) {
     await Supabase.initialize(
       url: config.supabaseUrl,
-      anonKey: config.supabaseAnonKey,
+      publishableKey: config.supabaseAnonKey,
     );
   }
   MapboxService.configure(config.mapboxPublicToken);
@@ -264,7 +264,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   Widget _buildLocationCard() => Padding(
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
         child: InkWell(
-          onTap: () => Navigator.of(context).push(MaterialPageRoute<String>(builder: (_) => const CustomerLocationPage())).then((address) { if (address != null && mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Selected location: ' + address))); } }),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute<String>(builder: (_) => const CustomerLocationPage())).then((address) { if (address != null && mounted) { ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Selected location: $address'))); } }),
           borderRadius: BorderRadius.circular(20),
           child: Container(
             padding: const EdgeInsets.all(17),
