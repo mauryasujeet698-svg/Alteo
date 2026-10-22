@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import '../lib/main.dart';
+import 'package:alteo_seller/main.dart';
 
 void main() {
   test('role app has the expected Supabase role guard', () {
