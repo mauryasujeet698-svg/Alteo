@@ -1,0 +1,74 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../services/customer_content_service.dart';
+import '../services/service_browse_page.dart';
+
+class CustomerHomePage extends StatefulWidget {
+ const CustomerHomePage({super.key});
+ @override State<CustomerHomePage> createState()=>_CustomerHomePageState();
+}
+class _CustomerHomePageState extends State<CustomerHomePage> {
+ late final CustomerContentService content;
+ late Future<List<CustomerBanner>> banners;
+ late Future<List<CustomerProduct>> products;
+ String kind='all';
+ @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();}
+ void refresh(){banners=content.loadBanners();products=content.loadProducts(kind:kind=='all'?null:kind);}
+ @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
+  SliverToBoxAdapter(child:header()),
+  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,0,18,16),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch()),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:const Icon(Icons.tune_rounded),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
+  SliverToBoxAdapter(child:bannerList()),
+  SliverToBoxAdapter(child:section('Explore services','Everything you need, together')),
+  SliverToBoxAdapter(child:SizedBox(height:116,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[
+   service('Food',Icons.restaurant_rounded,const Color(0xFFFFE8D9),const Color(0xFFB94E18)),service('Quick',Icons.shopping_basket_rounded,const Color(0xFFE3F4D8),const Color(0xFF357A35)),service('Shop',Icons.shopping_bag_rounded,const Color(0xFFE5E9FF),const Color(0xFF4857B8)),service('Rides',Icons.directions_car_rounded,const Color(0xFFFFF0C7),const Color(0xFF8C6410)),service('Parcel',Icons.local_shipping_rounded,const Color(0xFFDDF3F1),const Color(0xFF187B73))
+  ]))),
+  SliverToBoxAdapter(child:section('Discover items','Listed by Alteo marketplace partners')),
+  SliverToBoxAdapter(child:SizedBox(height:42,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[filter('All','all'),filter('Groceries','quick'),filter('Food','food'),filter('Shopping','shopping')]))),
+  SliverToBoxAdapter(child:FutureBuilder<List<CustomerProduct>>(future:products,builder:(context,s){
+   if(s.connectionState==ConnectionState.waiting)return const Padding(padding:EdgeInsets.all(28),child:Center(child:CircularProgressIndicator()));
+   if(s.hasError)return empty('Could not load items','Check Supabase public read policies, then pull down to retry.');
+   final items=s.data??[];
+   if(items.isEmpty)return empty('Your marketplace is getting ready','Active products will appear here automatically when sellers publish them.');
+   return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
+  })),
+  const SliverToBoxAdapter(child:SizedBox(height:20))
+ ]));
+ Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,14,18,16),child:Row(children:[
+  Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.explore_rounded,color:Colors.white,size:27)),
+  const SizedBox(width:11),const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('DELIVERING TO',style:TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),SizedBox(height:3),Text('Choose your location  ⌄',style:TextStyle(fontSize:14,fontWeight:FontWeight.w800))])),
+  IconButton(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
+ ]));
+ Widget bannerList()=>SizedBox(height:185,child:FutureBuilder<List<CustomerBanner>>(future:banners,builder:(context,s){
+  if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
+  final list=s.data??[];if(list.isEmpty)return const SizedBox.shrink();
+  return PageView.builder(itemCount:list.length,controller:PageController(viewportFraction:.91),itemBuilder:(context,i){
+   final b=list[i];return Padding(padding:const EdgeInsets.fromLTRB(6,0,6,16),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Stack(fit:StackFit.expand,children:[
+    if(b.imageUrl.isNotEmpty)Image.network(b.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>gradient())else gradient(),
+    Container(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.centerLeft,end:Alignment.centerRight,colors:[Color(0xE815382E),Color(0x2038584A)]))),
+    Padding(padding:const EdgeInsets.all(20),child:Align(alignment:Alignment.centerLeft,child:SizedBox(width:245,child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
+     Text(b.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:24,height:1.05,fontWeight:FontWeight.w900,color:Colors.white)),
+     if(b.subtitle.isNotEmpty)...[const SizedBox(height:8),Text(b.subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,height:1.35,fontSize:12))],
+     const SizedBox(height:10),const Text('EXPLORE ALTEO  ›',style:TextStyle(color:Colors.white,letterSpacing:1,fontWeight:FontWeight.w800,fontSize:10))
+    ]))))
+   ])));
+  });
+ }));
+ Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
+ Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,16,18,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
+ Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:78,child:Column(children:[Container(width:64,height:64,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
+ Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(label),selected:kind==value,onSelected:(_)=>setState(()=>{kind=value,products=content.loadProducts(kind:kind=='all'?null:kind)})));
+ Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
+ Widget productCard(CustomerProduct p)=>Container(decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE7EBE7))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+  Expanded(child:ClipRRect(borderRadius:const BorderRadius.vertical(top:Radius.circular(17)),child:SizedBox(width:double.infinity,child:p.imageUrl.isEmpty?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))))))),
+  Padding(padding:const EdgeInsets.fromLTRB(11,10,11,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+   Text(p.name,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w800,height:1.25)),const SizedBox(height:5),Text(p.priceLabel,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),const SizedBox(height:8),
+   SizedBox(width:double.infinity,child:OutlinedButton(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Sign in to add items to your cart.'))),style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:8),minimumSize:Size.zero),child:const Text('Add')))
+  ]))
+ ]));
+}
+class _ProductSearch extends SearchDelegate<String>{
+ @override List<Widget>? buildActions(BuildContext context)=>[IconButton(onPressed:()=>query='',icon:const Icon(Icons.clear))];
+ @override Widget? buildLeading(BuildContext context)=>IconButton(onPressed:()=>close(context,''),icon:const Icon(Icons.arrow_back));
+ @override Widget buildResults(BuildContext context)=>const Center(child:Text('Catalogue search is being connected.'));
+ @override Widget buildSuggestions(BuildContext context)=>const Center(child:Text('Search the live Alteo catalogue.'));
+}
