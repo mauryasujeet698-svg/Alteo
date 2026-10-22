@@ -29,7 +29,11 @@ void main() {
   testWidgets('tapping a service opens its browse page', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
 
-    await tester.ensureVisible(find.text('Food'));
+    await tester.scrollUntilVisible(
+      find.text('Food'),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.tap(find.text('Food'));
     await tester.pumpAndSettle();
 
