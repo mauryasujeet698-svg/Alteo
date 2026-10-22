@@ -8,7 +8,7 @@ dependencies:
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.0
-  mapbox_maps_flutter: ^2.10.0
+  mapbox_maps_flutter: 2.10.0
   http: ^1.2.2
   alteo_role_app:
     path: ../../packages/role_app
