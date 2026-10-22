@@ -92,7 +92,7 @@ class _LoginScreenState extends State<_LoginScreen>{
       const SizedBox(height:16),FilledButton(onPressed:_busy?null:_submit,child:_busy?const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)):Text(_sent?'Verify and continue':'Send OTP')),
       if(_sent)TextButton(onPressed:_busy?null:()=>setState(()=>_sent=false),child:const Text('Change mobile number')),
     ])),
-  )))));
+  ))));
 }
 class _StoreRouter extends StatefulWidget {
   const _StoreRouter({required this.client,required this.user});
