@@ -13,12 +13,13 @@ void main() {
     expect(find.text('Set your delivery location'), findsOneWidget);
   });
 
-  testWidgets('tapping a service clearly communicates it is not live yet', (tester) async {
+  testWidgets('tapping a service opens its browse page', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
 
     await tester.tap(find.text('Food'));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Good food, made easy'), findsOneWidget);
+    expect(find.text('Restaurants'), findsOneWidget);
   });
 }
