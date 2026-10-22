@@ -19,6 +19,6 @@ void main() {
     await tester.tap(find.text('Food'));
     await tester.pump();
 
-    expect(find.text('Food is coming soon to Alteo.'), findsOneWidget);
+    expect(find.text('Good food, made easy'), findsOneWidget);
   });
 }
