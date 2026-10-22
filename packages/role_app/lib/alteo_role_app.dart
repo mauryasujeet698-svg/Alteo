@@ -67,21 +67,42 @@ class _AuthGate extends StatefulWidget {
 }
 class _AuthGateState extends State<_AuthGate> {
   User? user;
-  bool checkingRole = false, busy = false, otpSent = false;
+  bool checkingRole = false, busy = false, otpSent = false, usePhone = false;
   String? authError, roleError;
   late final TextEditingController phone, otp;
+  late final StreamSubscription<AuthState> authSubscription;
   @override
   void initState() {
     super.initState();
     phone = TextEditingController();
     otp = TextEditingController();
     user = widget.client.auth.currentUser;
-    widget.client.auth.onAuthStateChange.listen((event) {
-      if (mounted) setState(() => user = event.session?.user);
+    authSubscription = widget.client.auth.onAuthStateChange.listen((event) {
+      final signedInUser = event.session?.user;
+      if (signedInUser != null) {
+        enforceRole(signedInUser);
+      } else if (mounted) {
+        setState(() { user = null; checkingRole = false; });
+      }
     });
+    if (user != null) enforceRole(user!);
   }
   @override
-  void dispose() { phone.dispose(); otp.dispose(); super.dispose(); }
+  void dispose() { authSubscription.cancel(); phone.dispose(); otp.dispose(); super.dispose(); }
+
+  Future<void> googleSignIn() async {
+    setState(() { busy = true; authError = null; roleError = null; });
+    try {
+      await widget.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'alteo://login-callback',
+      );
+    } on AuthException catch (e) {
+      if (mounted) setState(() => authError = e.message);
+    } catch (_) {
+      if (mounted) setState(() => authError = 'Google sign-in could not start. Check Supabase Google provider and redirect settings.');
+    } finally { if (mounted) setState(() => busy = false); }
+  }
 
   Future<void> sendOtp() async {
     final value = phone.text.trim();
@@ -116,7 +137,7 @@ class _AuthGateState extends State<_AuthGate> {
   }
   Future<void> enforceRole(User value) async {
     final role = widget.definition.requiredRole;
-    if (role == null) { if (mounted) setState(() => user = value); return; }
+    if (role == null) { if (mounted) setState(() { user = value; roleError = null; }); return; }
     if (mounted) setState(() => checkingRole = true);
     try {
       final rows = await widget.client.from('user_roles').select('role').eq('user_id', value.id).eq('role', role).limit(1);
@@ -135,7 +156,7 @@ class _AuthGateState extends State<_AuthGate> {
     if (checkingRole) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     if (user != null) return _Home(definition: widget.definition, client: widget.client, user: user!, onSignOut: () async {
       await widget.client.auth.signOut();
-      if (mounted) setState(() { user = null; otpSent = false; otp.clear(); roleError = null; });
+      if (mounted) setState(() { user = null; otpSent = false; usePhone = false; otp.clear(); roleError = null; });
     });
     return Scaffold(
       appBar: AppBar(title: Text(widget.definition.appName)),
@@ -145,21 +166,37 @@ class _AuthGateState extends State<_AuthGate> {
           const Icon(Icons.lock_outline, size: 54), const SizedBox(height: 12),
           Text(widget.definition.roleLabel, style: Theme.of(context).textTheme.headlineSmall, textAlign: TextAlign.center),
           const SizedBox(height: 8),
-          const Text('Sign in by SMS. Partner access is checked using server-managed Supabase roles.', textAlign: TextAlign.center),
+          const Text('Continue with Google. Partner access is verified against server-managed Supabase roles.', textAlign: TextAlign.center),
           const SizedBox(height: 24),
-          TextField(controller: phone, keyboardType: TextInputType.phone, autocorrect: false, decoration: const InputDecoration(labelText: 'Phone number', hintText: '+919876543210', border: OutlineInputBorder())),
-          if (otpSent) ...[
-            const SizedBox(height: 12),
-            TextField(controller: otp, keyboardType: TextInputType.number, maxLength: 6, decoration: const InputDecoration(labelText: 'SMS verification code', border: OutlineInputBorder())),
+          if (!usePhone) ...[
+            FilledButton.icon(
+              onPressed: busy ? null : googleSignIn,
+              icon: const Icon(Icons.g_mobiledata, size: 28),
+              label: const Text('Continue with Google'),
+            ),
+            TextButton(
+              onPressed: busy ? null : () => setState(() { usePhone = true; authError = null; }),
+              child: const Text('Use phone number instead'),
+            ),
+          ] else ...[
+            TextField(controller: phone, keyboardType: TextInputType.phone, autocorrect: false,
+              decoration: const InputDecoration(labelText: 'Phone number (optional)', hintText: '+919876543210', border: OutlineInputBorder())),
+            if (otpSent) ...[
+              const SizedBox(height: 12),
+              TextField(controller: otp, keyboardType: TextInputType.number, maxLength: 6,
+                decoration: const InputDecoration(labelText: 'SMS verification code', border: OutlineInputBorder())),
+            ],
+            const SizedBox(height: 16),
+            FilledButton(onPressed: busy ? null : (otpSent ? verifyOtp : sendOtp), child: busy
+              ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+              : Text(otpSent ? 'Verify and sign in' : 'Send OTP')),
+            TextButton(onPressed: busy ? null : () => setState(() { usePhone = false; otpSent = false; otp.clear(); authError = null; }),
+              child: const Text('Back to Google sign-in')),
           ],
           if (authError != null || roleError != null) ...[
             const SizedBox(height: 8), Text(authError ?? roleError!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
           ],
-          const SizedBox(height: 16),
-          FilledButton(onPressed: busy ? null : (otpSent ? verifyOtp : sendOtp), child: busy
-            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-            : Text(otpSent ? 'Verify and sign in' : 'Send OTP')),
-          if (otpSent) TextButton(onPressed: busy ? null : () => setState(() { otpSent = false; otp.clear(); authError = null; }), child: const Text('Change phone number')),
+          if (busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
         ]),
       )))),
     );
