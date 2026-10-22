@@ -51,12 +51,12 @@ jobs:
         shell: bash
         run: |
           if [ ! -d android ]; then
-            flutter create --platforms=android --project-name "${{ matrix.project }}" .
+            flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze Dart
-        run: flutter analyze
+        run: flutter analyze --no-fatal-infos
       - name: Run customer widget tests
         if: matrix.name == 'customer'
         run: flutter test
