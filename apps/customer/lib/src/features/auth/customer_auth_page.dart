@@ -12,7 +12,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   String? error;
   @override void dispose() { phone.dispose(); code.dispose(); super.dispose(); }
   Future<void> sendCode() async {
-    if (!RegExp(r'^\+[1-9]\d{7,14}.hasMatch(phone.text.trim())) { setState(() => error = 'Use international format, e.g. +919876543210.'); return; }
+    if (!RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone.text.trim())) { setState(() => error = 'Use international format, e.g. +919876543210.'); return; }
     setState(() { busy = true; error = null; });
     try { await Supabase.instance.client.auth.signInWithOtp(phone: phone.text.trim()); if (mounted) setState(() => sent = true); }
     on AuthException catch (e) { if (mounted) setState(() => error = e.message.toLowerCase().contains('sms') || e.message.toLowerCase().contains('phone provider') ? 'Phone sign-in needs an SMS provider enabled in Supabase Auth settings.' : e.message); }
