@@ -8,12 +8,12 @@ class CustomerHomePage extends StatefulWidget {
  @override State<CustomerHomePage> createState()=>_CustomerHomePageState();
 }
 class _CustomerHomePageState extends State<CustomerHomePage> {
- late final CustomerContentService content;
+ CustomerContentService? content;
  late Future<List<CustomerBanner>> banners;
  late Future<List<CustomerProduct>> products;
  String kind='all';
  @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();}
- void refresh(){banners=content.loadBanners();products=content.loadProducts(kind:kind=='all'?null:kind);}
+ void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
   SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,0,18,16),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch()),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:const Icon(Icons.tune_rounded),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
@@ -56,7 +56,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
  Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,16,18,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
  Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:78,child:Column(children:[Container(width:64,height:64,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
- Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(label),selected:kind==value,onSelected:(_)=>setState(()=>{kind=value,products=content.loadProducts(kind:kind=='all'?null:kind)})));
+ Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(label),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
  Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
  Widget productCard(CustomerProduct p)=>Container(decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE7EBE7))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
   Expanded(child:ClipRRect(borderRadius:const BorderRadius.vertical(top:Radius.circular(17)),child:SizedBox(width:double.infinity,child:p.imageUrl.isEmpty?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))))))),
