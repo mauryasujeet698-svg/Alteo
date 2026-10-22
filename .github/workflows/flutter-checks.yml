@@ -32,6 +32,29 @@ jobs:
         working-directory: apps/${{ matrix.app }}
         run: |
           flutter create --platforms=android --project-name=alteo_${{ matrix.app }} .
+          # Keep application IDs stable across builds so a signed APK can update the same app.
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          app = '${{ matrix.app }}'
+          package_ids = {
+              'customer': 'com.alteo.customer',
+              'admin': 'com.alteo.admin',
+              'driver_partner': 'com.alteo.driverpartner',
+              'delivery_partner': 'com.alteo.deliverypartner',
+              'seller': 'com.alteo.seller',
+              'dark_store': 'com.alteo.darkstore',
+          }
+          for name in ('android/app/build.gradle.kts', 'android/app/build.gradle'):
+              path = Path(name)
+              if path.exists():
+                  data = path.read_text()
+                  if path.suffix == '.kts':
+                      data = re.sub(r'applicationId\\s*=\\s*"[^"]+"', f'applicationId = "{package_ids[app]}"', data)
+                  else:
+                      data = re.sub(r'applicationId\\s+"[^"]+"', f'applicationId "{package_ids[app]}"', data)
+                  path.write_text(data)
+          PY
           python3 - <<'PY'
           from pathlib import Path
           # Mapbox's AndroidX dependencies require a recent Android API compile SDK.
@@ -59,9 +82,11 @@ jobs:
               xml = xml.replace('        </activity>', redirect + '        </activity>', 1)
               manifest.write_text(xml)
           PY
-      - name: Resolve dependencies
+      - name: Resolve and refresh compatible dependencies
         working-directory: apps/${{ matrix.app }}
-        run: flutter pub get
+        run: |
+          flutter pub upgrade
+          flutter pub get
       - name: Raise Mapbox Android library compile SDK
         if: matrix.app == 'customer'
         working-directory: apps/customer
