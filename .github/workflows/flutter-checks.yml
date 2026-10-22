@@ -31,30 +31,33 @@ jobs:
           fi
       - name: Resolve dependencies
         run: flutter pub get
-      - name: Align Android compile SDK with Mapbox dependencies
+      - name: Align Android compile SDK with AndroidX and Mapbox dependencies
         shell: bash
         run: |
           python3 - <<'PY'
           from pathlib import Path
           import re
-          app_gradle = Path("android/app/build.gradle")
-          app_kts = Path("android/app/build.gradle.kts")
-          target = app_gradle if app_gradle.exists() else app_kts
-          if target.exists():
+          android = Path('android')
+          for target in (android / 'app/build.gradle', android / 'app/build.gradle.kts'):
+              if not target.exists():
+                  continue
               text = target.read_text()
-              if target.suffix == ".kts":
+              if target.suffix == '.kts':
                   text = re.sub(r'compileSdk\s*=\s*flutter\.compileSdkVersion', 'compileSdk = 36', text)
                   text = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 36', text)
               else:
                   text = re.sub(r'compileSdkVersion\s+flutter\.compileSdkVersion', 'compileSdkVersion 36', text)
                   text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
               target.write_text(text)
-          plugin = Path.home() / ".pub-cache/hosted/pub.dev/mapbox_maps_flutter-2.10.0/android/build.gradle"
-          if plugin.exists():
-              text = plugin.read_text()
-              text = re.sub(r'compileSdkVersion\s+33\b', 'compileSdkVersion 36', text)
-              text = re.sub(r'compileSdk\s*=\s*33\b', 'compileSdk = 36', text)
-              plugin.write_text(text)
+          cache = Path.home() / '.pub-cache/hosted/pub.dev'
+          for plugin_dir in cache.glob('mapbox_maps_flutter-*'):
+              for target in (plugin_dir / 'android/build.gradle', plugin_dir / 'android/build.gradle.kts'):
+                  if not target.exists():
+                      continue
+                  text = target.read_text()
+                  text = re.sub(r'compileSdkVersion\s+\d+', 'compileSdkVersion 36', text)
+                  text = re.sub(r'compileSdk\s*=\s*\d+', 'compileSdk = 36', text)
+                  target.write_text(text)
           PY
       - name: Analyze
         run: flutter analyze
