@@ -43,7 +43,7 @@ class _RoleGateState extends State<RoleGate> {
    final user=Supabase.instance.client.auth.currentUser!;
    final row=await Supabase.instance.client.from('user_roles').select('role').eq('user_id',user.id).eq('role',requiredRole).maybeSingle();
    if(row==null){await Supabase.instance.client.auth.signOut();setState(()=>error='This account is not approved for the $requiredRole app. Contact Alteo support.');}
-   else setState(()=>authorized=true);
+   else { setState(()=>authorized=true); }
   }catch(e){setState(()=>error='Verification or role check failed: $e');}
   finally{if(mounted)setState(()=>busy=false);}
  }
