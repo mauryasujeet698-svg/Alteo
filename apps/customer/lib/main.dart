@@ -45,6 +45,6 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
 class _StartupErrorPage extends StatelessWidget {
  const _StartupErrorPage({required this.message}); final String message;
  @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
-  const Icon(Icons.cloud_off_rounded,size:58,color:Color(0xFF176B57)),const SizedBox(height:18),const Text('Alteo needs a connection',style:TextStyle(fontSize:23,fontWeight:FontWeight.w900),textAlign:TextAlign.center),const SizedBox(height:12),Text(message,textAlign:TextAlign.center,style:const TextStyle(height:1.5,color:Color(0xFF68736D))),const SizedBox(height:20),FilledButton(onPressed:()=>main(),child:const Text('Retry setup'))
+  const Icon(Icons.cloud_off_rounded,size:58,color:Color(0xFF176B57)),const SizedBox(height:18),const Text('Alteo needs a connection',style:TextStyle(fontSize:23,fontWeight:FontWeight.w900),textAlign:TextAlign.center),const SizedBox(height:12),Text(message,textAlign:TextAlign.center,style:const TextStyle(height:1.5,color:Color(0xFF68736D))),const SizedBox(height:20),const Text('Check the app configuration and reopen Alteo.',textAlign:TextAlign.center)
  ])))));
 }
