@@ -114,18 +114,25 @@ jobs:
           if not matches:
               raise SystemExit('Mapbox Android Gradle file not found in pub cache')
           for path in matches:
-              text = path.read_text()
-              # Force every Mapbox Android compileSdk declaration to a modern SDK.
-              updated = re.sub(r'(?m)^(\s*compileSdkVersion\s+)(?:flutter\.compileSdkVersion|\d+)', r'\g<1>36', text)
-              updated = re.sub(r'(?m)^(\s*compileSdk\s*=\s*)(?:flutter\.compileSdkVersion|\d+)', r'\g<1>36', updated)
-              updated = re.sub(r'(?m)^(\s*compileSdk\s+)(?:flutter\.compileSdkVersion|\d+)', r'\g<1>36', updated)
-              if re.search(r'(?m)^\s*compileSdk(?:Version)?\s*(?:=\s*|\s+)(?:flutter\.compileSdkVersion|\d+)', updated):
-                  raise SystemExit(f'Could not patch compile SDK in {path}')
-              if not re.search(r'(?m)^\s*compileSdk(?:Version)?\s*(?:=\s*|\s+)36\b', updated):
-                  raise SystemExit(f'No compile SDK declaration patched in {path}')
+              original = path.read_text()
+              lines = original.splitlines()
+              found = False
+              for i, line in enumerate(lines):
+                  if re.match(r'^\\s*compileSdk(?:Version)?\\b', line):
+                      indent = re.match(r'^\\s*', line).group(0)
+                      if 'compileSdkVersion' in line:
+                          lines[i] = indent + 'compileSdkVersion 36'
+                      elif '=' in line:
+                          lines[i] = indent + 'compileSdk = 36'
+                      else:
+                          lines[i] = indent + 'compileSdk 36'
+                      found = True
+              if not found:
+                  raise SystemExit(f'No compileSdk declaration found in {path}; inspect plugin build file')
+              updated = '\\n'.join(lines) + '\\n'
               path.write_text(updated)
-              print(f'Patched Mapbox compile SDK in {path}')
-              print('\n'.join(line for line in updated.splitlines() if 'compileSdk' in line))
+              print(f'Patched {path}:')
+              print('\\n'.join(line for line in lines if 'compileSdk' in line))
           PY
       - name: Analyze
         working-directory: apps/${{ matrix.app }}
