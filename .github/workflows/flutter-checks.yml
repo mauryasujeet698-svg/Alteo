@@ -85,9 +85,23 @@ jobs:
         run: |
           flutter clean
           rm -rf android/.gradle android/app/build
+      - name: Pin compatible Android preferences plugin
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pubspec.yaml')
+          text = path.read_text()
+          if 'dependency_overrides:' not in text:
+              text += '\\ndependency_overrides:\\n  shared_preferences_android: ^2.4.15\\n'
+          elif 'shared_preferences_android:' not in text:
+              text += '\\n  shared_preferences_android: ^2.4.15\\n'
+          path.write_text(text)
+          print('Pinned shared_preferences_android to a compatible maintained release')
+          PY
       - name: Resolve compatible dependencies
         working-directory: apps/${{ matrix.app }}
-        run: flutter pub get
+        run: flutter pub upgrade
       - name: Raise Mapbox Android library compile SDK
         if: matrix.app == 'customer'
         working-directory: apps/customer
@@ -122,7 +136,7 @@ jobs:
       - name: Build release APK
         working-directory: apps/${{ matrix.app }}
         run: >-
-          flutter build apk --release --split-per-abi --no-pub
+          flutter build apk --release --no-pub
           --build-number=${{ github.run_number }}
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://nkerkoptbrcadlpxffkn.supabase.co' }}
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rZXJrb3B0YnJjYWRscHhmZmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1NzMzOTUsImV4cCI6MjEwODE0OTM5NX0.Ib5Lm42UvdAXURgH-g26Vp2i-UVM86vH2q4A-Ht1T1g' }}
