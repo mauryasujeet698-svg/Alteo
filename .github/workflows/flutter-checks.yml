@@ -49,9 +49,9 @@ jobs:
               if path.exists():
                   data = path.read_text()
                   if path.suffix == '.kts':
-                      data = re.sub(r'applicationId\\s*=\\s*"[^"]+"', f'applicationId = "{package_ids[app]}"', data)
+                      data = re.sub(r'applicationId\s*=\s*"[^"]+"', f'applicationId = "{package_ids[app]}"', data)
                   else:
-                      data = re.sub(r'applicationId\\s+"[^"]+"', f'applicationId "{package_ids[app]}"', data)
+                      data = re.sub(r'applicationId\s+"[^"]+"', f'applicationId "{package_ids[app]}"', data)
                   path.write_text(data)
           PY
           python3 - <<'PY'
@@ -80,11 +80,14 @@ jobs:
               xml = xml.replace('        </activity>', redirect + '        </activity>', 1)
               manifest.write_text(xml)
           PY
-      - name: Resolve and refresh compatible dependencies
+      - name: Clean stale Android and Flutter outputs
         working-directory: apps/${{ matrix.app }}
         run: |
-          flutter pub upgrade
-          flutter pub get
+          flutter clean
+          rm -rf android/.gradle android/app/build
+      - name: Resolve compatible dependencies
+        working-directory: apps/${{ matrix.app }}
+        run: flutter pub get
       - name: Raise Mapbox Android library compile SDK
         if: matrix.app == 'customer'
         working-directory: apps/customer
@@ -98,14 +101,14 @@ jobs:
               raise SystemExit('Mapbox Android Gradle file not found in pub cache')
           for path in matches:
               text = path.read_text()
-              updated = re.sub(r'(compileSdkVersion\\s+)(?:flutter\\.compileSdkVersion|33|34|35)\\b', r'\\g<1>36', text)
-              updated = re.sub(r'(compileSdk\\s*=\\s*)(?:flutter\\.compileSdkVersion|33|34|35)\\b', r'\\g<1>36', updated)
-              updated = re.sub(r'(compileSdk\\s+)(?:flutter\\.compileSdkVersion|33|34|35)\\b', r'\\g<1>36', updated)
-              if re.search(r'compileSdk(?:Version)?\\s*(?:=\\s*|\\s+)(?:flutter\\.compileSdkVersion|33|34|35)\\b', updated):
+              updated = re.sub(r'(compileSdkVersion\s+)(?:flutter\.compileSdkVersion|33|34|35)\b', r'\g<1>36', text)
+              updated = re.sub(r'(compileSdk\s*=\s*)(?:flutter\.compileSdkVersion|33|34|35)\b', r'\g<1>36', updated)
+              updated = re.sub(r'(compileSdk\s+)(?:flutter\.compileSdkVersion|33|34|35)\b', r'\g<1>36', updated)
+              if re.search(r'compileSdk(?:Version)?\s*(?:=\s*|\s+)(?:flutter\.compileSdkVersion|33|34|35)\b', updated):
                   raise SystemExit(f'Could not patch compile SDK in {path}')
               path.write_text(updated)
               print(f'Patched Mapbox compile SDK in {path}')
-              print('\\n'.join(line for line in updated.splitlines() if 'compileSdk' in line))
+              print('\n'.join(line for line in updated.splitlines() if 'compileSdk' in line))
           PY
       - name: Analyze
         working-directory: apps/${{ matrix.app }}
@@ -116,7 +119,7 @@ jobs:
       - name: Build release APK
         working-directory: apps/${{ matrix.app }}
         run: >-
-          flutter build apk --release --no-pub
+          flutter build apk --release --split-per-abi --no-pub
           --build-number=${{ github.run_number }}
           --dart-define=SUPABASE_URL=${{ secrets.SUPABASE_URL || 'https://nkerkoptbrcadlpxffkn.supabase.co' }}
           --dart-define=SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5rZXJrb3B0YnJjYWRscHhmZmtuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI1NzMzOTUsImV4cCI6MjEwODE0OTM5NX0.Ib5Lm42UvdAXURgH-g26Vp2i-UVM86vH2q4A-Ht1T1g' }}
@@ -125,7 +128,7 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alteo-${{ matrix.app }}-android-apk
-          path: apps/${{ matrix.app }}/build/app/outputs/flutter-apk/app-release.apk
+          name: alteo-${{ matrix.app }}-android-apks
+          path: apps/${{ matrix.app }}/build/app/outputs/flutter-apk/*.apk
           if-no-files-found: error
           retention-days: 14
