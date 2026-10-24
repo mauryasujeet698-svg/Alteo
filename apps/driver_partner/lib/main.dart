@@ -66,15 +66,18 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   @override
   void initState() {
     super.initState();
-    authSubscription = Supabase.instance.client.auth.onAuthStateChange.listen((state) {
-      if (state.session != null) {
-        _checkRole();
-      } else if (mounted && authorized) {
-        setState(() => authorized = false);
-      }
-    });
-    if (Supabase.instance.client.auth.currentSession != null) {
-      _checkRole();
+    try {
+      final auth = Supabase.instance.client.auth;
+      authSubscription = auth.onAuthStateChange.listen((state) {
+        if (state.session != null) {
+          _checkRole();
+        } else if (mounted && authorized) {
+          setState(() => authorized = false);
+        }
+      });
+      if (auth.currentSession != null) _checkRole();
+    } catch (_) {
+      // Public exploration must work in tests and when Supabase is unavailable.
     }
   }
 
