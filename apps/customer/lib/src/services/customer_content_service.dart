@@ -1,9 +1,9 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CustomerBanner {
-  const CustomerBanner(this.title, this.subtitle, this.imageUrl);
-  final String title, subtitle, imageUrl;
-  factory CustomerBanner.fromMap(Map<String, dynamic> m) => CustomerBanner((m['title'] as String?) ?? '', (m['subtitle'] as String?) ?? '', (m['image_url'] as String?) ?? '');
+  const CustomerBanner(this.title, this.subtitle, this.imageUrl, this.actionType, this.actionValue);
+  final String title, subtitle, imageUrl, actionType, actionValue;
+  factory CustomerBanner.fromMap(Map<String, dynamic> m) => CustomerBanner((m['title'] as String?) ?? '', (m['subtitle'] as String?) ?? '', (m['image_url'] as String?) ?? '', (m['action_type'] as String?) ?? 'none', (m['action_value'] as String?) ?? '');
 }
 class CustomerProduct {
   const CustomerProduct(this.id, this.name, this.description, this.priceMinor, this.imageUrl, this.kind);
@@ -16,7 +16,7 @@ class CustomerContentService {
   CustomerContentService(this.client);
   final SupabaseClient client;
   Future<List<CustomerBanner>> loadBanners() async {
-    final rows = await client.from('app_banners').select('title,subtitle,image_url,priority').eq('active', true).order('priority').limit(8);
+    final rows = await client.from('app_banners').select('title,subtitle,image_url,priority,action_type,action_value').eq('active', true).order('priority').limit(8);
     return (rows as List).map((e) => CustomerBanner.fromMap(Map<String,dynamic>.from(e as Map))).toList();
   }
   Future<void> addToCart(String productId) async {
