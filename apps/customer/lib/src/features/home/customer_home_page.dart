@@ -22,7 +22,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  final PageController bannerController = PageController(viewportFraction: .91);
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
- @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));});}catch(_) {}}
+ @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});}catch(_) {}}
  @override void dispose(){bannerSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
