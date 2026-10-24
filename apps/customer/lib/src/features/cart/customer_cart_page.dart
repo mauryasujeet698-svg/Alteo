@@ -16,47 +16,92 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   if(user==null)return [];
   final cart=await client.from('carts').select('id').eq('customer_id',user.id).eq('status','active').maybeSingle();
   if(cart==null)return [];
-  final rows=await client.from('cart_items').select('id,quantity,product_id,seller_products(name,price_minor,image_url)').eq('cart_id',cart['id']).order('created_at');
+  final rows=await client.from('cart_items').select('id,quantity,product_id,seller_products(name,price_minor,image_url,seller_id,kind)').eq('cart_id',cart['id']).order('created_at');
   return (rows as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
  }
 
  Future<void> checkout() async {
-  final address = TextEditingController();
+  final recipient = TextEditingController();
+  final phone = TextEditingController();
+  final addressLine = TextEditingController();
+  final city = TextEditingController();
+  final stateName = TextEditingController();
+  final postalCode = TextEditingController();
   try {
    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-    title: const Text('Delivery address'),
-    content: TextField(
-     controller: address,
-     minLines: 2,
-     maxLines: 4,
-     decoration: const InputDecoration(labelText: 'Full delivery address', hintText: 'House, street, area, city, PIN code', border: OutlineInputBorder()),
-    ),
+    title: const Text('Delivery details'),
+    content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+     TextField(controller: recipient, decoration: const InputDecoration(labelText: 'Recipient name')),
+     TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number')),
+     TextField(controller: addressLine, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'House and street')),
+     TextField(controller: city, decoration: const InputDecoration(labelText: 'City')),
+     TextField(controller: stateName, decoration: const InputDecoration(labelText: 'State')),
+     TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN code')),
+    ])),
     actions: [
      TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-     FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Place COD order')),
+     FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create order')),
     ],
    ));
    if (confirmed != true || !mounted) return;
-   if (address.text.trim().length < 8) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a complete delivery address.')));
+   if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
+       addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
+       stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete all delivery details before continuing.')));
     return;
    }
+
+   final client = Supabase.instance.client;
+   final user = client.auth.currentUser;
+   if (user == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in is required to place an order. You can keep exploring without signing in.')));
+    return;
+   }
+   final cart = await client.from('carts').select('id').eq('customer_id', user.id).eq('status', 'active').maybeSingle();
+   if (cart == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your cart is empty.')));
+    return;
+   }
+   final currentItems = await load();
+   if (currentItems.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your cart is empty.')));
+    return;
+   }
+   final payload = currentItems.map((row) => <String, dynamic>{
+    'product_id': row['product_id'],
+    'quantity': row['quantity'],
+   }).toList();
+
    try {
-    final result = await Supabase.instance.client.rpc('create_orders_from_cart', params: {
-     'delivery_address': {'address_line': address.text.trim()},
-     'customer_note': '',
+    final orderId = await client.rpc('create_customer_order', params: {
+     'p_items': payload,
+     'p_delivery_address': {
+      'recipient_name': recipient.text.trim(),
+      'phone': phone.text.trim(),
+      'address_line1': addressLine.text.trim(),
+      'city': city.text.trim(),
+      'state': stateName.text.trim(),
+      'postal_code': postalCode.text.trim(),
+      'area_code': 'DEFAULT',
+     },
+     'p_idempotency_key': 'cart-' + cart['id'].toString(),
     });
+    await client.from('carts').update({'status': 'converted'}).eq('id', cart['id']);
     if (!mounted) return;
-    final count = result is List ? result.length : 1;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(count == 1 ? 'Order placed. Cash on delivery.' : count.toString() + ' seller orders placed. Cash on delivery.')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Order ' + orderId.toString().substring(0, 8) + ' created. Payment is still required before fulfilment begins.')));
     setState(() => items = load());
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
    } catch (e) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not place order. Confirm the checkout migration is applied and stock is available. ' + e.toString())));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create the order. Check service availability, pricing and payment setup. ' + e.toString())));
    }
   } finally {
-   address.dispose();
+   recipient.dispose();
+   phone.dispose();
+   addressLine.dispose();
+   city.dispose();
+   stateName.dispose();
+   postalCode.dispose();
   }
  }
 
@@ -74,7 +119,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      final row=list[i],p=(row['seller_products'] as Map?)??{};
      return Card(elevation:0,color:Colors.white,child:ListTile(title:Text((p['name'] as String?)??'Item',style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text('Qty: ${row['quantity']}'),trailing:Text('₹${((((p['price_minor'] as num?)?.toInt()??0)*(row['quantity'] as int? ??1))/100).toStringAsFixed(0)}',style:const TextStyle(fontWeight:FontWeight.w900,color:Color(0xFF176B57)))));
     })),
-    SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('Cash on delivery. Your address and stock availability are validated before the order is created.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Place order · Cash on delivery')))])))
+    SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('The backend validates your address, prices and service availability. Payment is required before fulfilment begins.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Create order · Payment required')))])))
    ]);
   }));
  }
