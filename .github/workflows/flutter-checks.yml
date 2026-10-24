@@ -70,15 +70,15 @@ jobs:
         env:
           MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
         run: flutter build apk --release --target-platform android-arm64 --dart-define=MAPBOX_PUBLIC_TOKEN="$MAPBOX_PUBLIC_TOKEN"
-      - name: Enforce APK size limit (15 MiB)
+      - name: Enforce APK size limit (15 MB)
         shell: bash
         run: |
           APK="build/app/outputs/flutter-apk/app-release.apk"
           test -f "$APK"
           BYTES=$(stat -c%s "$APK")
           echo "APK size: $BYTES bytes"
-          if [ "$BYTES" -gt 15728640 ]; then
-            echo "APK exceeds the 15 MiB release limit."
+          if [ "$BYTES" -gt 15000000 ]; then
+            echo "APK exceeds the 15 MB release limit."
             exit 1
           fi
       - name: Upload release APK
