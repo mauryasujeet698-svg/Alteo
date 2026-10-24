@@ -778,7 +778,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 title: Text(product['name']?.toString() ?? 'Product'),
                 subtitle: Text('Stock: ' + (item['stock_on_hand']?.toString() ?? '0') + ' · Reserved: ' + (item['reserved_quantity']?.toString() ?? '0')),
                 trailing: IconButton(tooltip: 'Set stock', icon: const Icon(Icons.edit_outlined), onPressed: () => _setStoreStock(storeId, item['product_id'] as String, product['name']?.toString() ?? 'Product', item['stock_on_hand'] as int? ?? 0)),
-              );
+              ));
             }).toList());
           },
         ),
