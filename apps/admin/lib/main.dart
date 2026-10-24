@@ -255,6 +255,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   late Future<Map<String, dynamic>?> storeProfile;
   final roleUserId = TextEditingController();
   String grantRole = 'delivery_partner';
+  bool partnerOnline = false;
 
   @override
   void initState() {
@@ -266,6 +267,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     storeProfile = requiredRole == 'dark_store' && user != null
       ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle()
       : Future.value(null);
+    if ((requiredRole == 'driver_partner' || requiredRole == 'delivery_partner') && user != null) _loadAvailability();
   }
 
   @override
@@ -286,6 +288,39 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       notice('Action failed: ' + e.toString());
     }
   }
+
+
+  Future<void> _loadAvailability() async {
+    try {
+      final row = await client.from('partner_presence').select('is_online')
+        .eq('user_id', user!.id).eq('role', requiredRole).maybeSingle();
+      if (mounted) setState(() => partnerOnline = row?['is_online'] as bool? ?? false);
+    } catch (_) {}
+  }
+
+  Future<void> _setAvailability() async {
+    final next = !partnerOnline;
+    try {
+      await client.rpc('partner_set_availability', params: {
+        'p_role': requiredRole,
+        'p_area_code': 'DEFAULT',
+        'p_is_online': next,
+      });
+      if (mounted) setState(() => partnerOnline = next);
+      notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
+    } catch (e) {
+      notice('Could not update availability: ' + e.toString());
+    }
+  }
+
+  PreferredSizeWidget _partnerAppBar(String title) => AppBar(title: Text(title), actions: [
+    TextButton.icon(
+      onPressed: _setAvailability,
+      icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
+      label: Text(partnerOnline ? 'Online' : 'Go online'),
+    ),
+    IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+  ]);
 
   Future<void> grantUserRole() async {
     final id = roleUserId.text.trim();
@@ -474,7 +509,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
   Widget _driverDashboard() => Scaffold(
-    appBar: _appBar('My rides'),
+    appBar: _partnerAppBar('My rides'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
       stream: client.from('rides').stream(primaryKey: ['id']).eq('driver_id', user!.id).order('created_at', ascending: false),
       builder: (context, s) {
@@ -499,7 +534,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
   Widget _deliveryDashboard() => Scaffold(
-    appBar: _appBar('My deliveries'),
+    appBar: _partnerAppBar('My deliveries'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
       stream: client.from('delivery_jobs').stream(primaryKey: ['id']).eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
       builder: (context, s) {
