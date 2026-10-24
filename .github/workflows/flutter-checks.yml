@@ -26,21 +26,27 @@ jobs:
           - app: apps/customer
             name: customer
             project: alteo_customer
+            scheme: com.alteo.customer
           - app: apps/admin
             name: admin
             project: alteo_admin
+            scheme: com.alteo.admin
           - app: apps/seller
             name: seller
             project: alteo_seller
+            scheme: com.alteo.seller
           - app: apps/driver_partner
             name: driver-partner
             project: alteo_driver_partner
+            scheme: com.alteo.driverpartner
           - app: apps/delivery_partner
             name: delivery-partner
             project: alteo_delivery_partner
+            scheme: com.alteo.deliverypartner
           - app: apps/dark_store
             name: dark-store
             project: alteo_dark_store
+            scheme: com.alteo.darkstore
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -62,6 +68,38 @@ jobs:
           if [ ! -d android ]; then
             flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
+      - name: Configure Google OAuth deep links and microphone permission
+        env:
+          ALTEO_REDIRECT_SCHEME: ${{ matrix.scheme }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          if not manifest.exists():
+              raise SystemExit("AndroidManifest.xml was not generated")
+          text = manifest.read_text()
+          permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />'
+          if "android.permission.RECORD_AUDIO" not in text:
+              text = text.replace("<application", permission + "\\n    <application", 1)
+          scheme = os.environ["ALTEO_REDIRECT_SCHEME"]
+          if f'android:scheme="{scheme}"' not in text:
+              start = text.find('<activity')
+              end = text.find('</activity>', start)
+              if start < 0 or end < 0:
+                  raise SystemExit("Main Android activity was not found")
+              deep_link = f'''            <intent-filter>
+                          <action android:name="android.intent.action.VIEW" />
+                          <category android:name="android.intent.category.DEFAULT" />
+                          <category android:name="android.intent.category.BROWSABLE" />
+                          <data android:scheme="{scheme}" android:host="login-callback" />
+                      </intent-filter>
+          '''
+              text = text[:end] + deep_link + text[end:]
+          manifest.write_text(text)
+          print("Configured OAuth deep link and voice-search permission:", scheme)
+          PY
       - name: Compress native libraries inside APK
         shell: bash
         run: |
