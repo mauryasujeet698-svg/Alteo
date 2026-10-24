@@ -76,69 +76,71 @@ class _AuthGateState extends State<_AuthGate> {
 }
 
 class _LoginScreen extends StatefulWidget {
-  const _LoginScreen({required this.client});
+  const _LoginScreen({super.key, required this.client});
   final SupabaseClient client;
   @override
-  State<_LoginScreen> createState() => _LoginScreenState();
+  State<_LoginScreen> createState() => __LoginScreenState();
 }
-class _LoginScreenState extends State<_LoginScreen> {
-  final _phone = TextEditingController();
-  final _otp = TextEditingController();
-  bool _sent = false, _busy = false;
+class __LoginScreenState extends State<_LoginScreen> {
+  bool _busy = false;
   String? _error;
-  @override
-  void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
-  Future<void> _submit() async {
-    final phone = _phone.text.trim();
-    if (!_sent && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
-      setState(() => _error = 'Enter phone with country code, e.g. +919876543210.');
-      return;
-    }
-    if (_sent && !RegExp(r'^\d{6}$').hasMatch(_otp.text.trim())) {
-      setState(() => _error = 'Enter the six-digit code.');
-      return;
-    }
+
+  Future<void> _googleSignIn() async {
     setState(() { _busy = true; _error = null; });
     try {
-      if (!_sent) {
-        await widget.client.auth.signInWithOtp(phone: phone);
-        if (mounted) setState(() => _sent = true);
-      } else {
-        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
-      }
+      await widget.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: 'alteo://login-callback',
+      );
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Sign-in failed. Check SMS provider configuration.');
-    } finally { if (mounted) setState(() => _busy = false); }
+      if (mounted) setState(() => _error = 'Google sign-in could not start. Check that Google is enabled in Supabase Auth and the Alteo redirect URL is allowed.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
+
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
-    padding: const EdgeInsets.all(24),
-    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Icon(Icons.delivery_dining, size: 62, color: Color(0xFF176B57)),
-        const SizedBox(height: 14), Text('Delivery partner sign-in', textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8), const Text('Use your approved Alteo partner phone number.', textAlign: TextAlign.center),
-        const SizedBox(height: 24),
-        TextField(controller: _phone, keyboardType: TextInputType.phone,
-          decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+919876543210')),
-        if (_sent) ...[
-          const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
-            decoration: const InputDecoration(labelText: 'SMS code')),
-        ],
-        if (_error != null) Padding(padding: const EdgeInsets.only(top: 10),
-          child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        const SizedBox(height: 16),
-        FilledButton(onPressed: _busy ? null : _submit, child: _busy
-          ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
-          : Text(_sent ? 'Verify and continue' : 'Send OTP')),
-        if (_sent) TextButton(onPressed: _busy ? null : () => setState(() { _sent = false; _otp.clear(); _error = null; }),
-          child: const Text('Change phone number')),
-      ],
-    )),
-  ))));
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.delivery_dining, size: 62, color: const Color(0xFF176B57)),
+                const SizedBox(height: 16),
+                Text("Delivery partner sign-in", textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                const Text("Sign in with Google using your approved Alteo delivery-partner account.", textAlign: TextAlign.center),
+                const SizedBox(height: 28),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _googleSignIn,
+                  icon: const Icon(Icons.g_mobiledata, size: 30),
+                  label: const Text('Sign in with Google'),
+                ),
+                if (_busy) const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                if (_error != null) Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(_error!, textAlign: TextAlign.center,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class _DeliveryRoleGate extends StatefulWidget {
