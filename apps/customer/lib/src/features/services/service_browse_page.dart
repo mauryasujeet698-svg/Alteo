@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
+import '../../services/mapbox_service.dart';
 
 class ServiceBrowsePage extends StatelessWidget {
   const ServiceBrowsePage({super.key, required this.service});
@@ -81,7 +82,7 @@ class ServiceBrowsePage extends StatelessWidget {
 
 
   Future<void> _requestService(BuildContext context, String type) async {
-    SupabaseClient? client;
+    SupabaseClient client;
     try {
       client = Supabase.instance.client;
     } catch (_) {
@@ -93,46 +94,88 @@ class ServiceBrowsePage extends StatelessWidget {
       await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
       if (!context.mounted) return;
       if (client.auth.currentUser == null) {
-        _showMessage(context, 'You can explore without signing in. Sign-in is required only to place a real request.');
+        _showMessage(context, 'Browsing is open. Sign-in is required only to place a real request.');
         return;
       }
     }
 
     final pickup = TextEditingController();
     final dropoff = TextEditingController();
+    final itemDescription = TextEditingController();
     try {
       final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: Text(type == 'ride' ? 'Request a ride' : 'Send a parcel'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
           TextField(controller: pickup, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'Pickup location', border: OutlineInputBorder())),
           const SizedBox(height: 12),
           TextField(controller: dropoff, minLines: 1, maxLines: 2, decoration: InputDecoration(labelText: type == 'ride' ? 'Destination' : 'Delivery address', border: const OutlineInputBorder())),
-        ]),
+          if (type == 'parcel') ...[
+            const SizedBox(height: 12),
+            TextField(controller: itemDescription, maxLength: 300, decoration: const InputDecoration(labelText: 'What are you sending?', border: OutlineInputBorder())),
+          ],
+        ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit request')),
         ],
       ));
       if (confirmed != true || !context.mounted) return;
-      if (pickup.text.trim().length < 4 || dropoff.text.trim().length < 4) {
-        _showMessage(context, 'Enter both pickup and destination details.');
+      if (pickup.text.trim().length < 4 || dropoff.text.trim().length < 4 ||
+          (type == 'parcel' && itemDescription.text.trim().length < 2)) {
+        _showMessage(context, 'Enter pickup and destination details' + (type == 'parcel' ? ', plus a short parcel description.' : '.'));
         return;
       }
       final user = client.auth.currentUser;
       if (user == null) return;
-      await client.from('service_requests').insert({
-        'customer_id': user.id,
-        'service_type': type,
-        'status': 'requested',
-        'pickup': {'address_line': pickup.text.trim()},
-        'dropoff': {'address_line': dropoff.text.trim()},
-      });
-      if (context.mounted) _showMessage(context, type == 'ride' ? 'Ride request submitted. Availability depends on nearby eligible drivers.' : 'Parcel request submitted. Availability depends on delivery partner coverage.');
+      if (!MapboxService.isConfigured) {
+        _showMessage(context, 'Address lookup is not configured yet. Add the restricted public MAPBOX_PUBLIC_TOKEN to the app build. You can still explore this service.');
+        return;
+      }
+
+      _showMessage(context, 'Finding your locations…');
+      final pickupCoordinates = await MapboxService.geocode(pickup.text.trim());
+      final destinationCoordinates = await MapboxService.geocode(dropoff.text.trim());
+      if (!context.mounted) return;
+      if (pickupCoordinates == null || destinationCoordinates == null) {
+        _showMessage(context, 'Could not locate one of those addresses. Try a more specific address or landmark.');
+        return;
+      }
+
+      final idempotencyKey = DateTime.now().microsecondsSinceEpoch.toString() + '_' + user.id;
+      dynamic requestId;
+      if (type == 'ride') {
+        requestId = await client.rpc('create_customer_ride', params: {
+          'p_pickup_label': pickup.text.trim(),
+          'p_pickup_latitude': pickupCoordinates[1],
+          'p_pickup_longitude': pickupCoordinates[0],
+          'p_destination_label': dropoff.text.trim(),
+          'p_destination_latitude': destinationCoordinates[1],
+          'p_destination_longitude': destinationCoordinates[0],
+          'p_idempotency_key': idempotencyKey,
+          'p_area_code': 'DEFAULT',
+        });
+      } else {
+        requestId = await client.rpc('create_customer_parcel', params: {
+          'p_pickup_label': pickup.text.trim(),
+          'p_pickup_latitude': pickupCoordinates[1],
+          'p_pickup_longitude': pickupCoordinates[0],
+          'p_destination_label': dropoff.text.trim(),
+          'p_destination_latitude': destinationCoordinates[1],
+          'p_destination_longitude': destinationCoordinates[0],
+          'p_item_description': itemDescription.text.trim(),
+          'p_idempotency_key': idempotencyKey,
+          'p_area_code': 'DEFAULT',
+        });
+      }
+      if (context.mounted) {
+        _showMessage(context, (type == 'ride' ? 'Ride' : 'Parcel') + ' request ' + requestId.toString().substring(0, 8) + ' created. Dispatch depends on service availability and eligible partners.');
+      }
     } catch (e) {
-      if (context.mounted) _showMessage(context, 'Could not submit the request. Confirm the shared operations migration is applied. ' + e.toString());
+      if (context.mounted) _showMessage(context, 'Could not submit the request. The service may not be enabled or priced for this area yet. ' + e.toString());
     } finally {
       pickup.dispose();
       dropoff.dispose();
+      itemDescription.dispose();
     }
   }
 
