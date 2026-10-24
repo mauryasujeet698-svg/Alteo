@@ -15,7 +15,7 @@ void main() {
   });
 
   testWidgets('home and persistent bottom navigation render', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp());
+    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false));
     expect(find.text('DELIVERING TO'), findsOneWidget);
     expect(find.text('Explore services'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
