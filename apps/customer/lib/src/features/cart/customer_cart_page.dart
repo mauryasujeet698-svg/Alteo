@@ -67,33 +67,45 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your cart is empty.')));
     return;
    }
-   final payload = currentItems.map((row) => <String, dynamic>{
-    'product_id': row['product_id'],
-    'quantity': row['quantity'],
-   }).toList();
+   final groups = <String, List<Map<String, dynamic>>>{};
+   for (final row in currentItems) {
+    final product = row['seller_products'] as Map? ?? {};
+    final groupKey = (product['seller_id']?.toString() ?? '') + '|' + (product['kind']?.toString() ?? '');
+    groups.putIfAbsent(groupKey, () => <Map<String, dynamic>>[]).add(row);
+   }
 
    try {
-    final orderId = await client.rpc('create_customer_order', params: {
-     'p_items': payload,
-     'p_delivery_address': {
-      'recipient_name': recipient.text.trim(),
-      'phone': phone.text.trim(),
-      'address_line1': addressLine.text.trim(),
-      'city': city.text.trim(),
-      'state': stateName.text.trim(),
-      'postal_code': postalCode.text.trim(),
-      'area_code': 'DEFAULT',
-     },
-     'p_idempotency_key': 'cart-' + cart['id'].toString(),
-    });
+    var createdCount = 0;
+    var groupIndex = 0;
+    for (final group in groups.values) {
+     final payload = group.map((row) => <String, dynamic>{
+      'product_id': row['product_id'],
+      'quantity': row['quantity'],
+     }).toList();
+     await client.rpc('create_customer_order', params: {
+      'p_items': payload,
+      'p_delivery_address': {
+       'recipient_name': recipient.text.trim(),
+       'phone': phone.text.trim(),
+       'address_line1': addressLine.text.trim(),
+       'city': city.text.trim(),
+       'state': stateName.text.trim(),
+       'postal_code': postalCode.text.trim(),
+       'area_code': 'DEFAULT',
+      },
+      'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
+     });
+     createdCount++;
+     groupIndex++;
+    }
     await client.from('carts').delete().eq('id', cart['id']);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Order ' + orderId.toString().substring(0, 8) + ' created. Payment is still required before fulfilment begins.')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(createdCount.toString() + (createdCount == 1 ? ' order created. Payment is still required before fulfilment begins.' : ' seller/category orders created. Payment is still required before fulfilment begins.'))));
     setState(() => items = load());
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
    } catch (e) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create the order. Check service availability, pricing and payment setup. ' + e.toString())));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create all orders. Check service availability, pricing and payment setup. Retry is safe for orders already created. ' + e.toString())));
    }
   } finally {
    recipient.dispose();
