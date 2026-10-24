@@ -93,7 +93,7 @@ jobs:
           path = Path('pubspec.yaml')
           text = path.read_text()
           if 'dependency_overrides:' not in text:
-              text += '\ndependency_overrides:\n  shared_preferences_android: 2.3.5\n'
+              text += '\ndependency_overrides:\n  shared_preferences_android: 2.4.15\n'
           elif 'shared_preferences_android:' not in text:
               text += '\n  shared_preferences_android: 2.3.5\n'
           path.write_text(text)
