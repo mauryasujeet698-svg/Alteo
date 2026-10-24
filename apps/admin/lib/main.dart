@@ -545,6 +545,106 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
   ]);
 
+  Widget _bannerManagement() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Row(children: [
+      const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Homepage banners', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+        SizedBox(height: 4), Text('Publish or update the customer carousel anytime.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+      ])),
+      FilledButton.icon(onPressed: () => _editBanner(), icon: const Icon(Icons.add_rounded), label: const Text('Add')),
+    ]),
+    const SizedBox(height: 10),
+    StreamBuilder<List<Map<String, dynamic>>>(
+      stream: client.from('app_banners').stream(primaryKey: ['id']).order('priority'),
+      builder: (context, s) {
+        if (s.hasError) return _error('Banners unavailable. Check admin role and app_banners permissions.');
+        if (!s.hasData) return const LinearProgressIndicator();
+        if (s.data!.isEmpty) return _empty('No banners yet', 'Add a banner with a headline and HTTPS image URL, then publish it.');
+        return Column(children: s.data!.map((b) => Card(elevation: 0, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
+          leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 48, height: 48, child: (b['image_url']?.toString().isNotEmpty ?? false) ? Image.network(b['image_url'].toString(), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined)) : const Icon(Icons.image_outlined))),
+          title: Text(b['title']?.toString() ?? 'Banner', style: const TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: Text('${b['active'] == true ? 'Published' : 'Draft'} · Priority ${b['priority'] ?? 100}'),
+          trailing: Wrap(spacing: 0, children: [
+            IconButton(tooltip: 'Edit', onPressed: () => _editBanner(b), icon: const Icon(Icons.edit_outlined)),
+            IconButton(tooltip: 'Delete', onPressed: () => _deleteBanner(b), icon: const Icon(Icons.delete_outline_rounded)),
+            Switch(value: b['active'] == true, onChanged: (v) => _setBannerActive(b, v)),
+          ]),
+        ))).toList());
+      },
+    ),
+    const SizedBox(height: 20),
+  ]);
+
+  Future<void> _editBanner([Map<String, dynamic>? existing]) async {
+    final title = TextEditingController(text: existing?['title']?.toString() ?? '');
+    final subtitle = TextEditingController(text: existing?['subtitle']?.toString() ?? '');
+    final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
+    final actionValue = TextEditingController(text: existing?['action_value']?.toString() ?? '');
+    final priority = TextEditingController(text: (existing?['priority'] ?? 100).toString());
+    var action = existing?['action_type']?.toString() ?? 'none';
+    var active = existing?['active'] == true;
+    try {
+      final save = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: Text(existing == null ? 'New banner' : 'Edit banner'),
+        content: SizedBox(width: 500, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: title, maxLength: 120, decoration: const InputDecoration(labelText: 'Headline *', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: subtitle, maxLength: 240, maxLines: 2, decoration: const InputDecoration(labelText: 'Subtitle', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image URL (HTTPS)', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: action, decoration: const InputDecoration(labelText: 'Tap action', border: OutlineInputBorder()), items: const [
+            DropdownMenuItem(value: 'none', child: Text('No action')),
+            DropdownMenuItem(value: 'service', child: Text('Open service')),
+            DropdownMenuItem(value: 'offer', child: Text('Show offer message')),
+            DropdownMenuItem(value: 'url', child: Text('External URL')),
+          ], onChanged: (v) { if (v != null) setDialogState(() => action = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: actionValue, maxLength: 500, decoration: InputDecoration(labelText: action == 'service' ? 'Service name (Food, Shop, Rides, Parcel)' : 'Action value', border: const OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: priority, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display priority (lower first)', border: OutlineInputBorder())),
+          SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Published'), value: active, onChanged: (v) => setDialogState(() => active = v)),
+        ]))),
+        actions: [TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Save'))],
+      )));
+      if (save != true) return;
+      if (title.text.trim().length < 2) { notice('Headline must contain at least 2 characters.'); return; }
+      final payload = <String, dynamic>{
+        'title': title.text.trim(), 'subtitle': subtitle.text.trim(),
+        'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
+        'action_type': action, 'action_value': actionValue.text.trim().isEmpty ? null : actionValue.text.trim(),
+        'area_code': existing?['area_code']?.toString() ?? 'DEFAULT',
+        'priority': int.tryParse(priority.text.trim()) ?? 100, 'active': active,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing == null) {
+        payload['created_by'] = user?.id;
+        await client.from('app_banners').insert(payload);
+      } else {
+        await client.from('app_banners').update(payload).eq('id', existing['id']);
+      }
+      notice('Banner saved and published to Supabase.');
+    } catch (e) { notice('Could not save banner: ' + e.toString()); }
+    finally { title.dispose(); subtitle.dispose(); image.dispose(); actionValue.dispose(); priority.dispose(); }
+  }
+
+  Future<void> _setBannerActive(Map<String, dynamic> banner, bool active) async {
+    try {
+      await client.from('app_banners').update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', banner['id']);
+      notice(active ? 'Banner published.' : 'Banner unpublished.');
+    } catch (e) { notice('Could not update banner: ' + e.toString()); }
+  }
+
+  Future<void> _deleteBanner(Map<String, dynamic> banner) async {
+    final yes = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+      title: const Text('Delete banner?'), content: Text('“${banner['title'] ?? 'Banner'}” will be removed.'),
+      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete'))],
+    ));
+    if (yes != true) return;
+    try { await client.from('app_banners').delete().eq('id', banner['id']); notice('Banner deleted.'); }
+    catch (e) { notice('Could not delete banner: ' + e.toString()); }
+  }
+
   Widget _adminDashboard() => Scaffold(
     appBar: _appBar('Live operations'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
@@ -582,6 +682,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
+      _bannerManagement(),
       const SizedBox(height: 24),
       const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
