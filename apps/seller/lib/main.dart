@@ -614,7 +614,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 if (inventorySnapshot.hasError) return _error('Seller inventory unavailable.');
                 if (!inventorySnapshot.hasData) return const LinearProgressIndicator();
                 final stockByProduct = <String, Map<String, dynamic>>{
-                  for (final row in inventorySnapshot.data!) row['product_id'] as String: row,
+                  for (final row in inventorySnapshot.data!) (row['product_id'] as String): row,
                 };
                 return Column(children: s.data!.map((p) {
                   final stock = stockByProduct[p['id']]?['stock_on_hand']?.toString() ?? 'Not set';
