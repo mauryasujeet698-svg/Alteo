@@ -118,7 +118,7 @@ jobs:
               lines = original.splitlines()
               found = False
               for i, line in enumerate(lines):
-                  if re.match(r'^\\s*compileSdk(?:Version)?\\b', line):
+                  if re.match(r'^\s*compileSdk(?:Version)?\b', line):
                       indent = re.match(r'^\\s*', line).group(0)
                       if 'compileSdkVersion' in line:
                           lines[i] = indent + 'compileSdkVersion 36'
@@ -129,10 +129,10 @@ jobs:
                       found = True
               if not found:
                   raise SystemExit(f'No compileSdk declaration found in {path}; inspect plugin build file')
-              updated = '\\n'.join(lines) + '\\n'
+              updated = '\n'.join(lines) + '\n'
               path.write_text(updated)
               print(f'Patched {path}:')
-              print('\\n'.join(line for line in lines if 'compileSdk' in line))
+              print('\n'.join(line for line in lines if 'compileSdk' in line))
           PY
       - name: Analyze
         working-directory: apps/${{ matrix.app }}
