@@ -569,7 +569,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (profile.hasError) return _error('Seller profile unavailable.');
       if (!profile.hasData) return const Center(child: CircularProgressIndicator());
       final seller = profile.data;
-      if (seller == null) return _empty('Seller profile not linked', 'Ask Alteo admin to create or approve your seller profile.');
+      if (seller == null) return ListView(padding: const EdgeInsets.all(20), children: [
+        _empty('Seller profile not linked', 'Create a seller application. Admin approval is required before listings and order processing are enabled.'),
+        const SizedBox(height: 8),
+        FilledButton.icon(onPressed: _createSellerProfile, icon: const Icon(Icons.storefront_rounded), label: const Text('Request seller profile')),
+      ]);
       final sellerId = seller['id'] as String;
       if (seller['status'] != 'approved') return _empty('Seller approval pending', 'Your seller profile status is ' + (seller['status']?.toString() ?? 'pending') + '. Catalogue and order processing unlock after approval.');
       return ListView(padding: const EdgeInsets.all(16), children: [
@@ -614,6 +618,38 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ]);
     }),
   );
+
+
+  Future<void> _createSellerProfile() async {
+    final name = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Seller application'),
+        content: TextField(controller: name, decoration: const InputDecoration(labelText: 'Business / shop name')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit')),
+        ],
+      ));
+      if (ok != true || user == null) return;
+      if (name.text.trim().length < 2) { notice('Enter a valid shop name.'); return; }
+      await client.from('sellers').insert({
+        'owner_id': user!.id,
+        'display_name': name.text.trim(),
+        'status': 'pending',
+      });
+      if (mounted) {
+        setState(() {
+          sellerProfile = client.from('sellers').select('id,status,display_name').eq('owner_id', user!.id).maybeSingle();
+        });
+        notice('Seller application submitted for admin review.');
+      }
+    } catch (e) {
+      notice('Could not submit seller application: ' + e.toString());
+    } finally {
+      name.dispose();
+    }
+  }
 
   Future<void> _setSellerStock(String sellerId, Map<String, dynamic> product) async {
     final stock = TextEditingController();
