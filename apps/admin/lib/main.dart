@@ -403,6 +403,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     await rpc('admin_set_seller_status', {'p_seller_id': seller['id'], 'p_status': status}, 'Seller status updated.');
   }
 
+
+  Future<void> setProductStatus(Map<String, dynamic> product, String status) async {
+    await rpc('admin_set_product_status', {'p_product_id': product['id'], 'p_status': status}, 'Product status updated.');
+  }
+
   Future<void> setStoreStatus(Map<String, dynamic> store, String status) async {
     await rpc('admin_set_dark_store_status', {'p_store_id': store['id'], 'p_status': status}, 'Dark-store status updated.');
   }
@@ -523,6 +528,27 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ))).toList());
         },
       ),
+
+      const SizedBox(height: 22),
+      const Text('Product approvals', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Product catalogue unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No products submitted', 'Seller product drafts will appear here for review.');
+          return Column(children: s.data!.take(20).map((product) => Card(elevation: 0, child: ListTile(
+            title: Text(product['name']?.toString() ?? 'Product'),
+            subtitle: Text('Status: ' + (product['status']?.toString() ?? 'draft') + ' · ₹' + (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+            trailing: Wrap(children: [
+              IconButton(tooltip: 'Activate product', onPressed: () => setProductStatus(product, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+              IconButton(tooltip: 'Pause product', onPressed: () => setProductStatus(product, 'paused'), icon: const Icon(Icons.pause_circle_outline)),
+              IconButton(tooltip: 'Reject product', onPressed: () => setProductStatus(product, 'rejected'), icon: const Icon(Icons.block_outlined)),
+            ]),
+          ))).toList());
+        },
+      ),
+
       const SizedBox(height: 22),
       const Text('Dark stores', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(top: 8), child: FilledButton.icon(onPressed: createDarkStore, icon: const Icon(Icons.add_business_rounded), label: const Text('Create dark store')))),
