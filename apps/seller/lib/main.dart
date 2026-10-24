@@ -608,11 +608,25 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             if (s.hasError) return _error('Catalogue unavailable. Check seller RLS policies.');
             if (!s.hasData) return const LinearProgressIndicator();
             if (s.data!.isEmpty) return _empty('No products yet', 'Product creation is available after catalogue permissions are configured.');
-            return Column(children: s.data!.map((p) => Card(elevation: 0, child: ListTile(
-              title: Text(p['name']?.toString() ?? 'Product'),
-              subtitle: Text('Status: ' + (p['status']?.toString() ?? 'draft') + ' · ₹' + (((p['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-              trailing: IconButton(tooltip: 'Update stock', icon: const Icon(Icons.inventory_2_outlined), onPressed: () => _setSellerStock(sellerId, p)),
-            ))).toList());
+            return StreamBuilder<List<Map<String, dynamic>>>(
+              stream: client.from('seller_inventory').stream(primaryKey: ['id']).eq('seller_id', sellerId),
+              builder: (context, inventorySnapshot) {
+                if (inventorySnapshot.hasError) return _error('Seller inventory unavailable.');
+                if (!inventorySnapshot.hasData) return const LinearProgressIndicator();
+                final stockByProduct = <String, Map<String, dynamic>>{
+                  for (final row in inventorySnapshot.data!) row['product_id'] as String: row,
+                };
+                return Column(children: s.data!.map((p) {
+                  final stock = stockByProduct[p['id']]?['stock_on_hand']?.toString() ?? 'Not set';
+                  final reserved = stockByProduct[p['id']]?['reserved_quantity']?.toString() ?? '0';
+                  return Card(elevation: 0, child: ListTile(
+                    title: Text(p['name']?.toString() ?? 'Product'),
+                    subtitle: Text('Status: ' + (p['status']?.toString() ?? 'draft') + ' · ₹' + (((p['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0) + ' · Stock: ' + stock + ' · Reserved: ' + reserved),
+                    trailing: IconButton(tooltip: 'Update stock', icon: const Icon(Icons.inventory_2_outlined), onPressed: () => _setSellerStock(sellerId, p)),
+                  ));
+                }).toList());
+              },
+            );
           },
         ),
         const SizedBox(height: 22),
