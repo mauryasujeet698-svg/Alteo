@@ -60,8 +60,13 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   }
 
   Future<void> requestCode() async {
-    final value = phone.text.trim();
-    if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
+    final value = useEmail ? email.text.trim() : phone.text.trim();
+    if (useEmail) {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
+        setState(() => message = 'Enter a valid email address.');
+        return;
+      }
+    } else if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
       setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
       return;
     }
@@ -71,42 +76,49 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     }
     setState(() { busy = true; message = null; });
     try {
-      await Supabase.instance.client.auth.signInWithOtp(phone: value);
-      if (mounted) setState(() { codeSent = true; message = 'Verification code sent.'; });
+      if (useEmail) {
+        await Supabase.instance.client.auth.signInWithOtp(email: value);
+      } else {
+        await Supabase.instance.client.auth.signInWithOtp(phone: value);
+      }
+      if (mounted) setState(() { codeSent = true; message = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
     } on AuthException catch (e) {
       if (!mounted) return;
       final lower = e.message.toLowerCase();
       setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-        ? 'Phone sign-in is not enabled in Supabase. Browsing remains available; the owner must enable Phone Auth and configure an SMS provider.'
-        : 'Could not send the code: ${e.message}');
+        ? (useEmail ? 'Email sign-in is not enabled in Supabase. Switch to phone if Phone Auth is configured, or ask the project owner to enable a provider.' : 'Phone sign-in is not enabled in Supabase. Switch to email if email authentication is configured. Public browsing remains available.')
+        : 'Could not send the code: ' + e.message);
     } catch (_) {
-      if (mounted) setState(() => message = 'Could not send the code. Check the network and Supabase SMS configuration. You can still explore without signing in.');
+      if (mounted) setState(() => message = 'Could not send the code. Check authentication configuration. You can still explore without signing in.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
   }
 
   Future<void> verifyCode() async {
+    if (code.text.trim().isEmpty) { setState(() => message = 'Enter the verification code.'); return; }
     if (!widget.backendReady) return;
     setState(() { busy = true; message = null; });
     try {
-      await Supabase.instance.client.auth.verifyOTP(
-        phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms,
-      );
+      if (useEmail) {
+        await Supabase.instance.client.auth.verifyOTP(email: email.text.trim(), token: code.text.trim(), type: OtpType.email);
+      } else {
+        await Supabase.instance.client.auth.verifyOTP(phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms);
+      }
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw StateError('Sign-in did not return a user.');
       final row = await Supabase.instance.client.from('user_roles')
         .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
       if (row == null) {
         await Supabase.instance.client.auth.signOut();
-        if (mounted) setState(() => message = 'This account is not approved for the $requiredRole role. You can still explore public screens.');
+        if (mounted) setState(() => message = 'This account is not approved for the ' + requiredRole + ' role. Public exploration remains available.');
       } else if (mounted) {
-        setState(() { authorized = true; message = 'Role verified. Protected operations can be connected here.'; });
+        setState(() { authorized = true; message = 'Role verified.'; });
       }
     } on AuthException catch (e) {
-      if (mounted) setState(() => message = 'Sign-in failed: ${e.message}');
+      if (mounted) setState(() => message = 'Sign-in failed: ' + e.message);
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not verify access: $e');
+      if (mounted) setState(() => message = 'Could not verify access: ' + e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }
