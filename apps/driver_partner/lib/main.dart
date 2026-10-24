@@ -177,6 +177,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
               subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
+            ),
           ),
         const SizedBox(height: 8),
         Container(
@@ -798,12 +799,8 @@ const _features = <_Feature>[
             const Text('Every trip, one connected app', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
             const Text('Explore driver availability, ride requests, navigation, trip progress and earnings.', style: TextStyle(color: Colors.white, height: 1.45)),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white70)),
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are already exploring. Sign in is only needed for protected actions.'))),
-              icon: const Icon(Icons.explore_outlined), label: const Text('Explore without signing in'),
-            ),
+            const SizedBox(height: 12),
+            const Text('No account is needed to explore. Sign in only for protected operations.', style: TextStyle(color: Colors.white, height: 1.4)),
           ]),
         ),
         const SizedBox(height: 22),
