@@ -19,21 +19,25 @@ void main() {
     expect(find.text('DELIVERING TO'), findsOneWidget);
     expect(find.text('Explore services'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Orders'), findsOneWidget);
-    expect(find.text('Account'), findsOneWidget);
+    expect(find.text('Food'), findsOneWidget);
+    expect(find.text('Ride'), findsOneWidget);
+    expect(find.text('Profile'), findsOneWidget);
+    expect(find.text('Orders'), findsNothing);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 
   testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
-    await tester.tap(find.text('Orders'));
+    await tester.tap(find.text('Food').first);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Explore first, sign in when needed'), findsOneWidget);
+    expect(find.text('Explore the options below. Live availability, prices and bookings require the Alteo backend and participating local partners to be configured.'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
-    await tester.tap(find.text('Account'));
-    await tester.pumpAndSettle();
-    expect(find.text('Sign in / Create account'), findsOneWidget);
+    await tester.tap(find.text('Profile').first);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Sign in / Sign up with Google'), findsOneWidget);
+    expect(find.text('My orders'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
