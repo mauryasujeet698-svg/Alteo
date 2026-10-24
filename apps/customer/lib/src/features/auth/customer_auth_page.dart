@@ -46,10 +46,10 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
       if (mounted) setState(() { sent = true; error = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
     } on Exception catch (e) {
       if (!mounted) return;
-      final lower = e.message.toLowerCase();
+      final lower = e.toString().toLowerCase();
       setState(() => error = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
         ? (useEmail ? 'Email authentication is not enabled in Supabase. Switch to phone if Phone Auth is configured, or ask the project owner to enable a provider.' : 'Phone authentication is not enabled in Supabase. Switch to email if email authentication is configured. Browsing remains available.')
-        : e.message);
+        : e.toString());
     } catch (_) {
       if (mounted) setState(() => error = 'Could not send the code. Check authentication configuration. You can still explore without signing in.');
     } finally {
@@ -71,7 +71,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
       }
       if (mounted) Navigator.pop(context, true);
     } on Exception catch (e) {
-      if (mounted) setState(() => error = e.message);
+      if (mounted) setState(() => error = e.toString());
     } catch (_) {
       if (mounted) setState(() => error = 'Verification failed. Please try again.');
     } finally {
