@@ -34,6 +34,9 @@ jobs:
           - app: apps/delivery_partner
             name: delivery-partner
             project: alteo_delivery_partner
+          - app: apps/dark_store
+            name: dark-store
+            project: alteo_dark_store
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -57,22 +60,21 @@ jobs:
         run: flutter pub get
       - name: Analyze Dart
         run: flutter analyze --no-fatal-infos
-      - name: Run customer widget tests
-        if: matrix.name == 'customer'
+      - name: Run Flutter tests
         run: flutter test
       - name: Build arm64 release APK
         env:
           MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
         run: flutter build apk --release --target-platform android-arm64 --dart-define=MAPBOX_PUBLIC_TOKEN="$MAPBOX_PUBLIC_TOKEN"
-      - name: Enforce APK size limit (25 MB)
+      - name: Enforce APK size limit (15 MiB)
         shell: bash
         run: |
           APK="build/app/outputs/flutter-apk/app-release.apk"
           test -f "$APK"
           BYTES=$(stat -c%s "$APK")
           echo "APK size: $BYTES bytes"
-          if [ "$BYTES" -gt 26214400 ]; then
-            echo "APK exceeds the 25 MiB release limit."
+          if [ "$BYTES" -gt 15728640 ]; then
+            echo "APK exceeds the 15 MiB release limit."
             exit 1
           fi
       - name: Upload release APK
