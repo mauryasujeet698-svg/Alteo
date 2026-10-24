@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/customer_content_service.dart';
 import '../services/service_browse_page.dart';
@@ -14,11 +15,23 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  late Future<List<CustomerBanner>> banners;
  late Future<List<CustomerProduct>> products;
  String kind='all';
+ final stt.SpeechToText speech = stt.SpeechToText();
+ final PageController bannerController = PageController(viewportFraction: .91);
+ int bannerIndex = 0;
  @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();}
+ @override void dispose(){bannerController.dispose();speech.stop();super.dispose();}
+ Future<void> _voiceSearch() async {
+  try {
+   final available = await speech.initialize(onError: (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search is not available on this device.'))); });
+   if(!available){if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enable speech recognition on your device to use voice search.')));return;}
+   await speech.listen(onResult:(result){if(result.finalResult && result.recognizedWords.trim().isNotEmpty && mounted){speech.stop();showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart),query:result.recognizedWords.trim());}});
+   if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Listening… say the name of an item or product.')));
+  } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
+ }
  void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
  @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
-  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,0,18,16),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch()),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:const Icon(Icons.tune_rounded),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
+  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,0,18,16),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch()),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
   SliverToBoxAdapter(child:bannerList()),
   SliverToBoxAdapter(child:section('Explore services','Everything you need, together')),
   SliverToBoxAdapter(child:SizedBox(height:116,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[
@@ -41,21 +54,31 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
   IconButton(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
  ]));
- Widget bannerList()=>SizedBox(height:185,child:FutureBuilder<List<CustomerBanner>>(future:banners,builder:(context,s){
-  if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
-  final list=s.data??[];if(list.isEmpty)return const SizedBox.shrink();
-  return PageView.builder(itemCount:list.length,controller:PageController(viewportFraction:.91),itemBuilder:(context,i){
-   final b=list[i];return Padding(padding:const EdgeInsets.fromLTRB(6,0,6,16),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Stack(fit:StackFit.expand,children:[
-    if(b.imageUrl.isNotEmpty)Image.network(b.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>gradient())else gradient(),
-    Container(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.centerLeft,end:Alignment.centerRight,colors:[Color(0xE815382E),Color(0x2038584A)]))),
-    Padding(padding:const EdgeInsets.all(20),child:Align(alignment:Alignment.centerLeft,child:SizedBox(width:245,child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
-     Text(b.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:24,height:1.05,fontWeight:FontWeight.w900,color:Colors.white)),
-     if(b.subtitle.isNotEmpty)...[const SizedBox(height:8),Text(b.subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,height:1.35,fontSize:12))],
-     const SizedBox(height:10),const Text('EXPLORE ALTEO  ›',style:TextStyle(color:Colors.white,letterSpacing:1,fontWeight:FontWeight.w800,fontSize:10))
-    ]))))
-   ])));
-  });
- }));
+ Widget bannerList()=>FutureBuilder<List<CustomerBanner>>(future:banners,builder:(context,s){
+  if(s.connectionState==ConnectionState.waiting)return const SizedBox(height:185,child:Center(child:CircularProgressIndicator()));
+  final list=s.data??[];
+  if(list.isEmpty)return Padding(padding:const EdgeInsets.fromLTRB(18,0,18,8),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Container(height:165,decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)])),child:const Padding(padding:EdgeInsets.all(22),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text('EVERYDAY, MADE EASIER',style:TextStyle(color:Colors.white70,fontSize:10,fontWeight:FontWeight.w800,letterSpacing:1.2)),SizedBox(height:8),Text('Discover more with Alteo',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),SizedBox(height:5),Text('New offers and services are coming soon.',style:TextStyle(color:Colors.white,height:1.4))]))));
+  return Column(children:[
+   SizedBox(height:185,child:PageView.builder(itemCount:list.length,controller:bannerController,onPageChanged:(i)=>setState(()=>bannerIndex=i),itemBuilder:(context,i){
+    final b=list[i];
+    return Padding(padding:const EdgeInsets.fromLTRB(6,0,6,14),child:Material(color:Colors.transparent,child:InkWell(borderRadius:BorderRadius.circular(23),onTap:()=>_openBanner(b),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Stack(fit:StackFit.expand,children:[
+     if(b.imageUrl.isNotEmpty)Image.network(b.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>gradient())else gradient(),
+     Container(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.centerLeft,end:Alignment.centerRight,colors:[Color(0xE815382E),Color(0x2038584A)]))),
+     Padding(padding:const EdgeInsets.all(20),child:Align(alignment:Alignment.centerLeft,child:SizedBox(width:245,child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
+      Text(b.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:24,height:1.05,fontWeight:FontWeight.w900,color:Colors.white)),
+      if(b.subtitle.isNotEmpty)...[const SizedBox(height:8),Text(b.subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,height:1.35,fontSize:12))],
+      const SizedBox(height:10),const Text('EXPLORE ALTEO  ›',style:TextStyle(color:Colors.white,letterSpacing:1,fontWeight:FontWeight.w800,fontSize:10))
+     ]))))
+    ])))));
+   })),
+   if(list.length>1)Padding(padding:const EdgeInsets.only(top:0,bottom:4),child:Row(mainAxisAlignment:MainAxisAlignment.center,children:List.generate(list.length,(i)=>AnimatedContainer(duration:const Duration(milliseconds:180),margin:const EdgeInsets.symmetric(horizontal:3),width:i==bannerIndex?18:6,height:6,decoration:BoxDecoration(color:i==bannerIndex?const Color(0xFF176B57):const Color(0xFFD3DCD5),borderRadius:BorderRadius.circular(10))))),
+  ]);
+ });
+ Future<void> _openBanner(CustomerBanner b) async {
+  if(b.actionType=='service' && b.actionValue.isNotEmpty){await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:b.actionValue)));return;}
+  if(b.actionType=='url' && b.actionValue.isNotEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('External banner links will be enabled after safe link handling is configured.')));return;}
+  if(b.actionType=='offer'){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(b.subtitle.isEmpty?b.title:b.subtitle)));}
+ }
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
  Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,16,18,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
  Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:78,child:Column(children:[Container(width:64,height:64,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
@@ -75,8 +98,31 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  ]));
 }
 class _ProductSearch extends SearchDelegate<String>{
+ _ProductSearch({required this.onAdd});
+ final Future<void> Function(CustomerProduct) onAdd;
  @override List<Widget>? buildActions(BuildContext context)=>[IconButton(onPressed:()=>query='',icon:const Icon(Icons.clear))];
  @override Widget? buildLeading(BuildContext context)=>IconButton(onPressed:()=>close(context,''),icon:const Icon(Icons.arrow_back));
- @override Widget buildResults(BuildContext context)=>const Center(child:Text('Catalogue search is being connected.'));
- @override Widget buildSuggestions(BuildContext context)=>const Center(child:Text('Search the live Alteo catalogue.'));
+ @override Widget buildResults(BuildContext context)=>_results(context);
+ @override Widget buildSuggestions(BuildContext context)=>query.trim().isEmpty?const Center(child:Text('Search products, groceries and essentials')):_results(context);
+ Widget _results(BuildContext context){
+  if(query.trim().isEmpty)return const Center(child:Text('Type or say an item name to search.'));
+  return FutureBuilder<List<Map<String,dynamic>>>(
+   future:Supabase.instance.client.from('seller_products').select('id,name,description,price_minor,image_url,kind').eq('status','active').ilike('name','%\${query.trim()}%').order('created_at',ascending:false).limit(30),
+   builder:(context,s){
+    if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
+    if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Search is temporarily unavailable. Pull down on Home to retry.',textAlign:TextAlign.center)));
+    final rows=s.data??[];
+    if(rows.isEmpty)return const Center(child:Text('No matching items yet.'));
+    return ListView.separated(padding:const EdgeInsets.all(14),itemCount:rows.length,separatorBuilder:(_,__)=>const Divider(),itemBuilder:(context,i){
+     final p=CustomerProduct.fromMap(rows[i]);
+     return ListTile(
+      leading:ClipRRect(borderRadius:BorderRadius.circular(10),child:SizedBox(width:54,height:54,child:p.imageUrl.isEmpty?const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined)):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined))))),
+      title:Text(p.name,style:const TextStyle(fontWeight:FontWeight.w800)),
+      subtitle:Text(p.priceLabel),
+      trailing:IconButton(tooltip:'Add to cart',onPressed:()=>onAdd(p),icon:const Icon(Icons.add_shopping_cart_rounded)),
+     );
+    });
+   },
+  );
+ }
 }
