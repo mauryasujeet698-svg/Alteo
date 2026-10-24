@@ -30,6 +30,8 @@ The connected Supabase project already has the core operational schema and serve
 Realtime publication is enabled for orders, rides, delivery jobs, assignments, seller/catalogue data, inventory, service controls, pricing and relevant notifications. Row Level Security continues to determine which rows each user can receive.
 
 ## Important backend setup
+See docs/INITIAL_ADMIN_SETUP.md for enabling a sign-in provider, securely granting the first admin role and configuring live services.
+
 The current Supabase project has no service-control or pricing rows yet. Before live orders, rides or parcels can be created, an authorised admin must configure real DEFAULT pricing and enable the corresponding service in the Admin app. Automatic assignment is off by default; manual assignment remains available. Online payment is not yet integrated, so customer orders created through the current secure checkout remain pending payment and sellers cannot process them until payment is confirmed.
 
 The repository's checked-in SQL history is not a full export of the already-provisioned Supabase project. Do not reset the live database or apply reconstructed schema migrations over it. The checked-in Realtime migration corresponds to the applied project migration 20261024085759.
