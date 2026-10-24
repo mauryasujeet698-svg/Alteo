@@ -46,7 +46,9 @@ class RoleExplorePage extends StatefulWidget {
 
 class _RoleExplorePageState extends State<RoleExplorePage> {
   final phone = TextEditingController();
+  final email = TextEditingController();
   final code = TextEditingController();
+  bool useEmail = false;
   bool codeSent = false;
   bool busy = false;
   bool authorized = false;
@@ -55,6 +57,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   @override
   void dispose() {
     phone.dispose();
+    email.dispose();
     code.dispose();
     super.dispose();
   }
@@ -223,12 +226,18 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
           const SizedBox(height: 6),
           const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
           const SizedBox(height: 16),
-          TextField(controller: phone, enabled: !codeSent, keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'Phone with country code', hintText: '+919876543210', border: OutlineInputBorder())),
+          TextButton.icon(
+            onPressed: busy || codeSent ? null : () => setSheetState(() { useEmail = !useEmail; message = null; }),
+            icon: Icon(useEmail ? Icons.phone_android : Icons.email_outlined),
+            label: Text(useEmail ? 'Use phone instead' : 'Use email instead'),
+          ),
+          TextField(controller: useEmail ? email : phone, enabled: !codeSent,
+            keyboardType: useEmail ? TextInputType.emailAddress : TextInputType.phone,
+            decoration: InputDecoration(labelText: useEmail ? 'Email address' : 'Phone with country code', hintText: useEmail ? 'you@example.com' : '+919876543210', border: const OutlineInputBorder())),
           if (codeSent) ...[
             const SizedBox(height: 12),
             TextField(controller: code, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'SMS verification code', border: OutlineInputBorder())),
+              decoration: InputDecoration(labelText: useEmail ? 'Email verification code' : 'SMS verification code', border: const OutlineInputBorder())),
           ],
           if (message != null) ...[
             const SizedBox(height: 10),
@@ -243,6 +252,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
             },
             child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
           )),
+          if (codeSent) TextButton(onPressed: busy ? null : () => setSheetState(() { codeSent = false; code.clear(); message = null; }), child: const Text('Change contact')),
           TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
         ])),
       )),
