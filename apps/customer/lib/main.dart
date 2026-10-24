@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'src/config/app_config.dart';
 import 'src/features/home/customer_home_page.dart';
-import 'src/features/orders/customer_orders_page.dart';
 import 'src/features/account/customer_account_page.dart';
 import 'src/features/services/service_browse_page.dart';
 import 'src/services/mapbox_service.dart';
