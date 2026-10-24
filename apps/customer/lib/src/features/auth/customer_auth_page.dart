@@ -44,7 +44,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         await Supabase.instance.client.auth.signInWithOtp(phone: value);
       }
       if (mounted) setState(() { sent = true; error = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (!mounted) return;
       final lower = e.message.toLowerCase();
       setState(() => error = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
@@ -70,7 +70,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
         await Supabase.instance.client.auth.verifyOTP(phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms);
       }
       if (mounted) Navigator.pop(context, true);
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (mounted) setState(() => error = e.message);
     } catch (_) {
       if (mounted) setState(() => error = 'Verification failed. Please try again.');
