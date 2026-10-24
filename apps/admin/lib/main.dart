@@ -894,7 +894,7 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
           if (controlsSnapshot.hasError || pricingSnapshot.hasError) return const Text('Service settings unavailable. Check admin policies.');
           if (!controlsSnapshot.hasData || !pricingSnapshot.hasData) return const LinearProgressIndicator();
           final controls = <String, Map<String, dynamic>>{
-            for (final row in controlsSnapshot.data!) row['service'] as String: row,
+            for (final row in controlsSnapshot.data!) (row['service'] as String): row,
           };
           final prices = <String, Map<String, dynamic>>{
             for (final row in pricingSnapshot.data!) row['service'] as String: row,
