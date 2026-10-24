@@ -10,7 +10,8 @@ import '../auth/customer_auth_page.dart';
 import '../cart/customer_cart_page.dart';
 
 class CustomerHomePage extends StatefulWidget {
- const CustomerHomePage({super.key});
+ const CustomerHomePage({super.key, this.enableRealtimeBanners = true});
+ final bool enableRealtimeBanners;
  @override State<CustomerHomePage> createState()=>_CustomerHomePageState();
 }
 class _CustomerHomePageState extends State<CustomerHomePage> {
