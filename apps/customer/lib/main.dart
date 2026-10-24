@@ -114,12 +114,8 @@ class PhoneSignIn extends StatefulWidget {
   State<PhoneSignIn> createState() => _PhoneSignInState();
 }
 class _PhoneSignInState extends State<PhoneSignIn> {
-  final _phone = TextEditingController();
-  final _otp = TextEditingController();
-  bool _sent = false, _busy = false, _usePhone = false;
+  bool _busy = false;
   String? _error;
-  @override
-  void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
 
   Future<void> _googleSignIn() async {
     setState(() { _busy = true; _error = null; });
@@ -131,77 +127,54 @@ class _PhoneSignInState extends State<PhoneSignIn> {
     } on AuthException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Google sign-in could not start. Check Supabase Google provider and redirect settings.');
-    } finally { if (mounted) setState(() => _busy = false); }
+      if (mounted) setState(() => _error = 'Google sign-in could not start. Check that Google is enabled in Supabase Auth and the Alteo redirect URL is allowed.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
-  Future<void> _submit() async {
-    final phone = _phone.text.trim();
-    if (!_sent && !RegExp(r'^\+[1-9]\d{7,14}$').hasMatch(phone)) {
-      setState(() => _error = 'Enter a phone with country code, e.g. +919876543210.');
-      return;
-    }
-    if (_sent && !RegExp(r'^\d{6}$').hasMatch(_otp.text.trim())) {
-      setState(() => _error = 'Enter the six-digit SMS code.'); return;
-    }
-    setState(() { _busy = true; _error = null; });
-    try {
-      if (!_sent) {
-        await widget.client.auth.signInWithOtp(phone: phone);
-        if (mounted) setState(() => _sent = true);
-      } else {
-        await widget.client.auth.verifyOTP(phone: phone, token: _otp.text.trim(), type: OtpType.sms);
-      }
-    } on AuthException catch (e) {
-      if (mounted) setState(() => _error = e.message);
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Sign-in failed. Check SMS provider settings and try again.');
-    } finally { if (mounted) setState(() => _busy = false); }
-  }
   @override
-  Widget build(BuildContext context) => Scaffold(body: SafeArea(child: Center(child: SingleChildScrollView(
-    padding: const EdgeInsets.all(24),
-    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420), child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        const Center(child: BrandMark(size: 74)), const SizedBox(height: 16),
-        Text('Welcome to Alteo', textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-        const SizedBox(height: 8), const Text('Food, shopping, rides and deliveries — together in one app.', textAlign: TextAlign.center),
-        const SizedBox(height: 28),
-        if (!_usePhone) ...[
-          FilledButton.icon(
-            onPressed: _busy ? null : _googleSignIn,
-            icon: const Icon(Icons.g_mobiledata, size: 28),
-            label: const Text('Continue with Google'),
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Icon(Icons.all_inclusive, size: 62, color: const Color(0xFF176B57)),
+                const SizedBox(height: 16),
+                Text("Welcome to Alteo", textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 8),
+                const Text("Food, shopping, rides and deliveries — together in one app.", textAlign: TextAlign.center),
+                const SizedBox(height: 28),
+                FilledButton.icon(
+                  onPressed: _busy ? null : _googleSignIn,
+                  icon: const Icon(Icons.g_mobiledata, size: 30),
+                  label: const Text('Sign in with Google'),
+                ),
+                if (_busy) const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                if (_error != null) Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: Text(_error!, textAlign: TextAlign.center,
+                    style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
-          TextButton(
-            onPressed: _busy ? null : () => setState(() { _usePhone = true; _error = null; }),
-            child: const Text('Use phone number instead'),
-          ),
-        ] else ...[
-          TextField(controller: _phone, keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+919876543210', prefixIcon: Icon(Icons.phone_android))),
-          if (_sent) ...[
-            const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
-              decoration: const InputDecoration(labelText: 'SMS verification code')),
-          ],
-          const SizedBox(height: 18),
-          FilledButton(onPressed: _busy ? null : _submit, child: _busy
-            ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2))
-            : Text(_sent ? 'Verify and continue' : 'Continue with mobile')),
-          TextButton(onPressed: _busy ? null : () => setState(() { _usePhone = false; _sent = false; _otp.clear(); _error = null; }),
-            child: const Text('Back to Google sign-in')),
-          const SizedBox(height: 8),
-          const Text('Phone sign-in is optional and requires SMS provider setup.', textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 12, color: Colors.black54)),
-        ],
-        if (_error != null) Padding(padding: const EdgeInsets.only(top: 12),
-          child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        if (_busy) const Padding(padding: EdgeInsets.only(top: 8), child: Center(child: CircularProgressIndicator())),
-      ])),
-  ))));
+        ),
+      ),
+    ),
+  );
 }
+
 class CartLine {
   CartLine(this.product, [this.quantity = 1]);
   final Map<String, dynamic> product;
