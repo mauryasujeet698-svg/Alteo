@@ -60,6 +60,7 @@ class RoleExplorePage extends StatefulWidget {
 class _RoleExplorePageState extends State<RoleExplorePage> {
   bool busy = false;
   bool authorized = false;
+  bool authSheetOpen = false;
   String? message;
   StreamSubscription<AuthState>? authSubscription;
 
@@ -97,6 +98,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       if (!mounted) return;
       if (row != null) {
         setState(() { authorized = true; message = 'Access verified.'; });
+        if (authSheetOpen && mounted) Navigator.of(context).maybePop();
       } else {
         setState(() {
           authorized = false;
@@ -203,6 +205,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   }
 
   Future<void> showAuth(BuildContext context) async {
+    authSheetOpen = true;
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -238,6 +241,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
         ),
       ),
     );
+    authSheetOpen = false;
     if (mounted) setState(() {});
   }
 }
