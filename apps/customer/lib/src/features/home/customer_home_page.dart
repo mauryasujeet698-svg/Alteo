@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../services/customer_content_service.dart';
 import '../services/service_browse_page.dart';
 import '../auth/customer_auth_page.dart';
@@ -77,7 +78,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  });
  Future<void> _openBanner(CustomerBanner b) async {
   if(b.actionType=='service' && b.actionValue.isNotEmpty){await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:b.actionValue)));return;}
-  if(b.actionType=='url' && b.actionValue.isNotEmpty){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('External banner links will be enabled after safe link handling is configured.')));return;}
+  if(b.actionType=='url' && b.actionValue.isNotEmpty){final uri=Uri.tryParse(b.actionValue);if(uri!=null && uri.scheme=='https' && await canLaunchUrl(uri)){await launchUrl(uri,mode:LaunchMode.externalApplication);}else if(mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This banner link is invalid or unavailable.')));}return;}
   if(b.actionType=='offer'){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(b.subtitle.isEmpty?b.title:b.subtitle)));}
  }
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
