@@ -7,6 +7,16 @@ security definer
 set search_path = public, auth
 as $$
 begin
+  -- Partner status updates are allowed through respond_to_task; validate only assignment changes.
+  if tg_op = 'UPDATE'
+     and new.source_type = old.source_type
+     and new.source_id = old.source_id
+     and new.assigned_role = old.assigned_role
+     and new.assigned_partner_id = old.assigned_partner_id
+     and new.assigned_by is not distinct from old.assigned_by then
+    return new;
+  end if;
+
   if auth.uid() is not null and not public.has_alteo_role('admin') then
     raise exception 'Only authorised admin users can create or change task assignments';
   end if;
