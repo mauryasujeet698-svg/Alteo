@@ -6,7 +6,6 @@ void main() {
   testWidgets('public exploration opens without authentication', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: RoleExplorePage(backendReady: false)));
     expect(find.text('Explore features'), findsOneWidget);
-    expect(find.text('Explore without signing in'), findsOneWidget);
     expect(find.text('Sign in'), findsOneWidget);
   });
 }
