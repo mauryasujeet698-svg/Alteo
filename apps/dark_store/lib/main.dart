@@ -646,6 +646,31 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       return ListView(padding: const EdgeInsets.all(16), children: [
         Text(store['name']?.toString() ?? 'Your dark store', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
         const SizedBox(height: 10),
+        const Text('Active catalogue products', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('status', 'active').order('created_at', ascending: false),
+          builder: (context, productsSnapshot) {
+            if (productsSnapshot.hasError) return _error('Active products unavailable.');
+            if (!productsSnapshot.hasData) return const LinearProgressIndicator();
+            if (productsSnapshot.data!.isEmpty) return _empty('No active products', 'Admin must activate products before they can be stocked.');
+            return Column(children: productsSnapshot.data!.take(30).map((product) => Card(
+              elevation: 0,
+              child: ListTile(
+                title: Text(product['name']?.toString() ?? 'Product'),
+                subtitle: Text('SKU ' + _short(product['id'])),
+                trailing: IconButton(
+                  tooltip: 'Add or update stock',
+                  icon: const Icon(Icons.add_box_outlined),
+                  onPressed: () => _setStoreStock(storeId, product['id'] as String, product['name']?.toString() ?? 'Product', 0),
+                ),
+              ),
+            )).toList());
+          },
+        ),
+        const SizedBox(height: 22),
+        const Text('Current inventory', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
         StreamBuilder<List<Map<String, dynamic>>>(
           stream: client.from('dark_store_inventory').stream(primaryKey: ['id']).eq('store_id', storeId).order('updated_at', ascending: false),
           builder: (context, s) {
