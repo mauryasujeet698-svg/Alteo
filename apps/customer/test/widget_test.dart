@@ -19,21 +19,21 @@ void main() {
     expect(find.text('DELIVERING TO'), findsOneWidget);
     expect(find.text('Explore services'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
-    expect(find.text('Food'), findsOneWidget);
-    expect(find.text('Ride'), findsOneWidget);
-    expect(find.text('Profile'), findsOneWidget);
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Food')), findsOneWidget);
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Ride')), findsOneWidget);
+    expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Profile')), findsOneWidget);
     expect(find.text('Orders'), findsNothing);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 
   testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
     await tester.pumpWidget(const AlteoCustomerApp());
-    await tester.tap(find.text('Food').first);
+    await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Food')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Explore the options below. Live availability, prices and bookings require the Alteo backend and participating local partners to be configured.'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
-    await tester.tap(find.text('Profile').first);
+    await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Profile')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Sign in / Sign up with Google'), findsOneWidget);
