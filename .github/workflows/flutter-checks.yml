@@ -62,6 +62,51 @@ jobs:
           if [ ! -d android ]; then
             flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
+      - name: Compress native libraries inside APK
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          candidates = [Path("android/app/build.gradle"), Path("android/app/build.gradle.kts")]
+          gradle = next((p for p in candidates if p.exists()), None)
+          if gradle is None:
+              raise SystemExit("Generated Android app Gradle file was not found")
+          source = gradle.read_text()
+          setting = "packaging { jniLibs { useLegacyPackaging = true } }"
+          if "useLegacyPackaging" not in source:
+              # Insert into the app-level android block, not the top-level plugins block.
+              start = source.find("android {")
+              if start < 0:
+                  raise SystemExit("Android Gradle block was not found")
+              depth = 0
+              quote = None
+              escaped = False
+              end = None
+              for i in range(start + len("android"), len(source)):
+                  ch = source[i]
+                  if quote:
+                      if escaped:
+                          escaped = False
+                      elif ch == "\\\\":
+                          escaped = True
+                      elif ch == quote:
+                          quote = None
+                      continue
+                  if ch in ("'", '"'):
+                      quote = ch
+                  elif ch == "{":
+                      depth += 1
+                  elif ch == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = i
+                          break
+              if end is None:
+                  raise SystemExit("Could not locate end of Android Gradle block")
+              source = source[:end] + "\n    " + setting + "\n" + source[end:]
+              gradle.write_text(source)
+          print("Enabled legacy JNI packaging in", gradle)
+          PY
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze Dart
