@@ -1,14 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const appName = 'Alteo Admin';
 const requiredRole = 'admin';
-const redirectScheme = 'com.alteo.admin';
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://nkerkoptbrcadlpxffkn.supabase.co');
 const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_lM6ttzw8KMPH2BNXgMAJVA_3y1h51YD');
-final ValueNotifier<ThemeMode> roleThemeMode = ValueNotifier<ThemeMode>(ThemeMode.light);
-final ValueNotifier<String> roleLanguage = ValueNotifier<String>('English');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,24 +25,15 @@ class AlteoRoleApp extends StatelessWidget {
   final bool backendReady;
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
-    valueListenable: roleThemeMode,
-    builder: (context, mode, _) => MaterialApp(
-      title: appName,
-      debugShowCheckedModeBanner: false,
-      themeMode: mode,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57), brightness: Brightness.light),
-        scaffoldBackgroundColor: const Color(0xFFF7F8F6),
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF43B58A), brightness: Brightness.dark),
-        scaffoldBackgroundColor: const Color(0xFF101714),
-        useMaterial3: true,
-      ),
-      home: RoleExplorePage(backendReady: backendReady),
+  Widget build(BuildContext context) => MaterialApp(
+    title: appName,
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57)),
+      scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+      useMaterial3: true,
     ),
+    home: RoleExplorePage(backendReady: backendReady),
   );
 }
 
@@ -58,75 +45,83 @@ class RoleExplorePage extends StatefulWidget {
 }
 
 class _RoleExplorePageState extends State<RoleExplorePage> {
+  final phone = TextEditingController();
+  final email = TextEditingController();
+  final code = TextEditingController();
+  bool useEmail = false;
+  bool codeSent = false;
   bool busy = false;
   bool authorized = false;
   String? message;
-  StreamSubscription<AuthState>? authSubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    try {
-      final auth = Supabase.instance.client.auth;
-      authSubscription = auth.onAuthStateChange.listen((state) {
-        if (state.session != null) {
-          _checkRole();
-        } else if (mounted && authorized) {
-          setState(() => authorized = false);
-        }
-      });
-      if (auth.currentSession != null) _checkRole();
-    } catch (_) {
-      // Public exploration must work in tests and when Supabase is unavailable.
-    }
-  }
 
   @override
   void dispose() {
-    authSubscription?.cancel();
+    phone.dispose();
+    email.dispose();
+    code.dispose();
     super.dispose();
   }
 
-  Future<void> _checkRole() async {
-    final client = Supabase.instance.client;
-    final current = client.auth.currentUser;
-    if (current == null) return;
-    try {
-      final row = await client.from('user_roles')
-          .select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
-      if (!mounted) return;
-      if (row != null) {
-        setState(() { authorized = true; message = 'Access verified.'; });
-      } else {
-        setState(() {
-          authorized = false;
-          message = 'Google sign-in succeeded, but this account has not been granted the $requiredRole role yet. Ask the Alteo administrator to approve it.';
-        });
-        await client.auth.signOut();
+  Future<void> requestCode() async {
+    final value = useEmail ? email.text.trim() : phone.text.trim();
+    if (useEmail) {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
+        setState(() => message = 'Enter a valid email address.');
+        return;
       }
-    } catch (e) {
-      if (mounted) setState(() => message = 'Could not verify your app role. Check the user_roles policy and try again.');
+    } else if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
+      setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
+      return;
     }
-  }
-
-  Future<void> signInWithGoogle() async {
     if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is unavailable until the Supabase configuration is restored.');
+      setState(() => message = 'Sign-in is temporarily unavailable because the backend is not configured. You can continue exploring this app.');
       return;
     }
     setState(() { busy = true; message = null; });
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: '$redirectScheme://login-callback/',
-      );
-      if (mounted) setState(() => message = 'Finish signing in with Google, then return to Alteo.');
-    } catch (e) {
+      if (useEmail) {
+        await Supabase.instance.client.auth.signInWithOtp(email: value);
+      } else {
+        await Supabase.instance.client.auth.signInWithOtp(phone: value);
+      }
+      if (mounted) setState(() { codeSent = true; message = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
+    } on AuthException catch (e) {
       if (!mounted) return;
-      final lower = e.toString().toLowerCase();
+      final lower = e.message.toLowerCase();
       setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-          ? 'Google sign-in is not enabled in Supabase yet. Enable Google and add its OAuth credentials in the Supabase dashboard.'
-          : 'Google sign-in could not start: ' + e.toString());
+        ? (useEmail ? 'Email sign-in is not enabled in Supabase. Switch to phone if Phone Auth is configured, or ask the project owner to enable a provider.' : 'Phone sign-in is not enabled in Supabase. Switch to email if email authentication is configured. Public browsing remains available.')
+        : 'Could not send the code: ' + e.message);
+    } catch (_) {
+      if (mounted) setState(() => message = 'Could not send the code. Check authentication configuration. You can still explore without signing in.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> verifyCode() async {
+    if (code.text.trim().isEmpty) { setState(() => message = 'Enter the verification code.'); return; }
+    if (!widget.backendReady) return;
+    setState(() { busy = true; message = null; });
+    try {
+      if (useEmail) {
+        await Supabase.instance.client.auth.verifyOTP(email: email.text.trim(), token: code.text.trim(), type: OtpType.email);
+      } else {
+        await Supabase.instance.client.auth.verifyOTP(phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms);
+      }
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw StateError('Sign-in did not return a user.');
+      final row = await Supabase.instance.client.from('user_roles')
+        .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
+      if (row == null) {
+        await Supabase.instance.client.auth.signOut();
+        if (mounted) setState(() => message = 'This account is not approved for the ' + requiredRole + ' role. Public exploration remains available.');
+      } else if (mounted) {
+        setState(() { authorized = true; message = 'Role verified.'; });
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => message = 'Sign-in failed: ' + e.message);
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not verify access: ' + e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -160,8 +155,12 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
             const Text('Your operations, connected', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
             const Text('Explore the control centre for orders, partners, fulfilment and service configuration.', style: TextStyle(color: Colors.white, height: 1.45)),
-            const SizedBox(height: 12),
-            const Text('No account is needed to explore. Sign in only for protected operations.', style: TextStyle(color: Colors.white, height: 1.4)),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white70)),
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are already exploring. Sign in is only needed for protected actions.'))),
+              icon: const Icon(Icons.explore_outlined), label: const Text('Explore without signing in'),
+            ),
           ]),
         ),
         const SizedBox(height: 22),
@@ -181,7 +180,23 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
               title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
               subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
+              onTap: () => showModalBottomSheet<void>(
+                context: context, showDragHandle: true, isScrollControlled: true,
+                builder: (context) => SafeArea(child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(feature.icon, size: 38, color: const Color(0xFF176B57)),
+                    const SizedBox(height: 12),
+                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    Text(feature.detail, style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 14),
+                    const Text('Exploration is public. Changes to real orders, money, inventory or partner assignments are restricted to authorised accounts.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+                    const SizedBox(height: 12),
+                    SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue exploring'))),
+                  ]),
+                )),
+              ),
             ),
           ),
         const SizedBox(height: 8),
@@ -200,43 +215,47 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       ],
     ),
   );
-  }
 
   Future<void> showAuth(BuildContext context) async {
     await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Continue with Google', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            const Text('Explore the app without an account. Google sign-in is required only for protected operations.', style: TextStyle(height: 1.45)),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: busy ? null : () async {
-                  setSheetState(() {});
-                  await signInWithGoogle();
-                  if (mounted) setSheetState(() {});
-                },
-                icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                label: Text(busy ? 'Connecting to Google…' : 'Sign in / Sign up with Google'),
-                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-              ),
-            ),
-            if (message != null) ...[
-              const SizedBox(height: 12),
-              Text(message!, style: const TextStyle(height: 1.4, color: Color(0xFF68736D))),
-            ],
-            const SizedBox(height: 8),
-            TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
-          ]),
-        ),
-      ),
+      context: context, isScrollControlled: true, showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(builder: (context, setSheetState) => Padding(
+        padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
+        child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Sign in to Alteo', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: busy || codeSent ? null : () => setSheetState(() { useEmail = !useEmail; message = null; }),
+            icon: Icon(useEmail ? Icons.phone_android : Icons.email_outlined),
+            label: Text(useEmail ? 'Use phone instead' : 'Use email instead'),
+          ),
+          TextField(controller: useEmail ? email : phone, enabled: !codeSent,
+            keyboardType: useEmail ? TextInputType.emailAddress : TextInputType.phone,
+            decoration: InputDecoration(labelText: useEmail ? 'Email address' : 'Phone with country code', hintText: useEmail ? 'you@example.com' : '+919876543210', border: const OutlineInputBorder())),
+          if (codeSent) ...[
+            const SizedBox(height: 12),
+            TextField(controller: code, keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: useEmail ? 'Email verification code' : 'SMS verification code', border: const OutlineInputBorder())),
+          ],
+          if (message != null) ...[
+            const SizedBox(height: 10),
+            Text(message!, style: TextStyle(color: message!.contains('sent') || message!.contains('verified') ? Colors.green : Colors.red, height: 1.4)),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton(
+            onPressed: busy ? null : () async {
+              setSheetState(() {});
+              if (codeSent) { await verifyCode(); } else { await requestCode(); }
+              setSheetState(() {});
+            },
+            child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
+          )),
+          if (codeSent) TextButton(onPressed: busy ? null : () => setSheetState(() { codeSent = false; code.clear(); message = null; }), child: const Text('Change contact')),
+          TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
+        ])),
+      )),
     );
     if (mounted) setState(() {});
   }
@@ -259,7 +278,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   final roleUserId = TextEditingController();
   String grantRole = 'delivery_partner';
   bool partnerOnline = false;
-  int selectedTab = 0;
 
   @override
   void initState() {
@@ -413,238 +431,25 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   Future<void> setStoreStatus(Map<String, dynamic> store, String status) async {
-    await rpc('admin_set_dark_store_status', {'p_store_id': store['id'], 'p_status': status}, 'Dark-store s  @override
+    await rpc('admin_set_dark_store_status', {'p_store_id': store['id'], 'p_status': status}, 'Dark-store status updated.');
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (user == null) return Scaffold(appBar: AppBar(title: const Text('Alteo')), body: const Center(child: Text('Your session ended. Return to sign-in.')));
-    final dashboard = switch (requiredRole) {
-      'admin' => _adminDashboard(),
-      'driver_partner' => _driverDashboard(),
-      'delivery_partner' => _deliveryDashboard(),
-      'seller' => _sellerDashboard(),
-      'dark_store' => _darkStoreDashboard(),
-      _ => _emptyPage('Role not supported', 'Contact Alteo support.'),
-    };
-    return Scaffold(
-      body: selectedTab == 0 ? dashboard : _navigationPage(),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedTab,
-        onDestinationSelected: (index) => setState(() => selectedTab = index),
-        destinations: _navLabels.map((label) => NavigationDestination(
-          icon: Icon(_navIcon(label, false)),
-          selectedIcon: Icon(_navIcon(label, true)),
-          label: label,
-        )).toList(),
-      ),
-    );
-  }
-
-  List<String> get _navLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
-    'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
-    'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
-    'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
-    'dark_store' => const ['Home', 'Picking', 'Inventory', 'Profile'],
-    _ => const ['Home', 'Work', 'Activity', 'Profile'],
-  };
-
-  IconData _navIcon(String label, bool selected) => switch (label) {
-    'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
-    'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
-    'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
-    'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
-    'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
-    'Earnings' => selected ? Icons.account_balance_wallet_rounded : Icons.account_balance_wallet_outlined,
-    'Products' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
-    'Picking' => selected ? Icons.checklist_rounded : Icons.checklist_outlined,
-    'Inventory' => selected ? Icons.warehouse_rounded : Icons.warehouse_outlined,
-    _ => selected ? Icons.person_rounded : Icons.person_outline_rounded,
-  };
-
-  Widget _navigationPage() {
-    final label = _navLabels[selectedTab];
-    if (label == 'Profile') {
-      return Scaffold(
-        appBar: _appBar('Profile'),
-        body: ListView(padding: const EdgeInsets.all(20), children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
-            child: Row(children: [
-              const CircleAvatar(backgroundColor: Color(0x33FFFFFF), child: Icon(Icons.person_rounded, color: Colors.white)),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(user?.email ?? 'Alteo team member', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('Role: $requiredRole', style: const TextStyle(color: Colors.white70)),
-              ])),
-            ]),
-          ),
-          const SizedBox(height: 16),
-          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
-            const Icon(Icons.palette_outlined), const SizedBox(width: 12), const Expanded(child: Text('Appearance', style: TextStyle(fontWeight: FontWeight.w700))),
-            DropdownButton<ThemeMode>(value: roleThemeMode.value, underline: const SizedBox.shrink(), items: const [
-              DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-              DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
-              DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-            ], onChanged: (v) { if (v != null) roleThemeMode.value = v; }),
-          ]))),
-          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
-            const Icon(Icons.language_rounded), const SizedBox(width: 12), const Expanded(child: Text('Language', style: TextStyle(fontWeight: FontWeight.w700))),
-            DropdownButton<String>(value: roleLanguage.value, underline: const SizedBox.shrink(), items: const [
-              DropdownMenuItem(value: 'English', child: Text('English')),
-              DropdownMenuItem(value: 'हिन्दी', child: Text('हिन्दी')),
-              DropdownMenuItem(value: 'বাংলা', child: Text('বাংলা')),
-              DropdownMenuItem(value: 'தமிழ்', child: Text('தமிழ்')),
-            ], onChanged: (v) { if (v != null) roleLanguage.value = v; }),
-          ]))),
-          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.security_rounded), title: const Text('Access & security'), subtitle: const Text('Google sign-in and role-based access are used for protected operations.'))),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded), label: const Text('Sign out')),
-        ]),
-      );
-    }
-    final descriptions = switch (requiredRole) {
-      'admin' => const ['Review customer orders, payment states and service requests.', 'Manage partner access, seller approvals and operational assignments.'],
-      'driver_partner' => const ['Review assigned ride requests and update trip status.', 'Review completed trips and earnings once trip settlement is enabled.'],
-      'delivery_partner' => const ['Review assigned deliveries and confirm pickup, transit and delivery.', 'Review completed deliveries and settlement information.'],
-      'seller' => const ['Review orders routed to your approved seller account.', 'Maintain published products and available stock.'],
-      'dark_store' => const ['Review orders that are ready for picking and dispatch.', 'Maintain stock levels and reconcile inventory.'],
-      _ => const ['Explore your role workspace.', 'Review recent activity.'],
-    };
-    return Scaffold(
-      appBar: _appBar(label),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('ALTEO WORKSPACE', style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 10, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            const Text('Your live operational dashboard remains available from Home.', style: TextStyle(color: Colors.white, height: 1.4)),
-          ]),
-        ),
-        const SizedBox(height: 18),
-        for (var i = 0; i < descriptions.length; i++)
-          Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: ListTile(
-            leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9), child: Icon(i == 0 ? Icons.task_alt_rounded : Icons.insights_rounded, color: const Color(0xFF176B57))),
-            title: Text(i == 0 ? 'Work queue' : 'Activity & insights', style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text(descriptions[i]),
-          )),
-        const SizedBox(height: 8),
-        FilledButton.icon(onPressed: () => setState(() => selectedTab = 0), icon: const Icon(Icons.dashboard_rounded), label: const Text('Open live dashboard')),
-      ]),
-    );
-  }
-
-support.');
+    switch (requiredRole) {
+      case 'admin': return _adminDashboard();
+      case 'driver_partner': return _driverDashboard();
+      case 'delivery_partner': return _deliveryDashboard();
+      case 'seller': return _sellerDashboard();
+      case 'dark_store': return _darkStoreDashboard();
+      default: return _emptyPage('Role not supported', 'Contact Alteo support.');
     }
   }
 
   PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title), actions: [
     IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
   ]);
-
-  Widget _bannerManagement() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    Row(children: [
-      const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Homepage banners', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-        SizedBox(height: 4), Text('Publish or update the customer carousel anytime.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D))),
-      ])),
-      FilledButton.icon(onPressed: () => _editBanner(), icon: const Icon(Icons.add_rounded), label: const Text('Add')),
-    ]),
-    const SizedBox(height: 10),
-    StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('app_banners').stream(primaryKey: ['id']).order('priority'),
-      builder: (context, s) {
-        if (s.hasError) return _error('Banners unavailable. Check admin role and app_banners permissions.');
-        if (!s.hasData) return const LinearProgressIndicator();
-        if (s.data!.isEmpty) return _empty('No banners yet', 'Add a banner with a headline and HTTPS image URL, then publish it.');
-        return Column(children: s.data!.map((b) => Card(elevation: 0, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
-          leading: ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(width: 48, height: 48, child: (b['image_url']?.toString().isNotEmpty ?? false) ? Image.network(b['image_url'].toString(), fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined)) : const Icon(Icons.image_outlined))),
-          title: Text(b['title']?.toString() ?? 'Banner', style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text('${b['active'] == true ? 'Published' : 'Draft'} · Priority ${b['priority'] ?? 100}'),
-          trailing: Wrap(spacing: 0, children: [
-            IconButton(tooltip: 'Edit', onPressed: () => _editBanner(b), icon: const Icon(Icons.edit_outlined)),
-            IconButton(tooltip: 'Delete', onPressed: () => _deleteBanner(b), icon: const Icon(Icons.delete_outline_rounded)),
-            Switch(value: b['active'] == true, onChanged: (v) => _setBannerActive(b, v)),
-          ]),
-        ))).toList());
-      },
-    ),
-    const SizedBox(height: 20),
-  ]);
-
-  Future<void> _editBanner([Map<String, dynamic>? existing]) async {
-    final title = TextEditingController(text: existing?['title']?.toString() ?? '');
-    final subtitle = TextEditingController(text: existing?['subtitle']?.toString() ?? '');
-    final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
-    final actionValue = TextEditingController(text: existing?['action_value']?.toString() ?? '');
-    final priority = TextEditingController(text: (existing?['priority'] ?? 100).toString());
-    var action = existing?['action_type']?.toString() ?? 'none';
-    var active = existing?['active'] == true;
-    try {
-      final save = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-        title: Text(existing == null ? 'New banner' : 'Edit banner'),
-        content: SizedBox(width: 500, child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: title, maxLength: 120, decoration: const InputDecoration(labelText: 'Headline *', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          TextField(controller: subtitle, maxLength: 240, maxLines: 2, decoration: const InputDecoration(labelText: 'Subtitle', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image URL (HTTPS)', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(value: action, decoration: const InputDecoration(labelText: 'Tap action', border: OutlineInputBorder()), items: const [
-            DropdownMenuItem(value: 'none', child: Text('No action')),
-            DropdownMenuItem(value: 'service', child: Text('Open service')),
-            DropdownMenuItem(value: 'offer', child: Text('Show offer message')),
-            DropdownMenuItem(value: 'url', child: Text('External URL')),
-          ], onChanged: (v) { if (v != null) setDialogState(() => action = v); }),
-          const SizedBox(height: 10),
-          TextField(controller: actionValue, maxLength: 500, decoration: InputDecoration(labelText: action == 'service' ? 'Service name (Food, Shop, Rides, Parcel)' : 'Action value', border: const OutlineInputBorder())),
-          const SizedBox(height: 10),
-          TextField(controller: priority, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display priority (lower first)', border: OutlineInputBorder())),
-          SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Published'), value: active, onChanged: (v) => setDialogState(() => active = v)),
-        ]))),
-        actions: [TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Save'))],
-      )));
-      if (save != true) return;
-      if (title.text.trim().length < 2) { notice('Headline must contain at least 2 characters.'); return; }
-      final payload = <String, dynamic>{
-        'title': title.text.trim(), 'subtitle': subtitle.text.trim(),
-        'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
-        'action_type': action, 'action_value': actionValue.text.trim().isEmpty ? null : actionValue.text.trim(),
-        'area_code': existing?['area_code']?.toString() ?? 'DEFAULT',
-        'priority': int.tryParse(priority.text.trim()) ?? 100, 'active': active,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      };
-      if (existing == null) {
-        payload['created_by'] = user?.id;
-        await client.from('app_banners').insert(payload);
-      } else {
-        await client.from('app_banners').update(payload).eq('id', existing['id']);
-      }
-      notice('Banner saved and published to Supabase.');
-    } catch (e) { notice('Could not save banner: ' + e.toString()); }
-    finally { title.dispose(); subtitle.dispose(); image.dispose(); actionValue.dispose(); priority.dispose(); }
-  }
-
-  Future<void> _setBannerActive(Map<String, dynamic> banner, bool active) async {
-    try {
-      await client.from('app_banners').update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', banner['id']);
-      notice(active ? 'Banner published.' : 'Banner unpublished.');
-    } catch (e) { notice('Could not update banner: ' + e.toString()); }
-  }
-
-  Future<void> _deleteBanner(Map<String, dynamic> banner) async {
-    final yes = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
-      title: const Text('Delete banner?'), content: Text('“${banner['title'] ?? 'Banner'}” will be removed.'),
-      actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Delete'))],
-    ));
-    if (yes != true) return;
-    try { await client.from('app_banners').delete().eq('id', banner['id']); notice('Banner deleted.'); }
-    catch (e) { notice('Could not delete banner: ' + e.toString()); }
-  }
 
   Widget _adminDashboard() => Scaffold(
     appBar: _appBar('Live operations'),
@@ -683,7 +488,6 @@ support.');
       ),
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
-      _bannerManagement(),
       const SizedBox(height: 24),
       const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
@@ -939,7 +743,7 @@ support.');
                 title: Text(product['name']?.toString() ?? 'Product'),
                 subtitle: Text('Stock: ' + (item['stock_on_hand']?.toString() ?? '0') + ' · Reserved: ' + (item['reserved_quantity']?.toString() ?? '0')),
                 trailing: IconButton(tooltip: 'Set stock', icon: const Icon(Icons.edit_outlined), onPressed: () => _setStoreStock(storeId, item['product_id'] as String, product['name']?.toString() ?? 'Product', item['stock_on_hand'] as int? ?? 0)),
-              ));
+              );
             }).toList());
           },
         ),
@@ -1153,61 +957,192 @@ const _features = <_Feature>[
   _Feature('Service controls', 'Rides, food, quick commerce and parcels', 'Manage service availability and operational settings with server-side permissions.', Icons.tune_rounded),
   _Feature('Reports and reconciliation', 'Operational visibility', 'Review order volumes, fulfilment performance and financial summaries when reporting is connected.', Icons.analytics_rounded),
 ];
+).hasMatch(value)) {
+      setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
+      return;
+    }
+    if (!widget.backendReady) {
+      setState(() => message = 'Sign-in is temporarily unavailable because the backend is not configured. You can continue exploring this app.');
+      return;
+    }
+    setState(() { busy = true; message = null; });
+    try {
+      await Supabase.instance.client.auth.signInWithOtp(phone: value);
+      if (mounted) setState(() { codeSent = true; message = 'Verification code sent.'; });
+    } on AuthException catch (e) {
+      if (!mounted) return;
+      final lower = e.message.toLowerCase();
+      setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
+        ? 'Phone sign-in is not enabled in Supabase. Browsing remains available; the owner must enable Phone Auth and configure an SMS provider.'
+        : 'Could not send the code: ${e.message}');
+    } catch (_) {
+      if (mounted) setState(() => message = 'Could not send the code. Check the network and Supabase SMS configuration. You can still explore without signing in.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
 
-
-class RolePublicFeaturePage extends StatelessWidget {
-  const RolePublicFeaturePage({super.key, required this.feature, required this.onSignIn});
-  final _Feature feature;
-  final VoidCallback onSignIn;
-
-  List<String> get sections {
-    switch (requiredRole) {
-      case 'admin': return const ['Operations summary', 'Orders and service requests', 'Partner assignment', 'Approvals and service settings'];
-      case 'driver_partner': return const ['Availability', 'Ride queue', 'Active trip', 'Trip history'];
-      case 'delivery_partner': return const ['Availability', 'Delivery queue', 'Pickup and drop-off', 'Delivery history'];
-      case 'seller': return const ['Catalogue', 'Inventory and stock', 'Orders to fulfil', 'Store settings'];
-      case 'dark_store': return const ['Inventory', 'Picking queue', 'Packing station', 'Dispatch handover'];
-      default: return const ['Overview', 'Activity', 'Settings'];
+  Future<void> verifyCode() async {
+    if (!widget.backendReady) return;
+    setState(() { busy = true; message = null; });
+    try {
+      await Supabase.instance.client.auth.verifyOTP(
+        phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms,
+      );
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw StateError('Sign-in did not return a user.');
+      final row = await Supabase.instance.client.from('user_roles')
+        .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
+      if (row == null) {
+        await Supabase.instance.client.auth.signOut();
+        if (mounted) setState(() => message = 'This account is not approved for the $requiredRole role. You can still explore public screens.');
+      } else if (mounted) {
+        setState(() { authorized = true; message = 'Role verified. Protected operations can be connected here.'; });
+      }
+    } on AuthException catch (e) {
+      if (mounted) setState(() => message = 'Sign-in failed: ${e.message}');
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not verify access: $e');
+    } finally {
+      if (mounted) setState(() => busy = false);
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text(feature.title), actions: [
-      TextButton(onPressed: onSignIn, child: const Text('Sign in')),
-    ]),
-    body: ListView(padding: const EdgeInsets.all(20), children: [
-      Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(color: const Color(0xFFE1F2E9), borderRadius: BorderRadius.circular(22)),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Icon(Icons.visibility_outlined, color: Color(0xFF176B57), size: 34),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(feature.title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            Text(feature.subtitle, style: const TextStyle(color: Color(0xFF365D50))),
-          ])),
-        ]),
-      ),
-      const SizedBox(height: 14),
-      Text(feature.detail, style: const TextStyle(height: 1.5, color: Color(0xFF68736D))),
-      const SizedBox(height: 22),
-      const Text('Explore this screen', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      ...sections.map((section) => Card(
-        elevation: 0,
-        color: Colors.white,
-        child: ListTile(
-          leading: const Icon(Icons.circle_outlined, color: Color(0xFF176B57)),
-          title: Text(section, style: const TextStyle(fontWeight: FontWeight.w700)),
-          subtitle: const Text('No sample records are shown. Your real data appears here after setup and authorised sign-in.'),
+    appBar: AppBar(
+      title: Row(children: [
+        Container(width: 36, height: 36, decoration: BoxDecoration(color: const Color(0xFF176B57), borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.explore_rounded, color: Colors.white, size: 22)),
+        const SizedBox(width: 10),
+        const Expanded(child: Text(appName, style: TextStyle(fontWeight: FontWeight.w800))),
+      ]),
+      actions: [TextButton(onPressed: () => showAuth(context), child: Text(authorized ? 'Access' : 'Sign in'))],
+    ),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF176B57), Color(0xFF2C8B70)]),
+            borderRadius: BorderRadius.circular(24),
+          ),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('EXPLORE ALTEO', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, letterSpacing: 1.3, fontSize: 11)),
+            const SizedBox(height: 10),
+            const Text('Your operations, connected', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            const Text('Explore the control centre for orders, partners, fulfilment and service configuration.', style: TextStyle(color: Colors.white, height: 1.45)),
+            const SizedBox(height: 16),
+            OutlinedButton.icon(
+              style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white70)),
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are already exploring. Sign in is only needed for protected actions.'))),
+              icon: const Icon(Icons.explore_outlined), label: const Text('Explore without signing in'),
+            ),
+          ]),
         ),
-      )),
-      const SizedBox(height: 14),
-      FilledButton.icon(onPressed: onSignIn, icon: const Icon(Icons.lock_open_rounded), label: const Text('Sign in for protected actions')),
-      const SizedBox(height: 8),
-      OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back to app overview')),
-    ]),
+        const SizedBox(height: 22),
+        const Text('Explore features', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 5),
+        const Text('Open any section to learn how it works. Private records and live operations require authorised access.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+        const SizedBox(height: 12),
+        for (final feature in _features)
+          Card(
+            elevation: 0,
+            color: Colors.white,
+            margin: const EdgeInsets.only(bottom: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE5EAE5))),
+            child: ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
+              leading: CircleAvatar(backgroundColor: const Color(0xFFE3F2E9), child: Icon(feature.icon, color: const Color(0xFF176B57))),
+              title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => showModalBottomSheet<void>(
+                context: context, showDragHandle: true, isScrollControlled: true,
+                builder: (context) => SafeArea(child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(feature.icon, size: 38, color: const Color(0xFF176B57)),
+                    const SizedBox(height: 12),
+                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    Text(feature.detail, style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 14),
+                    const Text('Exploration is public. Changes to real orders, money, inventory or partner assignments are restricted to authorised accounts.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+                    const SizedBox(height: 12),
+                    SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue exploring'))),
+                  ]),
+                )),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.all(15),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(widget.backendReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, color: const Color(0xFF176B57)),
+            const SizedBox(width: 10),
+            Expanded(child: Text(widget.backendReady
+              ? 'Public exploration is available. Live data and protected actions depend on backend permissions and service configuration.'
+              : 'Public exploration is available. Sign-in and live data are temporarily unavailable until backend configuration is restored.',
+              style: const TextStyle(height: 1.45))),
+          ]),
+        ),
+      ],
+    ),
   );
+
+  Future<void> showAuth(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context, isScrollControlled: true, showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(builder: (context, setSheetState) => Padding(
+        padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
+        child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Sign in to Alteo', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
+          const SizedBox(height: 16),
+          TextField(controller: phone, enabled: !codeSent, keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(labelText: 'Phone with country code', hintText: '+919876543210', border: OutlineInputBorder())),
+          if (codeSent) ...[
+            const SizedBox(height: 12),
+            TextField(controller: code, keyboardType: TextInputType.number,
+              decoration: const InputDecoration(labelText: 'SMS verification code', border: OutlineInputBorder())),
+          ],
+          if (message != null) ...[
+            const SizedBox(height: 10),
+            Text(message!, style: TextStyle(color: message!.contains('sent') || message!.contains('verified') ? Colors.green : Colors.red, height: 1.4)),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton(
+            onPressed: busy ? null : () async {
+              setSheetState(() {});
+              if (codeSent) { await verifyCode(); } else { await requestCode(); }
+              setSheetState(() {});
+            },
+            child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
+          )),
+          TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
+        ])),
+      )),
+    );
+    if (mounted) setState(() {});
+  }
 }
+
+class _Feature {
+  const _Feature(this.title, this.subtitle, this.detail, this.icon);
+  final String title, subtitle, detail;
+  final IconData icon;
+}
+
+const _features = <_Feature>[
+  _Feature('Order operations', 'Review order stages and exceptions', 'Authorised staff can review incoming orders, resolve exceptions and track fulfilment from one place.', Icons.receipt_long_rounded),
+  _Feature('Partner assignments', 'Drivers and delivery partners', 'Assign eligible work to authorised partners and follow status changes across the platform.', Icons.assignment_ind_rounded),
+  _Feature('Seller approvals', 'Marketplace partner management', 'Review seller onboarding, catalogue readiness and operational eligibility.', Icons.storefront_rounded),
+  _Feature('Service controls', 'Rides, food, quick commerce and parcels', 'Manage service availability and operational settings with server-side permissions.', Icons.tune_rounded),
+  _Feature('Reports and reconciliation', 'Operational visibility', 'Review order volumes, fulfilment performance and financial summaries when reporting is connected.', Icons.analytics_rounded),
+];
