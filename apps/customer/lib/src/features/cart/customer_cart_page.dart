@@ -86,7 +86,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      },
      'p_idempotency_key': 'cart-' + cart['id'].toString(),
     });
-    await client.from('carts').update({'status': 'converted'}).eq('id', cart['id']);
+    await client.from('carts').delete().eq('id', cart['id']);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Order ' + orderId.toString().substring(0, 8) + ' created. Payment is still required before fulfilment begins.')));
     setState(() => items = load());
