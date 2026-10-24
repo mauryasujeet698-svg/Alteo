@@ -84,7 +84,7 @@ jobs:
           if "android.permission.RECORD_AUDIO" not in text:
               text = text.replace("<application", permission + "\n    <application", 1)
           if "android.speech.RecognitionService" not in text:
-              queries = '    <queries>\\n        <intent><action android:name="android.speech.RecognitionService" /></intent>\\n    </queries>\\n'
+              queries = '    <queries>\n        <intent><action android:name="android.speech.RecognitionService" /></intent>\n    </queries>\n'
               text = text.replace("<application", queries + "    <application", 1)
           scheme = os.environ["ALTEO_REDIRECT_SCHEME"]
           if f'android:scheme="{scheme}"' not in text:
