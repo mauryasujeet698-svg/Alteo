@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const appName = 'Alteo Driver Partner';
 const requiredRole = 'driver_partner';
+const redirectScheme = 'com.alteo.driverpartner';
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://nkerkoptbrcadlpxffkn.supabase.co');
 const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_lM6ttzw8KMPH2BNXgMAJVA_3y1h51YD');
 
@@ -45,83 +47,75 @@ class RoleExplorePage extends StatefulWidget {
 }
 
 class _RoleExplorePageState extends State<RoleExplorePage> {
-  final phone = TextEditingController();
-  final email = TextEditingController();
-  final code = TextEditingController();
-  bool useEmail = false;
-  bool codeSent = false;
   bool busy = false;
   bool authorized = false;
   String? message;
+  StreamSubscription<AuthState>? authSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    try {
+      final auth = Supabase.instance.client.auth;
+      authSubscription = auth.onAuthStateChange.listen((state) {
+        if (state.session != null) {
+          _checkRole();
+        } else if (mounted && authorized) {
+          setState(() => authorized = false);
+        }
+      });
+      if (auth.currentSession != null) _checkRole();
+    } catch (_) {
+      // Public exploration must work when Supabase is unavailable.
+    }
+  }
 
   @override
   void dispose() {
-    phone.dispose();
-    email.dispose();
-    code.dispose();
+    authSubscription?.cancel();
     super.dispose();
   }
 
-  Future<void> requestCode() async {
-    final value = useEmail ? email.text.trim() : phone.text.trim();
-    if (useEmail) {
-      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
-        setState(() => message = 'Enter a valid email address.');
-        return;
-      }
-    } else if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
-      setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
-      return;
-    }
-    if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is temporarily unavailable because the backend is not configured. You can continue exploring this app.');
-      return;
-    }
-    setState(() { busy = true; message = null; });
+  Future<void> _checkRole() async {
+    final client = Supabase.instance.client;
+    final current = client.auth.currentUser;
+    if (current == null) return;
     try {
-      if (useEmail) {
-        await Supabase.instance.client.auth.signInWithOtp(email: value);
-      } else {
-        await Supabase.instance.client.auth.signInWithOtp(phone: value);
-      }
-      if (mounted) setState(() { codeSent = true; message = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
-    } on Exception catch (e) {
+      final row = await client.from('user_roles')
+          .select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
       if (!mounted) return;
-      final lower = e.message.toLowerCase();
-      setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-        ? (useEmail ? 'Email sign-in is not enabled in Supabase. Switch to phone if Phone Auth is configured, or ask the project owner to enable a provider.' : 'Phone sign-in is not enabled in Supabase. Switch to email if email authentication is configured. Public browsing remains available.')
-        : 'Could not send the code: ' + e.message);
+      if (row != null) {
+        setState(() { authorized = true; message = 'Access verified.'; });
+      } else {
+        setState(() {
+          authorized = false;
+          message = 'Google sign-in succeeded, but this account has not been granted the $requiredRole role yet. Ask the Alteo administrator to approve it.';
+        });
+        await client.auth.signOut();
+      }
     } catch (_) {
-      if (mounted) setState(() => message = 'Could not send the code. Check authentication configuration. You can still explore without signing in.');
-    } finally {
-      if (mounted) setState(() => busy = false);
+      if (mounted) setState(() => message = 'Could not verify your app role. Check the user_roles policy and try again.');
     }
   }
 
-  Future<void> verifyCode() async {
-    if (code.text.trim().isEmpty) { setState(() => message = 'Enter the verification code.'); return; }
-    if (!widget.backendReady) return;
+  Future<void> signInWithGoogle() async {
+    if (!widget.backendReady) {
+      setState(() => message = 'Sign-in is unavailable until the Supabase configuration is restored.');
+      return;
+    }
     setState(() { busy = true; message = null; });
     try {
-      if (useEmail) {
-        await Supabase.instance.client.auth.verifyOTP(email: email.text.trim(), token: code.text.trim(), type: OtpType.email);
-      } else {
-        await Supabase.instance.client.auth.verifyOTP(phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms);
-      }
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) throw StateError('Sign-in did not return a user.');
-      final row = await Supabase.instance.client.from('user_roles')
-        .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
-      if (row == null) {
-        await Supabase.instance.client.auth.signOut();
-        if (mounted) setState(() => message = 'This account is not approved for the ' + requiredRole + ' role. Public exploration remains available.');
-      } else if (mounted) {
-        setState(() { authorized = true; message = 'Role verified.'; });
-      }
-    } on Exception catch (e) {
-      if (mounted) setState(() => message = 'Sign-in failed: ' + e.message);
+      await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: '$redirectScheme://login-callback/',
+      );
+      if (mounted) setState(() => message = 'Finish signing in with Google, then return to Alteo.');
     } catch (e) {
-      if (mounted) setState(() => message = 'Could not verify access: ' + e.toString());
+      if (!mounted) return;
+      final lower = e.toString().toLowerCase();
+      setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
+          ? 'Google sign-in is not enabled in Supabase yet. Enable Google and add its OAuth credentials in the Supabase dashboard.'
+          : 'Google sign-in could not start: ' + e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -199,44 +193,39 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   Future<void> showAuth(BuildContext context) async {
     await showModalBottomSheet<void>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(builder: (context, setSheetState) => Padding(
-        padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
-        child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Sign in to Alteo', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 6),
-          const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
-          const SizedBox(height: 16),
-          TextButton.icon(
-            onPressed: busy || codeSent ? null : () => setSheetState(() { useEmail = !useEmail; message = null; }),
-            icon: Icon(useEmail ? Icons.phone_android : Icons.email_outlined),
-            label: Text(useEmail ? 'Use phone instead' : 'Use email instead'),
-          ),
-          TextField(controller: useEmail ? email : phone, enabled: !codeSent,
-            keyboardType: useEmail ? TextInputType.emailAddress : TextInputType.phone,
-            decoration: InputDecoration(labelText: useEmail ? 'Email address' : 'Phone with country code', hintText: useEmail ? 'you@example.com' : '+919876543210', border: const OutlineInputBorder())),
-          if (codeSent) ...[
-            const SizedBox(height: 12),
-            TextField(controller: code, keyboardType: TextInputType.number,
-              decoration: InputDecoration(labelText: useEmail ? 'Email verification code' : 'SMS verification code', border: const OutlineInputBorder())),
-          ],
-          if (message != null) ...[
-            const SizedBox(height: 10),
-            Text(message!, style: TextStyle(color: message!.contains('sent') || message!.contains('verified') ? Colors.green : Colors.red, height: 1.4)),
-          ],
-          const SizedBox(height: 14),
-          SizedBox(width: double.infinity, child: FilledButton(
-            onPressed: busy ? null : () async {
-              setSheetState(() {});
-              if (codeSent) { await verifyCode(); } else { await requestCode(); }
-              setSheetState(() {});
-            },
-            child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
-          )),
-          if (codeSent) TextButton(onPressed: busy ? null : () => setSheetState(() { codeSent = false; code.clear(); message = null; }), child: const Text('Change contact')),
-          TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
-        ])),
-      )),
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(
+        builder: (context, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Continue with Google', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 8),
+            const Text('Explore the app without an account. Google sign-in is required only for protected operations.', style: TextStyle(height: 1.45)),
+            const SizedBox(height: 18),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: busy ? null : () async {
+                  setSheetState(() {});
+                  await signInWithGoogle();
+                  if (mounted) setSheetState(() {});
+                },
+                icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
+                label: Text(busy ? 'Connecting to Google…' : 'Sign in / Sign up with Google'),
+                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+              ),
+            ),
+            if (message != null) ...[
+              const SizedBox(height: 12),
+              Text(message!, style: const TextStyle(height: 1.4, color: Color(0xFF68736D))),
+            ],
+            const SizedBox(height: 8),
+            TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
+          ]),
+        ),
+      ),
     );
     if (mounted) setState(() {});
   }
