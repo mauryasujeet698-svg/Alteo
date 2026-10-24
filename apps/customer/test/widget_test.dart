@@ -29,7 +29,7 @@ void main() {
     await tester.tap(find.text('Orders'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Your orders will appear here'), findsOneWidget);
+    expect(find.text('Explore first, sign in when needed'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
     await tester.tap(find.text('Account'));
     await tester.pumpAndSettle();
