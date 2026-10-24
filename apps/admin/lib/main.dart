@@ -176,24 +176,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
               title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
               subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => showModalBottomSheet<void>(
-                context: context, showDragHandle: true, isScrollControlled: true,
-                builder: (context) => SafeArea(child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
-                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Icon(feature.icon, size: 38, color: const Color(0xFF176B57)),
-                    const SizedBox(height: 12),
-                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    Text(feature.detail, style: const TextStyle(height: 1.5)),
-                    const SizedBox(height: 14),
-                    const Text('Exploration is public. Changes to real orders, money, inventory or partner assignments are restricted to authorised accounts.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
-                    const SizedBox(height: 12),
-                    SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue exploring'))),
-                  ]),
-                )),
-              ),
-            ),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
           ),
         const SizedBox(height: 8),
         Container(
@@ -1142,3 +1125,61 @@ const _features = <_Feature>[
   _Feature('Service controls', 'Rides, food, quick commerce and parcels', 'Manage service availability and operational settings with server-side permissions.', Icons.tune_rounded),
   _Feature('Reports and reconciliation', 'Operational visibility', 'Review order volumes, fulfilment performance and financial summaries when reporting is connected.', Icons.analytics_rounded),
 ];
+
+
+class RolePublicFeaturePage extends StatelessWidget {
+  const RolePublicFeaturePage({super.key, required this.feature, required this.onSignIn});
+  final _Feature feature;
+  final VoidCallback onSignIn;
+
+  List<String> get sections {
+    switch (requiredRole) {
+      case 'admin': return const ['Operations summary', 'Orders and service requests', 'Partner assignment', 'Approvals and service settings'];
+      case 'driver_partner': return const ['Availability', 'Ride queue', 'Active trip', 'Trip history'];
+      case 'delivery_partner': return const ['Availability', 'Delivery queue', 'Pickup and drop-off', 'Delivery history'];
+      case 'seller': return const ['Catalogue', 'Inventory and stock', 'Orders to fulfil', 'Store settings'];
+      case 'dark_store': return const ['Inventory', 'Picking queue', 'Packing station', 'Dispatch handover'];
+      default: return const ['Overview', 'Activity', 'Settings'];
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(feature.title), actions: [
+      TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+    ]),
+    body: ListView(padding: const EdgeInsets.all(20), children: [
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: const Color(0xFFE1F2E9), borderRadius: BorderRadius.circular(22)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.visibility_outlined, color: Color(0xFF176B57), size: 34),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(feature.title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            Text(feature.subtitle, style: const TextStyle(color: Color(0xFF365D50))),
+          ])),
+        ]),
+      ),
+      const SizedBox(height: 14),
+      Text(feature.detail, style: const TextStyle(height: 1.5, color: Color(0xFF68736D))),
+      const SizedBox(height: 22),
+      const Text('Explore this screen', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      ...sections.map((section) => Card(
+        elevation: 0,
+        color: Colors.white,
+        child: ListTile(
+          leading: const Icon(Icons.circle_outlined, color: Color(0xFF176B57)),
+          title: Text(section, style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: const Text('No sample records are shown. Your real data appears here after setup and authorised sign-in.'),
+        ),
+      )),
+      const SizedBox(height: 14),
+      FilledButton.icon(onPressed: onSignIn, icon: const Icon(Icons.lock_open_rounded), label: const Text('Sign in for protected actions')),
+      const SizedBox(height: 8),
+      OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back to app overview')),
+    ]),
+  );
+}
