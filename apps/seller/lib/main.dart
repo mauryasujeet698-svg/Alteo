@@ -237,6 +237,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     );
     if (mounted) setState(() {});
   }
+}
 
 
 class RoleOperationsPage extends StatefulWidget {
