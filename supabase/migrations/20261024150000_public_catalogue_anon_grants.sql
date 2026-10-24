@@ -17,3 +17,13 @@ insert into public.app_banners (title, subtitle, action_type, action_value, area
 select 'Everyday, made easier', 'Shop essentials, discover food and book rides with Alteo.',
        'none', null, 'DEFAULT', 1, true
 where not exists (select 1 from public.app_banners);
+
+insert into public.app_banners (title, subtitle, action_type, action_value, area_code, priority, active)
+select 'Shop smarter, every day', 'Discover essentials from local sellers.',
+       'service', 'Shop', 'DEFAULT', 2, true
+where not exists (select 1 from public.app_banners where title = 'Shop smarter, every day');
+
+insert into public.app_banners (title, subtitle, action_type, action_value, area_code, priority, active)
+select 'Your city, connected', 'Food, rides and parcels in one place.',
+       'service', 'Rides', 'DEFAULT', 3, true
+where not exists (select 1 from public.app_banners where title = 'Your city, connected');
