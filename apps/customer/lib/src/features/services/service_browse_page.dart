@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../auth/customer_auth_page.dart';
 
 class ServiceBrowsePage extends StatelessWidget {
   const ServiceBrowsePage({super.key, required this.service});
@@ -61,12 +63,81 @@ class ServiceBrowsePage extends StatelessWidget {
                 title: Text(option.title, style: const TextStyle(fontWeight: FontWeight.w800)),
                 subtitle: Padding(padding: const EdgeInsets.only(top: 5), child: Text(option.subtitle)),
                 trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
-                onTap: () => showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text(option.title), content: const Text('This service screen is ready for integration. Live results and bookings will be enabled when the relevant backend endpoints and service partners are available.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))])),
+                onTap: () {
+                  if (service == 'Rides' && (option.title == 'Bike ride' || option.title == 'Car ride')) {
+                    _requestService(context, 'ride');
+                  } else if (service == 'Parcel' && option.title == 'Send a parcel') {
+                    _requestService(context, 'parcel');
+                  } else {
+                    showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text(option.title), content: const Text('Explore this section without signing in. Live listings and availability appear when the corresponding partners and backend data are configured.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))]));
+                  }
+                },
               ),
             ),
         ],
       ),
     );
+  }
+
+
+  Future<void> _requestService(BuildContext context, String type) async {
+    SupabaseClient? client;
+    try {
+      client = Supabase.instance.client;
+    } catch (_) {
+      _showMessage(context, 'The booking backend is unavailable right now. You can continue exploring this service.');
+      return;
+    }
+
+    if (client.auth.currentUser == null) {
+      await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
+      if (!context.mounted) return;
+      if (client.auth.currentUser == null) {
+        _showMessage(context, 'You can explore without signing in. Sign-in is required only to place a real request.');
+        return;
+      }
+    }
+
+    final pickup = TextEditingController();
+    final dropoff = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: Text(type == 'ride' ? 'Request a ride' : 'Send a parcel'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: pickup, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'Pickup location', border: OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(controller: dropoff, minLines: 1, maxLines: 2, decoration: InputDecoration(labelText: type == 'ride' ? 'Destination' : 'Delivery address', border: const OutlineInputBorder())),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Submit request')),
+        ],
+      ));
+      if (confirmed != true || !context.mounted) return;
+      if (pickup.text.trim().length < 4 || dropoff.text.trim().length < 4) {
+        _showMessage(context, 'Enter both pickup and destination details.');
+        return;
+      }
+      final user = client.auth.currentUser;
+      if (user == null) return;
+      await client.from('service_requests').insert({
+        'customer_id': user.id,
+        'service_type': type,
+        'status': 'requested',
+        'pickup': {'address_line': pickup.text.trim()},
+        'dropoff': {'address_line': dropoff.text.trim()},
+      });
+      if (context.mounted) _showMessage(context, type == 'ride' ? 'Ride request submitted. Availability depends on nearby eligible drivers.' : 'Parcel request submitted. Availability depends on delivery partner coverage.');
+    } catch (e) {
+      if (context.mounted) _showMessage(context, 'Could not submit the request. Confirm the shared operations migration is applied. ' + e.toString());
+    } finally {
+      pickup.dispose();
+      dropoff.dispose();
+    }
+  }
+
+  void _showMessage(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String get _heading => switch (service) {
