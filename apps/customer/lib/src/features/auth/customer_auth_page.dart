@@ -28,7 +28,7 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
  }
  Future<void> verifyCode() async {
   if(code.text.trim().isEmpty){setState(()=>error='Enter the verification code from your SMS.');return;}
-  setState(()=>{busy=true;error=null;});
+  setState((){busy=true;error=null;});
   try{await Supabase.instance.client.auth.verifyOTP(phone:phone.text.trim(),token:code.text.trim(),type:OtpType.sms);if(mounted)Navigator.pop(context,true);}
   on AuthException catch(e){if(mounted)setState(()=>error=e.message);}
   catch(_){if(mounted)setState(()=>error='Verification failed. Please try again.');}
