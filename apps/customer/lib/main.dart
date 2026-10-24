@@ -72,7 +72,7 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
         const CustomerAccountPage(),
       ];
     }
-    return const [
+    return [
       CustomerHomePage(enableRealtimeBanners: widget.enableRealtimeBanners),
       ServiceBrowsePage(service: 'Food'),
       ServiceBrowsePage(service: 'Rides'),
