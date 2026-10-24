@@ -1,10 +1,8 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 const appName = 'Alteo Seller';
 const requiredRole = 'seller';
-const redirectScheme = 'com.alteo.seller';
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://nkerkoptbrcadlpxffkn.supabase.co');
 const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_lM6ttzw8KMPH2BNXgMAJVA_3y1h51YD');
 
@@ -47,75 +45,83 @@ class RoleExplorePage extends StatefulWidget {
 }
 
 class _RoleExplorePageState extends State<RoleExplorePage> {
+  final phone = TextEditingController();
+  final email = TextEditingController();
+  final code = TextEditingController();
+  bool useEmail = false;
+  bool codeSent = false;
   bool busy = false;
   bool authorized = false;
   String? message;
-  StreamSubscription<AuthState>? authSubscription;
-
-  @override
-  void initState() {
-    super.initState();
-    try {
-      final auth = Supabase.instance.client.auth;
-      authSubscription = auth.onAuthStateChange.listen((state) {
-        if (state.session != null) {
-          _checkRole();
-        } else if (mounted && authorized) {
-          setState(() => authorized = false);
-        }
-      });
-      if (auth.currentSession != null) _checkRole();
-    } catch (_) {
-      // Public exploration must work when Supabase is unavailable.
-    }
-  }
 
   @override
   void dispose() {
-    authSubscription?.cancel();
+    phone.dispose();
+    email.dispose();
+    code.dispose();
     super.dispose();
   }
 
-  Future<void> _checkRole() async {
-    final client = Supabase.instance.client;
-    final current = client.auth.currentUser;
-    if (current == null) return;
-    try {
-      final row = await client.from('user_roles')
-          .select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
-      if (!mounted) return;
-      if (row != null) {
-        setState(() { authorized = true; message = 'Access verified.'; });
-      } else {
-        setState(() {
-          authorized = false;
-          message = 'Google sign-in succeeded, but this account has not been granted the $requiredRole role yet. Ask the Alteo administrator to approve it.';
-        });
-        await client.auth.signOut();
+  Future<void> requestCode() async {
+    final value = useEmail ? email.text.trim() : phone.text.trim();
+    if (useEmail) {
+      if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value)) {
+        setState(() => message = 'Enter a valid email address.');
+        return;
       }
-    } catch (_) {
-      if (mounted) setState(() => message = 'Could not verify your app role. Check the user_roles policy and try again.');
+    } else if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
+      setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
+      return;
     }
-  }
-
-  Future<void> signInWithGoogle() async {
     if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is unavailable until the Supabase configuration is restored.');
+      setState(() => message = 'Sign-in is temporarily unavailable because the backend is not configured. You can continue exploring this app.');
       return;
     }
     setState(() { busy = true; message = null; });
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: '$redirectScheme://login-callback/',
-      );
-      if (mounted) setState(() => message = 'Finish signing in with Google, then return to Alteo.');
-    } catch (e) {
+      if (useEmail) {
+        await Supabase.instance.client.auth.signInWithOtp(email: value);
+      } else {
+        await Supabase.instance.client.auth.signInWithOtp(phone: value);
+      }
+      if (mounted) setState(() { codeSent = true; message = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
+    } on Exception catch (e) {
       if (!mounted) return;
-      final lower = e.toString().toLowerCase();
+      final lower = e.message.toLowerCase();
       setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-          ? 'Google sign-in is not enabled in Supabase yet. Enable Google and add its OAuth credentials in the Supabase dashboard.'
-          : 'Google sign-in could not start: ' + e.toString());
+        ? (useEmail ? 'Email sign-in is not enabled in Supabase. Switch to phone if Phone Auth is configured, or ask the project owner to enable a provider.' : 'Phone sign-in is not enabled in Supabase. Switch to email if email authentication is configured. Public browsing remains available.')
+        : 'Could not send the code: ' + e.message);
+    } catch (_) {
+      if (mounted) setState(() => message = 'Could not send the code. Check authentication configuration. You can still explore without signing in.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  Future<void> verifyCode() async {
+    if (code.text.trim().isEmpty) { setState(() => message = 'Enter the verification code.'); return; }
+    if (!widget.backendReady) return;
+    setState(() { busy = true; message = null; });
+    try {
+      if (useEmail) {
+        await Supabase.instance.client.auth.verifyOTP(email: email.text.trim(), token: code.text.trim(), type: OtpType.email);
+      } else {
+        await Supabase.instance.client.auth.verifyOTP(phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms);
+      }
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) throw StateError('Sign-in did not return a user.');
+      final row = await Supabase.instance.client.from('user_roles')
+        .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
+      if (row == null) {
+        await Supabase.instance.client.auth.signOut();
+        if (mounted) setState(() => message = 'This account is not approved for the ' + requiredRole + ' role. Public exploration remains available.');
+      } else if (mounted) {
+        setState(() { authorized = true; message = 'Role verified.'; });
+      }
+    } on Exception catch (e) {
+      if (mounted) setState(() => message = 'Sign-in failed: ' + e.message);
+    } catch (e) {
+      if (mounted) setState(() => message = 'Could not verify access: ' + e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -149,12 +155,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
             const Text('Your catalogue and orders, connected', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
             const SizedBox(height: 8),
             const Text('Explore product management, inventory, pricing, order preparation and fulfilment.', style: TextStyle(color: Colors.white, height: 1.45)),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white70)),
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are already exploring. Sign in is only needed for protected actions.'))),
-              icon: const Icon(Icons.explore_outlined), label: const Text('Explore without signing in'),
-            ),
+            const SizedBox(height: 12),
+            const Text('No account is needed to explore. Sign in only for protected operations.', style: TextStyle(color: Colors.white, height: 1.4)),
           ]),
         ),
         const SizedBox(height: 22),
@@ -174,23 +176,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
               title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
               subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => showModalBottomSheet<void>(
-                context: context, showDragHandle: true, isScrollControlled: true,
-                builder: (context) => SafeArea(child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
-                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Icon(feature.icon, size: 38, color: const Color(0xFF176B57)),
-                    const SizedBox(height: 12),
-                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    Text(feature.detail, style: const TextStyle(height: 1.5)),
-                    const SizedBox(height: 14),
-                    const Text('Exploration is public. Changes to real orders, money, inventory or partner assignments are restricted to authorised accounts.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
-                    const SizedBox(height: 12),
-                    SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue exploring'))),
-                  ]),
-                )),
-              ),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
             ),
           ),
         const SizedBox(height: 8),
@@ -209,42 +195,48 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       ],
     ),
   );
+  }
 
   Future<void> showAuth(BuildContext context) async {
     await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setSheetState) => Padding(
-          padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('Continue with Google', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            const Text('Explore the app without an account. Google sign-in is required only for protected operations.', style: TextStyle(height: 1.45)),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: busy ? null : () async {
-                  setSheetState(() {});
-                  await signInWithGoogle();
-                  if (mounted) setSheetState(() {});
-                },
-                icon: const Icon(Icons.g_mobiledata_rounded, size: 28),
-                label: Text(busy ? 'Connecting to Google…' : 'Sign in / Sign up with Google'),
-                style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-              ),
-            ),
-            if (message != null) ...[
-              const SizedBox(height: 12),
-              Text(message!, style: const TextStyle(height: 1.4, color: Color(0xFF68736D))),
-            ],
-            const SizedBox(height: 8),
-            TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
-          ]),
-        ),
-      ),
+      context: context, isScrollControlled: true, showDragHandle: true,
+      builder: (sheetContext) => StatefulBuilder(builder: (context, setSheetState) => Padding(
+        padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
+        child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Sign in to Alteo', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: busy || codeSent ? null : () => setSheetState(() { useEmail = !useEmail; message = null; }),
+            icon: Icon(useEmail ? Icons.phone_android : Icons.email_outlined),
+            label: Text(useEmail ? 'Use phone instead' : 'Use email instead'),
+          ),
+          TextField(controller: useEmail ? email : phone, enabled: !codeSent,
+            keyboardType: useEmail ? TextInputType.emailAddress : TextInputType.phone,
+            decoration: InputDecoration(labelText: useEmail ? 'Email address' : 'Phone with country code', hintText: useEmail ? 'you@example.com' : '+919876543210', border: const OutlineInputBorder())),
+          if (codeSent) ...[
+            const SizedBox(height: 12),
+            TextField(controller: code, keyboardType: TextInputType.number,
+              decoration: InputDecoration(labelText: useEmail ? 'Email verification code' : 'SMS verification code', border: const OutlineInputBorder())),
+          ],
+          if (message != null) ...[
+            const SizedBox(height: 10),
+            Text(message!, style: TextStyle(color: message!.contains('sent') || message!.contains('verified') ? Colors.green : Colors.red, height: 1.4)),
+          ],
+          const SizedBox(height: 14),
+          SizedBox(width: double.infinity, child: FilledButton(
+            onPressed: busy ? null : () async {
+              setSheetState(() {});
+              if (codeSent) { await verifyCode(); } else { await requestCode(); }
+              setSheetState(() {});
+            },
+            child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
+          )),
+          if (codeSent) TextButton(onPressed: busy ? null : () => setSheetState(() { codeSent = false; code.clear(); message = null; }), child: const Text('Change contact')),
+          TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
+        ])),
+      )),
     );
     if (mounted) setState(() {});
   }
@@ -838,192 +830,60 @@ const _features = <_Feature>[
   _Feature('Pricing and offers', 'Keep listings current', 'Authorised sellers update pricing and eligible offers, with validation and audit history.', Icons.sell_rounded),
   _Feature('Business insights', 'Sales and fulfilment summaries', 'See seller-specific summaries when the reporting layer is connected.', Icons.bar_chart_rounded),
 ];
-).hasMatch(value)) {
-      setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
-      return;
-    }
-    if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is temporarily unavailable because the backend is not configured. You can continue exploring this app.');
-      return;
-    }
-    setState(() { busy = true; message = null; });
-    try {
-      await Supabase.instance.client.auth.signInWithOtp(phone: value);
-      if (mounted) setState(() { codeSent = true; message = 'Verification code sent.'; });
-    } on AuthException catch (e) {
-      if (!mounted) return;
-      final lower = e.message.toLowerCase();
-      setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-        ? 'Phone sign-in is not enabled in Supabase. Browsing remains available; the owner must enable Phone Auth and configure an SMS provider.'
-        : 'Could not send the code: ${e.message}');
-    } catch (_) {
-      if (mounted) setState(() => message = 'Could not send the code. Check the network and Supabase SMS configuration. You can still explore without signing in.');
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
 
-  Future<void> verifyCode() async {
-    if (!widget.backendReady) return;
-    setState(() { busy = true; message = null; });
-    try {
-      await Supabase.instance.client.auth.verifyOTP(
-        phone: phone.text.trim(), token: code.text.trim(), type: OtpType.sms,
-      );
-      final user = Supabase.instance.client.auth.currentUser;
-      if (user == null) throw StateError('Sign-in did not return a user.');
-      final row = await Supabase.instance.client.from('user_roles')
-        .select('role').eq('user_id', user.id).eq('role', requiredRole).maybeSingle();
-      if (row == null) {
-        await Supabase.instance.client.auth.signOut();
-        if (mounted) setState(() => message = 'This account is not approved for the $requiredRole role. You can still explore public screens.');
-      } else if (mounted) {
-        setState(() { authorized = true; message = 'Role verified. Protected operations can be connected here.'; });
-      }
-    } on AuthException catch (e) {
-      if (mounted) setState(() => message = 'Sign-in failed: ${e.message}');
-    } catch (e) {
-      if (mounted) setState(() => message = 'Could not verify access: $e');
-    } finally {
-      if (mounted) setState(() => busy = false);
+class RolePublicFeaturePage extends StatelessWidget {
+  const RolePublicFeaturePage({super.key, required this.feature, required this.onSignIn});
+  final _Feature feature;
+  final VoidCallback onSignIn;
+
+  List<String> get sections {
+    switch (requiredRole) {
+      case 'admin': return const ['Operations summary', 'Orders and service requests', 'Partner assignment', 'Approvals and service settings'];
+      case 'driver_partner': return const ['Availability', 'Ride queue', 'Active trip', 'Trip history'];
+      case 'delivery_partner': return const ['Availability', 'Delivery queue', 'Pickup and drop-off', 'Delivery history'];
+      case 'seller': return const ['Catalogue', 'Inventory and stock', 'Orders to fulfil', 'Store settings'];
+      case 'dark_store': return const ['Inventory', 'Picking queue', 'Packing station', 'Dispatch handover'];
+      default: return const ['Overview', 'Activity', 'Settings'];
     }
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: Row(children: [
-        Container(width: 36, height: 36, decoration: BoxDecoration(color: const Color(0xFF176B57), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(Icons.explore_rounded, color: Colors.white, size: 22)),
-        const SizedBox(width: 10),
-        const Expanded(child: Text(appName, style: TextStyle(fontWeight: FontWeight.w800))),
-      ]),
-      actions: [TextButton(onPressed: () => showAuth(context), child: Text(authorized ? 'Access' : 'Sign in'))],
-    ),
-    body: ListView(
-      padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
-      children: [
-        Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF176B57), Color(0xFF2C8B70)]),
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('EXPLORE ALTEO', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, letterSpacing: 1.3, fontSize: 11)),
-            const SizedBox(height: 10),
-            const Text('Your catalogue and orders, connected', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            const Text('Explore product management, inventory, pricing, order preparation and fulfilment.', style: TextStyle(color: Colors.white, height: 1.45)),
-            const SizedBox(height: 16),
-            OutlinedButton.icon(
-              style: OutlinedButton.styleFrom(foregroundColor: Colors.white, side: const BorderSide(color: Colors.white70)),
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You are already exploring. Sign in is only needed for protected actions.'))),
-              icon: const Icon(Icons.explore_outlined), label: const Text('Explore without signing in'),
-            ),
-          ]),
+    appBar: AppBar(title: Text(feature.title), actions: [
+      TextButton(onPressed: onSignIn, child: const Text('Sign in')),
+    ]),
+    body: ListView(padding: const EdgeInsets.all(20), children: [
+      Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(color: const Color(0xFFE1F2E9), borderRadius: BorderRadius.circular(22)),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Icon(Icons.visibility_outlined, color: Color(0xFF176B57), size: 34),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(feature.title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            Text(feature.subtitle, style: const TextStyle(color: Color(0xFF365D50))),
+          ])),
+        ]),
+      ),
+      const SizedBox(height: 14),
+      Text(feature.detail, style: const TextStyle(height: 1.5, color: Color(0xFF68736D))),
+      const SizedBox(height: 22),
+      const Text('Explore this screen', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      ...sections.map((section) => Card(
+        elevation: 0,
+        color: Colors.white,
+        child: ListTile(
+          leading: const Icon(Icons.circle_outlined, color: Color(0xFF176B57)),
+          title: Text(section, style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: const Text('No sample records are shown. Your real data appears here after setup and authorised sign-in.'),
         ),
-        const SizedBox(height: 22),
-        const Text('Explore features', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 5),
-        const Text('Open any section to learn how it works. Private records and live operations require authorised access.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-        const SizedBox(height: 12),
-        for (final feature in _features)
-          Card(
-            elevation: 0,
-            color: Colors.white,
-            margin: const EdgeInsets.only(bottom: 10),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE5EAE5))),
-            child: ListTile(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 7),
-              leading: CircleAvatar(backgroundColor: const Color(0xFFE3F2E9), child: Icon(feature.icon, color: const Color(0xFF176B57))),
-              title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => showModalBottomSheet<void>(
-                context: context, showDragHandle: true, isScrollControlled: true,
-                builder: (context) => SafeArea(child: Padding(
-                  padding: const EdgeInsets.fromLTRB(22, 8, 22, 28),
-                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Icon(feature.icon, size: 38, color: const Color(0xFF176B57)),
-                    const SizedBox(height: 12),
-                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 8),
-                    Text(feature.detail, style: const TextStyle(height: 1.5)),
-                    const SizedBox(height: 14),
-                    const Text('Exploration is public. Changes to real orders, money, inventory or partner assignments are restricted to authorised accounts.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
-                    const SizedBox(height: 12),
-                    SizedBox(width: double.infinity, child: FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Continue exploring'))),
-                  ]),
-                )),
-              ),
-            ),
-          ),
-        const SizedBox(height: 8),
-        Container(
-          padding: const EdgeInsets.all(15),
-          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(widget.backendReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, color: const Color(0xFF176B57)),
-            const SizedBox(width: 10),
-            Expanded(child: Text(widget.backendReady
-              ? 'Public exploration is available. Live data and protected actions depend on backend permissions and service configuration.'
-              : 'Public exploration is available. Sign-in and live data are temporarily unavailable until backend configuration is restored.',
-              style: const TextStyle(height: 1.45))),
-          ]),
-        ),
-      ],
-    ),
-  );
-
-  Future<void> showAuth(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context, isScrollControlled: true, showDragHandle: true,
-      builder: (sheetContext) => StatefulBuilder(builder: (context, setSheetState) => Padding(
-        padding: EdgeInsets.fromLTRB(22, 8, 22, MediaQuery.of(context).viewInsets.bottom + 24),
-        child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Sign in to Alteo', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 6),
-          const Text('Browsing is open to everyone. Sign in only to access protected operations.', style: TextStyle(height: 1.4)),
-          const SizedBox(height: 16),
-          TextField(controller: phone, enabled: !codeSent, keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'Phone with country code', hintText: '+919876543210', border: OutlineInputBorder())),
-          if (codeSent) ...[
-            const SizedBox(height: 12),
-            TextField(controller: code, keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'SMS verification code', border: OutlineInputBorder())),
-          ],
-          if (message != null) ...[
-            const SizedBox(height: 10),
-            Text(message!, style: TextStyle(color: message!.contains('sent') || message!.contains('verified') ? Colors.green : Colors.red, height: 1.4)),
-          ],
-          const SizedBox(height: 14),
-          SizedBox(width: double.infinity, child: FilledButton(
-            onPressed: busy ? null : () async {
-              setSheetState(() {});
-              if (codeSent) { await verifyCode(); } else { await requestCode(); }
-              setSheetState(() {});
-            },
-            child: Text(busy ? 'Please wait…' : codeSent ? 'Verify and continue' : 'Send verification code'),
-          )),
-          TextButton(onPressed: () => Navigator.pop(sheetContext), child: const Text('Continue exploring')),
-        ])),
       )),
-    );
-    if (mounted) setState(() {});
-  }
+      const SizedBox(height: 14),
+      FilledButton.icon(onPressed: onSignIn, icon: const Icon(Icons.lock_open_rounded), label: const Text('Sign in for protected actions')),
+      const SizedBox(height: 8),
+      OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back to app overview')),
+    ]),
+  );
 }
-
-class _Feature {
-  const _Feature(this.title, this.subtitle, this.detail, this.icon);
-  final String title, subtitle, detail;
-  final IconData icon;
-}
-
-const _features = <_Feature>[
-  _Feature('Product catalogue', 'Manage items and descriptions', 'Sellers manage their own listings, prices, photos and availability after authorisation.', Icons.inventory_2_rounded),
-  _Feature('Inventory', 'Stock and availability', 'Stock changes should be validated by the backend and reflected across customer browsing and dark-store operations.', Icons.inventory_2_rounded),
-  _Feature('Incoming orders', 'Prepare and fulfil orders', 'Only orders routed to this seller should be visible; status changes are shared with admin and customers.', Icons.shopping_bag_rounded),
-  _Feature('Pricing and offers', 'Keep listings current', 'Authorised sellers update pricing and eligible offers, with validation and audit history.', Icons.sell_rounded),
-  _Feature('Business insights', 'Sales and fulfilment summaries', 'See seller-specific summaries when the reporting layer is connected.', Icons.bar_chart_rounded),
-];
