@@ -6,6 +6,7 @@ import 'src/features/orders/customer_orders_page.dart';
 import 'src/features/account/customer_account_page.dart';
 import 'src/features/services/service_browse_page.dart';
 import 'src/services/mapbox_service.dart';
+import 'src/services/customer_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -30,28 +31,54 @@ class AlteoCustomerApp extends StatelessWidget {
   final String? backendNotice;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Alteo',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57), brightness: Brightness.light),
-      scaffoldBackgroundColor: const Color(0xFFF7F8F6),
-      useMaterial3: true,
-      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F8F6), surfaceTintColor: Colors.transparent),
+  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+    valueListenable: alteoThemeMode,
+    builder: (context, mode, _) => MaterialApp(
+      title: 'Alteo',
+      debugShowCheckedModeBanner: false,
+      themeMode: mode,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57), brightness: Brightness.light),
+        scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+        useMaterial3: true,
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F8F6), surfaceTintColor: Colors.transparent),
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF43B58A), brightness: Brightness.dark),
+        useMaterial3: true,
+      ),
+      home: CustomerAppShell(backendNotice: backendNotice),
     ),
-    home: backendNotice == null ? const CustomerAppShell() : PublicExploreFallback(notice: backendNotice!),
   );
 }
 
 class CustomerAppShell extends StatefulWidget {
-  const CustomerAppShell({super.key});
+  const CustomerAppShell({super.key, this.backendNotice});
+  final String? backendNotice;
   @override
   State<CustomerAppShell> createState() => _CustomerAppShellState();
 }
 
 class _CustomerAppShellState extends State<CustomerAppShell> {
   int selected = 0;
-  final pages = const [CustomerHomePage(), CustomerOrdersPage(), CustomerAccountPage()];
+
+  List<Widget> get pages {
+    if (widget.backendNotice != null) {
+      return [
+        PublicExploreFallback(notice: widget.backendNotice!),
+        const PublicServiceFallback(title: 'Food', detail: 'Food discovery will connect when the backend is available.'),
+        const PublicServiceFallback(title: 'Ride', detail: 'Ride booking will connect when the backend is available.'),
+        const CustomerAccountPage(),
+      ];
+    }
+    return const [
+      CustomerHomePage(),
+      ServiceBrowsePage(service: 'Food'),
+      ServiceBrowsePage(service: 'Rides'),
+      CustomerAccountPage(),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
     body: IndexedStack(index: selected, children: pages),
@@ -60,10 +87,21 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
       onDestinationSelected: (i) => setState(() => selected = i),
       destinations: const [
         NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long_rounded), label: 'Orders'),
-        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Account'),
+        NavigationDestination(icon: Icon(Icons.restaurant_outlined), selectedIcon: Icon(Icons.restaurant_rounded), label: 'Food'),
+        NavigationDestination(icon: Icon(Icons.directions_car_outlined), selectedIcon: Icon(Icons.directions_car_filled_rounded), label: 'Ride'),
+        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
       ],
     ),
+  );
+}
+
+class PublicServiceFallback extends StatelessWidget {
+  const PublicServiceFallback({super.key, required this.title, required this.detail});
+  final String title, detail;
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(title)),
+    body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Text(detail, textAlign: TextAlign.center))),
   );
 }
 
