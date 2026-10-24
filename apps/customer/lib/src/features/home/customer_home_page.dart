@@ -108,7 +108,7 @@ class _ProductSearch extends SearchDelegate<String>{
  Widget _results(BuildContext context){
   if(query.trim().isEmpty)return const Center(child:Text('Type or say an item name to search.'));
   return FutureBuilder<List<Map<String,dynamic>>>(
-   future:Supabase.instance.client.from('seller_products').select('id,name,description,price_minor,image_url,kind').eq('status','active').ilike('name','%\${query.trim()}%').order('created_at',ascending:false).limit(30),
+   future:Supabase.instance.client.from('seller_products').select('id,name,description,price_minor,image_url,kind').eq('status','active').ilike('name','%${query.trim()}%').order('created_at',ascending:false).limit(30),
    builder:(context,s){
     if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
     if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Search is temporarily unavailable. Pull down on Home to retry.',textAlign:TextAlign.center)));
