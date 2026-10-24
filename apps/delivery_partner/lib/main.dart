@@ -7,6 +7,8 @@ const requiredRole = 'delivery_partner';
 const redirectScheme = 'com.alteo.deliverypartner';
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://nkerkoptbrcadlpxffkn.supabase.co');
 const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_lM6ttzw8KMPH2BNXgMAJVA_3y1h51YD');
+final ValueNotifier<ThemeMode> roleThemeMode = ValueNotifier<ThemeMode>(ThemeMode.light);
+final ValueNotifier<String> roleLanguage = ValueNotifier<String>('English');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,15 +29,24 @@ class AlteoRoleApp extends StatelessWidget {
   final bool backendReady;
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: appName,
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57)),
-      scaffoldBackgroundColor: const Color(0xFFF7F8F6),
-      useMaterial3: true,
+  Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
+    valueListenable: roleThemeMode,
+    builder: (context, mode, _) => MaterialApp(
+      title: appName,
+      debugShowCheckedModeBanner: false,
+      themeMode: mode,
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57), brightness: Brightness.light),
+        scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF43B58A), brightness: Brightness.dark),
+        scaffoldBackgroundColor: const Color(0xFF101714),
+        useMaterial3: true,
+      ),
+      home: RoleExplorePage(backendReady: backendReady),
     ),
-    home: RoleExplorePage(backendReady: backendReady),
   );
 }
 
@@ -424,8 +435,23 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             ]),
           ),
           const SizedBox(height: 16),
-          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.palette_outlined), title: const Text('Appearance'), subtitle: const Text('Premium light theme is active; system and dark theme controls can be enabled here next.'))),
-          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.language_rounded), title: const Text('Language'), subtitle: const Text('English'))),
+          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
+            const Icon(Icons.palette_outlined), const SizedBox(width: 12), const Expanded(child: Text('Appearance', style: TextStyle(fontWeight: FontWeight.w700))),
+            DropdownButton<ThemeMode>(value: roleThemeMode.value, underline: const SizedBox.shrink(), items: const [
+              DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
+              DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+              DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
+            ], onChanged: (v) { if (v != null) roleThemeMode.value = v; }),
+          ]))),
+          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
+            const Icon(Icons.language_rounded), const SizedBox(width: 12), const Expanded(child: Text('Language', style: TextStyle(fontWeight: FontWeight.w700))),
+            DropdownButton<String>(value: roleLanguage.value, underline: const SizedBox.shrink(), items: const [
+              DropdownMenuItem(value: 'English', child: Text('English')),
+              DropdownMenuItem(value: 'हिन्दी', child: Text('हिन्दी')),
+              DropdownMenuItem(value: 'বাংলা', child: Text('বাংলা')),
+              DropdownMenuItem(value: 'தமிழ்', child: Text('தமிழ்')),
+            ], onChanged: (v) { if (v != null) roleLanguage.value = v; }),
+          ]))),
           Card(elevation: 0, child: ListTile(leading: const Icon(Icons.security_rounded), title: const Text('Access & security'), subtitle: const Text('Google sign-in and role-based access are used for protected operations.'))),
           const SizedBox(height: 12),
           FilledButton.icon(onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded), label: const Text('Sign out')),
