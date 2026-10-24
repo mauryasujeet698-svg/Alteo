@@ -93,11 +93,11 @@ jobs:
           path = Path('pubspec.yaml')
           text = path.read_text()
           if 'dependency_overrides:' not in text:
-              text += '\ndependency_overrides:\n  shared_preferences_android: 2.4.15\n'
+              text += '\ndependency_overrides:\n  shared_preferences_android: 2.3.5\n'
           elif 'shared_preferences_android:' not in text:
-              text += '\n  shared_preferences_android: ^2.4.15\n'
+              text += '\n  shared_preferences_android: 2.3.5\n'
           path.write_text(text)
-          print('Pinned shared_preferences_android to 2.4.15 for a compatible Android Pigeon API')
+          print('Pinned shared_preferences_android to 2.3.5 to avoid the observed Android Pigeon API mismatch')
           PY
       - name: Resolve compatible dependencies
         working-directory: apps/${{ matrix.app }}
