@@ -4,47 +4,115 @@ import 'src/config/app_config.dart';
 import 'src/features/home/customer_home_page.dart';
 import 'src/features/orders/customer_orders_page.dart';
 import 'src/features/account/customer_account_page.dart';
+import 'src/features/services/service_browse_page.dart';
 import 'src/services/mapbox_service.dart';
 
 Future<void> main() async {
- WidgetsFlutterBinding.ensureInitialized();
- final config=AppConfig.fromEnvironment();
- String? startupError;
- try {
-  if(config.supabaseUrl.isEmpty || config.supabaseAnonKey.isEmpty) {
-   startupError='Supabase URL or public key is missing. Add SUPABASE_URL and SUPABASE_ANON_KEY to the app build configuration.';
-  } else {
-   await Supabase.initialize(url:config.supabaseUrl,publishableKey:config.supabaseAnonKey);
+  WidgetsFlutterBinding.ensureInitialized();
+  final config = AppConfig.fromEnvironment();
+  String? backendNotice;
+  try {
+    if (config.supabaseUrl.isEmpty || config.supabaseAnonKey.isEmpty) {
+      backendNotice = 'Live catalogue and sign-in are unavailable until the backend configuration is restored.';
+    } else {
+      await Supabase.initialize(url: config.supabaseUrl, publishableKey: config.supabaseAnonKey);
+    }
+  } catch (_) {
+    // Do not block public browsing when Supabase is temporarily unavailable.
+    backendNotice = 'Live catalogue and sign-in are temporarily unavailable. You can still explore Alteo services.';
   }
- } catch(e) { startupError='Supabase could not be initialized. Verify the project URL and publishable key, internet access, and Supabase project status. Details: $e'; }
- MapboxService.configure(config.mapboxPublicToken);
- runApp(AlteoCustomerApp(startupError:startupError));
+  MapboxService.configure(config.mapboxPublicToken);
+  runApp(AlteoCustomerApp(backendNotice: backendNotice));
 }
+
 class AlteoCustomerApp extends StatelessWidget {
- const AlteoCustomerApp({super.key,this.startupError});
- final String? startupError;
- @override Widget build(BuildContext context)=>MaterialApp(
-  title:'Alteo',debugShowCheckedModeBanner:false,
-  theme:ThemeData(colorScheme:ColorScheme.fromSeed(seedColor:const Color(0xFF176B57),brightness:Brightness.light),scaffoldBackgroundColor:const Color(0xFFF7F8F6),useMaterial3:true,appBarTheme:const AppBarTheme(backgroundColor:Color(0xFFF7F8F6),surfaceTintColor:Colors.transparent)),
-  home:startupError==null?const CustomerAppShell():_StartupErrorPage(message:startupError!),
- );
+  const AlteoCustomerApp({super.key, this.backendNotice});
+  final String? backendNotice;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Alteo',
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF176B57), brightness: Brightness.light),
+      scaffoldBackgroundColor: const Color(0xFFF7F8F6),
+      useMaterial3: true,
+      appBarTheme: const AppBarTheme(backgroundColor: Color(0xFFF7F8F6), surfaceTintColor: Colors.transparent),
+    ),
+    home: backendNotice == null ? const CustomerAppShell() : PublicExploreFallback(notice: backendNotice!),
+  );
 }
-class CustomerAppShell extends StatefulWidget { const CustomerAppShell({super.key}); @override State<CustomerAppShell> createState()=>_CustomerAppShellState(); }
+
+class CustomerAppShell extends StatefulWidget {
+  const CustomerAppShell({super.key});
+  @override
+  State<CustomerAppShell> createState() => _CustomerAppShellState();
+}
+
 class _CustomerAppShellState extends State<CustomerAppShell> {
- int selected=0;
- final pages=const [CustomerHomePage(),CustomerOrdersPage(),CustomerAccountPage()];
- @override Widget build(BuildContext context)=>Scaffold(
-  body:IndexedStack(index:selected,children:pages),
-  bottomNavigationBar:NavigationBar(selectedIndex:selected,onDestinationSelected:(i)=>setState(()=>selected=i),destinations:const [
-   NavigationDestination(icon:Icon(Icons.home_outlined),selectedIcon:Icon(Icons.home_rounded),label:'Home'),
-   NavigationDestination(icon:Icon(Icons.receipt_long_outlined),selectedIcon:Icon(Icons.receipt_long_rounded),label:'Orders'),
-   NavigationDestination(icon:Icon(Icons.person_outline_rounded),selectedIcon:Icon(Icons.person_rounded),label:'Account'),
-  ]),
- );
+  int selected = 0;
+  final pages = const [CustomerHomePage(), CustomerOrdersPage(), CustomerAccountPage()];
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: IndexedStack(index: selected, children: pages),
+    bottomNavigationBar: NavigationBar(
+      selectedIndex: selected,
+      onDestinationSelected: (i) => setState(() => selected = i),
+      destinations: const [
+        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
+        NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long_rounded), label: 'Orders'),
+        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Account'),
+      ],
+    ),
+  );
 }
-class _StartupErrorPage extends StatelessWidget {
- const _StartupErrorPage({required this.message}); final String message;
- @override Widget build(BuildContext context)=>Scaffold(body:SafeArea(child:Center(child:Padding(padding:const EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[
-  const Icon(Icons.cloud_off_rounded,size:58,color:Color(0xFF176B57)),const SizedBox(height:18),const Text('Alteo needs a connection',style:TextStyle(fontSize:23,fontWeight:FontWeight.w900),textAlign:TextAlign.center),const SizedBox(height:12),Text(message,textAlign:TextAlign.center,style:const TextStyle(height:1.5,color:Color(0xFF68736D))),const SizedBox(height:20),const Text('Check the app configuration and reopen Alteo.',textAlign:TextAlign.center)
- ])))));
+
+class PublicExploreFallback extends StatelessWidget {
+  const PublicExploreFallback({super.key, required this.notice});
+  final String notice;
+  static const services = <(String, IconData, String)>[
+    ('Food', Icons.restaurant_rounded, 'Browse restaurants, menus and meals.'),
+    ('Quick commerce', Icons.shopping_basket_rounded, 'Explore groceries and everyday essentials.'),
+    ('Shopping', Icons.shopping_bag_rounded, 'Explore products from marketplace sellers.'),
+    ('Rides', Icons.directions_car_rounded, 'Explore bike and car ride services.'),
+    ('Parcels', Icons.local_shipping_rounded, 'Explore local pickup and delivery services.'),
+  ];
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Alteo')),
+    body: ListView(padding: const EdgeInsets.all(20), children: [
+      Container(
+        padding: const EdgeInsets.all(22),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF49A27D)]),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('EVERYDAY SERVICES, TOGETHER', style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.1)),
+          SizedBox(height: 10),
+          Text('Explore Alteo', style: TextStyle(color: Colors.white, fontSize: 29, fontWeight: FontWeight.w900)),
+          SizedBox(height: 8),
+          Text('Browse services without creating an account. Sign-in is only needed for personal actions such as checkout.', style: TextStyle(color: Colors.white, height: 1.5)),
+        ]),
+      ),
+      const SizedBox(height: 18),
+      Text(notice, style: const TextStyle(color: Color(0xFF68736D), height: 1.45)),
+      const SizedBox(height: 16),
+      for (final service in services)
+        Card(
+          elevation: 0,
+          color: Colors.white,
+          margin: const EdgeInsets.only(bottom: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17), side: const BorderSide(color: Color(0xFFE5EAE5))),
+          child: ListTile(
+            leading: CircleAvatar(backgroundColor: const Color(0xFFE3F2E9), child: Icon(service.$2, color: const Color(0xFF176B57))),
+            title: Text(service.$1, style: const TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: Text(service.$3),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => ServiceBrowsePage(service: service.$1 == 'Quick commerce' ? 'Quick' : service.$1 == 'Shopping' ? 'Shop' : service.$1 == 'Parcels' ? 'Parcel' : service.$1))),
+          ),
+        ),
+    ]),
+  );
 }
