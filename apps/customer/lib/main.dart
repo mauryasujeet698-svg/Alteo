@@ -116,7 +116,7 @@ class PhoneSignIn extends StatefulWidget {
 class _PhoneSignInState extends State<PhoneSignIn> {
   final _phone = TextEditingController();
   final _otp = TextEditingController();
-  bool _sent = false, _busy = false, _usePhone = true;
+  bool _sent = false, _busy = false, _usePhone = false;
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
