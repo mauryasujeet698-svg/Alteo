@@ -40,7 +40,7 @@ The repository's checked-in SQL history is not a full export of the already-prov
 Use Flutter --dart-define values for SUPABASE_URL, SUPABASE_ANON_KEY and MAPBOX_PUBLIC_TOKEN. Only a platform-restricted public Mapbox token belongs in the app. Keep service-role keys and Cloudinary API secrets server-side.
 
 ## Build and release
-GitHub Actions builds arm64 release APKs for all six apps, runs Flutter tests and enforces a 15 MiB APK size limit. A workflow must finish successfully and each produced APK must be measured before it is considered releasable. The build artifacts are retained by GitHub Actions for 14 days.
+GitHub Actions builds arm64 release APKs for all six apps, runs Flutter tests and enforces a 15 MB APK size limit. A workflow must finish successfully and each produced APK must be measured before it is considered releasable. The build artifacts are retained by GitHub Actions for 14 days.
 
 ## Current implementation status
 Public exploration screens are present across all six app targets. Admin, partner, seller and dark-store operational screens are connected to the existing Supabase streams and RPCs. Customer order history listens to order, ride and parcel updates; customer ride/parcel creation uses the existing server-side RPCs and Mapbox geocoding; checkout uses the secure customer-order RPC. Final release remains dependent on a successful CI run, real-device testing, provider configuration, active catalogue/service pricing and a payment integration or explicitly approved COD workflow.
