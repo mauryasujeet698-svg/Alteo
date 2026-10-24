@@ -56,26 +56,123 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
   IconButton(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
  ]));
- Widget bannerList()=>FutureBuilder<List<CustomerBanner>>(future:banners,builder:(context,s){
-  if(s.connectionState==ConnectionState.waiting)return const SizedBox(height:185,child:Center(child:CircularProgressIndicator()));
-  final list=s.data??[];
-  if(list.isEmpty)return Padding(padding:const EdgeInsets.fromLTRB(18,0,18,8),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Container(height:165,decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)])),child:const Padding(padding:EdgeInsets.all(22),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text('EVERYDAY, MADE EASIER',style:TextStyle(color:Colors.white70,fontSize:10,fontWeight:FontWeight.w800,letterSpacing:1.2)),SizedBox(height:8),Text('Discover more with Alteo',style:TextStyle(color:Colors.white,fontSize:24,fontWeight:FontWeight.w900)),SizedBox(height:5),Text('New offers and services are coming soon.',style:TextStyle(color:Colors.white,height:1.4))]))));
-  return Column(children:[
-   SizedBox(height:185,child:PageView.builder(itemCount:list.length,controller:bannerController,onPageChanged:(i)=>setState(()=>bannerIndex=i),itemBuilder:(context,i){
-    final b=list[i];
-    return Padding(padding:const EdgeInsets.fromLTRB(6,0,6,14),child:Material(color:Colors.transparent,child:InkWell(borderRadius:BorderRadius.circular(23),onTap:()=>_openBanner(b),child:ClipRRect(borderRadius:BorderRadius.circular(23),child:Stack(fit:StackFit.expand,children:[
-     if(b.imageUrl.isNotEmpty)Image.network(b.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>gradient())else gradient(),
-     Container(decoration:const BoxDecoration(gradient:LinearGradient(begin:Alignment.centerLeft,end:Alignment.centerRight,colors:[Color(0xE815382E),Color(0x2038584A)]))),
-     Padding(padding:const EdgeInsets.all(20),child:Align(alignment:Alignment.centerLeft,child:SizedBox(width:245,child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[
-      Text(b.title,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:24,height:1.05,fontWeight:FontWeight.w900,color:Colors.white)),
-      if(b.subtitle.isNotEmpty)...[const SizedBox(height:8),Text(b.subtitle,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(color:Colors.white,height:1.35,fontSize:12))],
-      const SizedBox(height:10),const Text('EXPLORE ALTEO  ›',style:TextStyle(color:Colors.white,letterSpacing:1,fontWeight:FontWeight.w800,fontSize:10))
-     ]))))
-    ])))));
-   })),
-   if(list.length>1)Padding(padding:const EdgeInsets.only(top:0,bottom:4),child:Row(mainAxisAlignment:MainAxisAlignment.center,children:List.generate(list.length,(i)=>AnimatedContainer(duration:const Duration(milliseconds:180),margin:const EdgeInsets.symmetric(horizontal:3),width:i==bannerIndex?18:6,height:6,decoration:BoxDecoration(color:i==bannerIndex?const Color(0xFF176B57):const Color(0xFFD3DCD5),borderRadius:BorderRadius.circular(10))))),
-  ]);
- });
+ Widget bannerList() => FutureBuilder<List<CustomerBanner>>(
+  future: banners,
+  builder: (context, snapshot) {
+    if (snapshot.connectionState == ConnectionState.waiting) {
+      return const SizedBox(height: 185, child: Center(child: CircularProgressIndicator()));
+    }
+    final items = snapshot.data ?? [];
+    if (items.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(23),
+          child: Container(
+            height: 165,
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF49A27D)]),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.all(22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text('EVERYDAY, MADE EASIER', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.2)),
+                  SizedBox(height: 8),
+                  Text('Discover more with Alteo', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.w900)),
+                  SizedBox(height: 5),
+                  Text('New offers and services are coming soon.', style: TextStyle(color: Colors.white, height: 1.4)),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    return Column(children: [
+      SizedBox(
+        height: 185,
+        child: PageView.builder(
+          itemCount: items.length,
+          controller: bannerController,
+          onPageChanged: (index) => setState(() => bannerIndex = index),
+          itemBuilder: (context, index) {
+            final banner = items[index];
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(6, 0, 6, 14),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(23),
+                  onTap: () => _openBanner(banner),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(23),
+                    child: Stack(fit: StackFit.expand, children: [
+                      if (banner.imageUrl.isNotEmpty)
+                        Image.network(banner.imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => gradient())
+                      else
+                        gradient(),
+                      Container(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [Color(0xE815382E), Color(0x2038584A)],
+                          ),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: SizedBox(
+                            width: 245,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(banner.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 24, height: 1.05, fontWeight: FontWeight.w900, color: Colors.white)),
+                                if (banner.subtitle.isNotEmpty) ...[
+                                  const SizedBox(height: 8),
+                                  Text(banner.subtitle, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, height: 1.35, fontSize: 12)),
+                                ],
+                                const SizedBox(height: 10),
+                                const Text('EXPLORE ALTEO  ›', style: TextStyle(color: Colors.white, letterSpacing: 1, fontWeight: FontWeight.w800, fontSize: 10)),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      if (items.length > 1)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(items.length, (index) => AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width: index == bannerIndex ? 18 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: index == bannerIndex ? const Color(0xFF176B57) : const Color(0xFFD3DCD5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+            )),
+          ),
+        ),
+    ]);
+  },
+);
  Future<void> _openBanner(CustomerBanner b) async {
   if(b.actionType=='service' && b.actionValue.isNotEmpty){await Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:b.actionValue)));return;}
   if(b.actionType=='url' && b.actionValue.isNotEmpty){final uri=Uri.tryParse(b.actionValue);if(uri!=null && uri.scheme=='https' && await canLaunchUrl(uri)){await launchUrl(uri,mode:LaunchMode.externalApplication);}else if(mounted){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('This banner link is invalid or unavailable.')));}return;}
