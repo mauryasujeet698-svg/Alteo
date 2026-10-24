@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -19,8 +21,9 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  final stt.SpeechToText speech = stt.SpeechToText();
  final PageController bannerController = PageController(viewportFraction: .91);
  int bannerIndex = 0;
- @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();}
- @override void dispose(){bannerController.dispose();speech.stop();super.dispose();}
+ StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
+ @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));});}catch(_) {}}
+ @override void dispose(){bannerSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
    final available = await speech.initialize(onError: (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search is not available on this device.'))); });
