@@ -926,11 +926,11 @@ class _Feature {
 }
 
 const _features = <_Feature>[
-  _Feature('Product catalogue', 'Manage items and descriptions', 'Sellers manage their own listings, prices, photos and availability after authorisation.', Icons.inventory_2_rounded),
-  _Feature('Inventory', 'Stock and availability', 'Stock changes should be validated by the backend and reflected across customer browsing and dark-store operations.', Icons.inventory_2_rounded),
-  _Feature('Incoming orders', 'Prepare and fulfil orders', 'Only orders routed to this seller should be visible; status changes are shared with admin and customers.', Icons.shopping_bag_rounded),
-  _Feature('Pricing and offers', 'Keep listings current', 'Authorised sellers update pricing and eligible offers, with validation and audit history.', Icons.sell_rounded),
-  _Feature('Business insights', 'Sales and fulfilment summaries', 'See seller-specific summaries when the reporting layer is connected.', Icons.bar_chart_rounded),
+  _Feature('Stock overview', 'Inventory and low-stock visibility', 'Review stock by SKU and location. Real stock records are restricted to authorised dark-store staff.', Icons.inventory_2_rounded),
+  _Feature('Picking queue', 'Items to pick for accepted orders', 'Orders routed to this dark store appear in the picking queue through the shared order and inventory feeds.', Icons.checklist_rounded),
+  _Feature('Packing station', 'Verify items before dispatch', 'Confirm quantities and packing status before marking an order ready for pickup.', Icons.inventory_rounded),
+  _Feature('Dispatch handover', 'Coordinate with delivery partners', 'Hand ready orders to the assigned delivery partner with server-validated status changes.', Icons.local_shipping_rounded),
+  _Feature('Stock adjustments', 'Receive and reconcile stock', 'Authorised staff record stock receipts and adjustments with an audit trail.', Icons.fact_check_rounded),
 ];
 
 
