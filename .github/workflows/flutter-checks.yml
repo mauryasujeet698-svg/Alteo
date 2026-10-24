@@ -82,7 +82,7 @@ jobs:
           text = manifest.read_text()
           permission = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />'
           if "android.permission.RECORD_AUDIO" not in text:
-              text = text.replace("<application", permission + "\\n    <application", 1)
+              text = text.replace("<application", permission + "\n    <application", 1)
           scheme = os.environ["ALTEO_REDIRECT_SCHEME"]
           if f'android:scheme="{scheme}"' not in text:
               start = text.find('<activity')
