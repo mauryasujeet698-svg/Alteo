@@ -3,7 +3,7 @@
 Alteo is a multi-service platform with six Flutter app targets connected to one Supabase project.
 
 ## Apps
-1. Customer — public discovery, catalogue, food, shopping, rides, parcels, cart and personal order/activity tracking.
+1. Customer — Home, Food, Ride and Profile navigation; swipeable admin-managed banners, voice-enabled product search, shopping catalogue, cart and orders under Profile.
 2. Admin — operations summary, user role grants, service controls, pricing, order monitoring, driver/delivery assignment, seller/product approvals and dark-store management.
 3. Driver Partner — public feature exploration, online/offline availability, assigned rides and trip status.
 4. Delivery Partner — public feature exploration, online/offline availability, assigned deliveries and pickup/transit/completion status.
@@ -13,7 +13,7 @@ Alteo is a multi-service platform with six Flutter app targets connected to one 
 ## Public exploration and protected operations
 - Each app opens to public feature exploration without a login wall or demo-mode toggle.
 - Authentication is requested only for personal or protected actions.
-- If a sign-in provider is unavailable, public exploration remains accessible and the app offers a phone/email provider switch.
+- If Google OAuth is not configured, public exploration remains accessible and protected actions show a setup error; there is no phone-login or OTP flow.
 - Private customer records, addresses, orders, earnings, seller inventory and admin operations remain protected by Supabase Row Level Security and server-side role checks.
 - A public catalogue can be empty until sellers, products, service controls and prices are configured. Empty states should be understandable rather than treated as an authentication failure.
 
@@ -30,7 +30,7 @@ The connected Supabase project already has the core operational schema and serve
 Realtime publication is enabled for orders, rides, delivery jobs, assignments, seller/catalogue data, inventory, service controls, pricing and relevant notifications. Row Level Security continues to determine which rows each user can receive.
 
 ## Important backend setup
-See docs/INITIAL_ADMIN_SETUP.md for enabling a sign-in provider, securely granting the first admin role and configuring live services.
+See docs/INITIAL_ADMIN_SETUP.md for enabling Google OAuth, adding the six mobile redirect URLs, securely granting the first admin role, managing banners and configuring live services.
 
 The current Supabase project has no service-control or pricing rows yet. Before live orders, rides or parcels can be created, an authorised admin must configure real DEFAULT pricing and enable the corresponding service in the Admin app. Automatic assignment is off by default; manual assignment remains available. Online payment is not yet integrated, so customer orders created through the current secure checkout remain pending payment and sellers cannot process them until payment is confirmed.
 
