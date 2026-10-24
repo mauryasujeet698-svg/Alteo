@@ -244,6 +244,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   final roleUserId = TextEditingController();
   String grantRole = 'delivery_partner';
   bool partnerOnline = false;
+  int selectedTab = 0;
 
   @override
   void initState() {
@@ -397,19 +398,117 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   Future<void> setStoreStatus(Map<String, dynamic> store, String status) async {
-    await rpc('admin_set_dark_store_status', {'p_store_id': store['id'], 'p_status': status}, 'Dark-store status updated.');
-  }
-
-  @override
+    await rpc('admin_set_dark_store_status', {'p_store_id': store['id'], 'p_status': status}, 'Dark-store s  @override
   Widget build(BuildContext context) {
     if (user == null) return Scaffold(appBar: AppBar(title: const Text('Alteo')), body: const Center(child: Text('Your session ended. Return to sign-in.')));
-    switch (requiredRole) {
-      case 'admin': return _adminDashboard();
-      case 'driver_partner': return _driverDashboard();
-      case 'delivery_partner': return _deliveryDashboard();
-      case 'seller': return _sellerDashboard();
-      case 'dark_store': return _darkStoreDashboard();
-      default: return _emptyPage('Role not supported', 'Contact Alteo support.');
+    final dashboard = switch (requiredRole) {
+      'admin' => _adminDashboard(),
+      'driver_partner' => _driverDashboard(),
+      'delivery_partner' => _deliveryDashboard(),
+      'seller' => _sellerDashboard(),
+      'dark_store' => _darkStoreDashboard(),
+      _ => _emptyPage('Role not supported', 'Contact Alteo support.'),
+    };
+    return Scaffold(
+      body: selectedTab == 0 ? dashboard : _navigationPage(),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: selectedTab,
+        onDestinationSelected: (index) => setState(() => selectedTab = index),
+        destinations: _navLabels.map((label) => NavigationDestination(
+          icon: Icon(_navIcon(label, false)),
+          selectedIcon: Icon(_navIcon(label, true)),
+          label: label,
+        )).toList(),
+      ),
+    );
+  }
+
+  List<String> get _navLabels => switch (requiredRole) {
+    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
+    'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
+    'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
+    'dark_store' => const ['Home', 'Picking', 'Inventory', 'Profile'],
+    _ => const ['Home', 'Work', 'Activity', 'Profile'],
+  };
+
+  IconData _navIcon(String label, bool selected) => switch (label) {
+    'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
+    'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
+    'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
+    'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
+    'Earnings' => selected ? Icons.account_balance_wallet_rounded : Icons.account_balance_wallet_outlined,
+    'Products' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
+    'Picking' => selected ? Icons.checklist_rounded : Icons.checklist_outlined,
+    'Inventory' => selected ? Icons.warehouse_rounded : Icons.warehouse_outlined,
+    _ => selected ? Icons.person_rounded : Icons.person_outline_rounded,
+  };
+
+  Widget _navigationPage() {
+    final label = _navLabels[selectedTab];
+    if (label == 'Profile') {
+      return Scaffold(
+        appBar: _appBar('Profile'),
+        body: ListView(padding: const EdgeInsets.all(20), children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
+            child: Row(children: [
+              const CircleAvatar(backgroundColor: Color(0x33FFFFFF), child: Icon(Icons.person_rounded, color: Colors.white)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(user?.email ?? 'Alteo team member', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                Text('Role: $requiredRole', style: const TextStyle(color: Colors.white70)),
+              ])),
+            ]),
+          ),
+          const SizedBox(height: 16),
+          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.palette_outlined), title: const Text('Appearance'), subtitle: const Text('Premium light theme is active; system and dark theme controls can be enabled here next.'))),
+          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.language_rounded), title: const Text('Language'), subtitle: const Text('English'))),
+          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.security_rounded), title: const Text('Access & security'), subtitle: const Text('Google sign-in and role-based access are used for protected operations.'))),
+          const SizedBox(height: 12),
+          FilledButton.icon(onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded), label: const Text('Sign out')),
+        ]),
+      );
+    }
+    final descriptions = switch (requiredRole) {
+      'admin' => const ['Review customer orders, payment states and service requests.', 'Manage partner access, seller approvals and operational assignments.'],
+      'driver_partner' => const ['Review assigned ride requests and update trip status.', 'Review completed trips and earnings once trip settlement is enabled.'],
+      'delivery_partner' => const ['Review assigned deliveries and confirm pickup, transit and delivery.', 'Review completed deliveries and settlement information.'],
+      'seller' => const ['Review orders routed to your approved seller account.', 'Maintain published products and available stock.'],
+      'dark_store' => const ['Review orders that are ready for picking and dispatch.', 'Maintain stock levels and reconcile inventory.'],
+      _ => const ['Explore your role workspace.', 'Review recent activity.'],
+    };
+    return Scaffold(
+      appBar: _appBar(label),
+      body: ListView(padding: const EdgeInsets.all(20), children: [
+        Container(
+          padding: const EdgeInsets.all(22),
+          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('ALTEO WORKSPACE', style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 10, fontWeight: FontWeight.w800)),
+            const SizedBox(height: 8),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            const Text('Your live operational dashboard remains available from Home.', style: TextStyle(color: Colors.white, height: 1.4)),
+          ]),
+        ),
+        const SizedBox(height: 18),
+        for (var i = 0; i < descriptions.length; i++)
+          Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: ListTile(
+            leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9), child: Icon(i == 0 ? Icons.task_alt_rounded : Icons.insights_rounded, color: const Color(0xFF176B57))),
+            title: Text(i == 0 ? 'Work queue' : 'Activity & insights', style: const TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: Text(descriptions[i]),
+          )),
+        const SizedBox(height: 8),
+        FilledButton.icon(onPressed: () => setState(() => selectedTab = 0), icon: const Icon(Icons.dashboard_rounded), label: const Text('Open live dashboard')),
+      ]),
+    );
+  }
+
+support.');
     }
   }
 
