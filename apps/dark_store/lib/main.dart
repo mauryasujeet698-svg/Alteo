@@ -85,7 +85,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
         await Supabase.instance.client.auth.signInWithOtp(phone: value);
       }
       if (mounted) setState(() { codeSent = true; message = useEmail ? 'Verification code sent to your email.' : 'Verification code sent by SMS.'; });
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (!mounted) return;
       final lower = e.message.toLowerCase();
       setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
@@ -118,7 +118,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       } else if (mounted) {
         setState(() { authorized = true; message = 'Role verified.'; });
       }
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (mounted) setState(() => message = 'Sign-in failed: ' + e.message);
     } catch (e) {
       if (mounted) setState(() => message = 'Could not verify access: ' + e.toString());
@@ -195,6 +195,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       ],
     ),
   );
+  }
 
   Future<void> showAuth(BuildContext context) async {
     await showModalBottomSheet<void>(
@@ -759,7 +760,7 @@ const _features = <_Feature>[
     try {
       await Supabase.instance.client.auth.signInWithOtp(phone: value);
       if (mounted) setState(() { codeSent = true; message = 'Verification code sent.'; });
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (!mounted) return;
       final lower = e.message.toLowerCase();
       setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
@@ -789,7 +790,7 @@ const _features = <_Feature>[
       } else if (mounted) {
         setState(() { authorized = true; message = 'Role verified. Protected operations can be connected here.'; });
       }
-    } on AuthException catch (e) {
+    } on Exception catch (e) {
       if (mounted) setState(() => message = 'Sign-in failed: ${e.message}');
     } catch (e) {
       if (mounted) setState(() => message = 'Could not verify access: $e');
