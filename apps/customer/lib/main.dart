@@ -116,7 +116,7 @@ class PhoneSignIn extends StatefulWidget {
 class _PhoneSignInState extends State<PhoneSignIn> {
   final _phone = TextEditingController();
   final _otp = TextEditingController();
-  bool _sent = false, _busy = false, _usePhone = false;
+  bool _sent = false, _busy = false, _usePhone = true;
   String? _error;
   @override
   void dispose() { _phone.dispose(); _otp.dispose(); super.dispose(); }
@@ -181,7 +181,7 @@ class _PhoneSignInState extends State<PhoneSignIn> {
           ),
         ] else ...[
           TextField(controller: _phone, keyboardType: TextInputType.phone,
-            decoration: const InputDecoration(labelText: 'Mobile number (optional)', hintText: '+919876543210', prefixIcon: Icon(Icons.phone_android))),
+            decoration: const InputDecoration(labelText: 'Mobile number', hintText: '+919876543210', prefixIcon: Icon(Icons.phone_android))),
           if (_sent) ...[
             const SizedBox(height: 12), TextField(controller: _otp, keyboardType: TextInputType.number, maxLength: 6,
               decoration: const InputDecoration(labelText: 'SMS verification code')),
