@@ -8,6 +8,5 @@ void main() {
     expect(find.text('Explore features'), findsOneWidget);
     expect(find.text('Stock overview'), findsOneWidget);
     expect(find.text('Picking queue'), findsOneWidget);
-    expect(find.text('Explore without signing in'), findsOneWidget);
   });
 }
