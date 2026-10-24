@@ -363,6 +363,42 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     } finally { id.dispose(); }
   }
 
+
+  Future<void> createDarkStore() async {
+    final owner = TextEditingController();
+    final name = TextEditingController();
+    final locality = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: const Text('Create dark store'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: owner, decoration: const InputDecoration(labelText: 'Owner user UUID')),
+          TextField(controller: name, decoration: const InputDecoration(labelText: 'Store name')),
+          TextField(controller: locality, decoration: const InputDecoration(labelText: 'Locality / service area')),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create')),
+        ],
+      ));
+      if (ok == true) {
+        if (owner.text.trim().isEmpty || name.text.trim().length < 2) {
+          notice('Enter a valid owner UUID and store name.');
+          return;
+        }
+        await rpc('admin_create_dark_store', {
+          'p_owner_user_id': owner.text.trim(),
+          'p_name': name.text.trim(),
+          'p_locality': locality.text.trim(),
+        }, 'Dark store created. Activate it after review.');
+      }
+    } finally {
+      owner.dispose();
+      name.dispose();
+      locality.dispose();
+    }
+  }
+
   Future<void> setSellerStatus(Map<String, dynamic> seller, String status) async {
     await rpc('admin_set_seller_status', {'p_seller_id': seller['id'], 'p_status': status}, 'Seller status updated.');
   }
@@ -489,6 +525,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
       const SizedBox(height: 22),
       const Text('Dark stores', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(top: 8), child: FilledButton.icon(onPressed: createDarkStore, icon: const Icon(Icons.add_business_rounded), label: const Text('Create dark store')))),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('dark_stores').stream(primaryKey: ['id']).order('created_at', ascending: false),
         builder: (context, s) {
@@ -705,6 +742,158 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final id = value?.toString() ?? '';
     return id.length > 8 ? id.substring(0, 8) : id.isEmpty ? '—' : id;
   }
+}
+
+
+class AdminServiceConfigPanel extends StatefulWidget {
+  const AdminServiceConfigPanel({super.key});
+  @override
+  State<AdminServiceConfigPanel> createState() => _AdminServiceConfigPanelState();
+}
+
+class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
+  SupabaseClient get client => Supabase.instance.client;
+  static const services = <String, String>{
+    'ride': 'Rides',
+    'parcel': 'Parcels',
+    'food': 'Food',
+    'quick': 'Quick commerce',
+    'shopping': 'Shopping',
+  };
+
+  void message(String value) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
+  }
+
+  Future<void> setControl(String service, bool enabled, bool automatic) async {
+    try {
+      if (enabled) {
+        final price = await client.from('pricing_rules').select('id').eq('service', service).eq('city_code', 'DEFAULT').eq('active', true).maybeSingle();
+        if (price == null) {
+          message('Configure active DEFAULT pricing for ' + services[service]! + ' before enabling it.');
+          return;
+        }
+      }
+      await client.rpc('admin_set_service_control', params: {
+        'p_area_code': 'DEFAULT',
+        'p_service': service,
+        'p_enabled': enabled,
+        'p_automatic_assignment': automatic,
+      });
+      message(services[service]! + ' settings updated.');
+    } catch (e) {
+      message('Could not update service settings: ' + e.toString());
+    }
+  }
+
+  Future<void> editPricing(String service, Map<String, dynamic>? existing) async {
+    final base = TextEditingController(text: (((existing?['base_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
+    final perKm = TextEditingController(text: (((existing?['per_km_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
+    final minimum = TextEditingController(text: (((existing?['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
+    try {
+      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+        title: Text('DEFAULT pricing · ' + services[service]!),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (₹)')),
+          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per kilometre (₹)')),
+          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (₹)')),
+          const SizedBox(height: 8),
+          const Text('Choose your real prices carefully. These values are used by server-side booking and checkout calculations.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save pricing')),
+        ],
+      ));
+      if (ok != true) return;
+      final b = int.tryParse(base.text.trim());
+      final k = int.tryParse(perKm.text.trim());
+      final m = int.tryParse(minimum.text.trim());
+      if (b == null || k == null || m == null || b < 0 || k < 0 || m < 0) {
+        message('Enter non-negative whole-rupee amounts.');
+        return;
+      }
+      await client.from('pricing_rules').upsert({
+        'service': service,
+        'city_code': 'DEFAULT',
+        'base_fee_minor': b * 100,
+        'per_km_minor': k * 100,
+        'minimum_fee_minor': m * 100,
+        'active': true,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }, onConflict: 'service,city_code');
+      message('Pricing saved for ' + services[service]! + '.');
+    } catch (e) {
+      message('Could not save pricing: ' + e.toString());
+    } finally {
+      base.dispose();
+      perKm.dispose();
+      minimum.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    const Text('Service controls and pricing', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+    const SizedBox(height: 5),
+    const Text('Enable services only after setting real DEFAULT pricing. Automatic dispatch remains off until you switch it on.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+    const SizedBox(height: 10),
+    StreamBuilder<List<Map<String, dynamic>>>(
+      stream: client.from('service_controls').stream(primaryKey: ['id']).eq('area_code', 'DEFAULT'),
+      builder: (context, controlsSnapshot) => StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('pricing_rules').stream(primaryKey: ['id']).eq('city_code', 'DEFAULT'),
+        builder: (context, pricingSnapshot) {
+          if (controlsSnapshot.hasError || pricingSnapshot.hasError) return const Text('Service settings unavailable. Check admin policies.');
+          if (!controlsSnapshot.hasData || !pricingSnapshot.hasData) return const LinearProgressIndicator();
+          final controls = <String, Map<String, dynamic>>{
+            for (final row in controlsSnapshot.data!) row['service'] as String: row,
+          };
+          final prices = <String, Map<String, dynamic>>{
+            for (final row in pricingSnapshot.data!) row['service'] as String: row,
+          };
+          return Column(children: services.entries.map((entry) {
+            final service = entry.key;
+            final control = controls[service];
+            final price = prices[service];
+            final enabled = control?['enabled'] as bool? ?? false;
+            final automatic = control?['automatic_assignment'] as bool? ?? false;
+            final activePrice = price?['active'] as bool? ?? false;
+            final priceLabel = price == null
+              ? 'Pricing not configured'
+              : 'Base ₹' + (((price['base_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
+                + ' · /km ₹' + (((price['per_km_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
+                + ' · Minimum ₹' + (((price['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
+                + (activePrice ? '' : ' · inactive');
+            return Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 10), child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Column(children: [
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text(enabled ? 'Enabled in DEFAULT area' : 'Disabled in DEFAULT area'),
+                  value: enabled,
+                  onChanged: (value) => setControl(service, value, automatic),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Automatic assignment'),
+                  subtitle: const Text('Off means admin-controlled assignment'),
+                  value: automatic,
+                  onChanged: (value) => setControl(service, enabled, value),
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Pricing'),
+                  subtitle: Text(priceLabel),
+                  trailing: IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'Configure pricing', onPressed: () => editPricing(service, price)),
+                ),
+              ]),
+            ));
+          }).toList());
+        },
+      ),
+    ),
+  ]);
 }
 
 class _Feature {
