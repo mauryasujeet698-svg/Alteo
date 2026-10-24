@@ -61,7 +61,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   Future<void> requestCode() async {
     final value = phone.text.trim();
-    if (!RegExp(r'^\\+[1-9][0-9]{7,14}$$').hasMatch(value)) {
+    if (!RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(value)) {
       setState(() => message = 'Enter your phone number with country code, e.g. +919876543210.');
       return;
     }
