@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: alteo-android-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android:
     name: Build ${{ matrix.name }} (arm64)
