@@ -119,7 +119,7 @@ jobs:
               found = False
               for i, line in enumerate(lines):
                   if re.match(r'^\s*compileSdk(?:Version)?\b', line):
-                      indent = re.match(r'^\\s*', line).group(0)
+                      indent = line[:len(line) - len(line.lstrip())]
                       if 'compileSdkVersion' in line:
                           lines[i] = indent + 'compileSdkVersion 36'
                       elif '=' in line:
