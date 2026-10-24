@@ -559,28 +559,46 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     appBar: _partnerAppBar('My deliveries'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
       stream: client.from('delivery_jobs').stream(primaryKey: ['id']).eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
-      builder: (context, s) {
-        if (s.hasError) return _error('Deliveries unavailable. Check delivery-partner role and RLS.');
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        if (s.data!.isEmpty) return _empty('No deliveries assigned', 'Assigned deliveries and parcels will appear here.');
-        return ListView(padding: const EdgeInsets.all(16), children: s.data!.map((j) {
-          final status = j['status']?.toString() ?? 'pending';
-          final buttons = <Widget>[];
-          if (status == 'assigned') {
-            buttons.add(OutlinedButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': j['id'], 'p_action': 'reject'}, 'Delivery declined.'), child: const Text('Decline')));
-            buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': j['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
-            buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': j['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
-          }
-          if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': j['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
-          if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': j['id'], 'p_action': 'delivered'}, 'Delivery completed.'), child: const Text('Delivered')));
-          return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text((j['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(j['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6), Text('Status: ' + status),
-            if ((j['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + j['pickup_label'].toString()),
-            if ((j['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + j['destination_label'].toString()),
-            if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: buttons)),
-          ])));
-        }).toList());
+      builder: (context, jobsSnapshot) {
+        if (jobsSnapshot.hasError) return _error('Deliveries unavailable. Check delivery-partner role and RLS.');
+        if (!jobsSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final jobs = jobsSnapshot.data!;
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('delivery_assignments').stream(primaryKey: ['id']).eq('partner_id', user!.id).order('created_at', ascending: false),
+          builder: (context, assignmentsSnapshot) {
+            if (assignmentsSnapshot.hasError) return _error('Delivery offers unavailable. Check assignment read permissions.');
+            if (!assignmentsSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+            final assignments = <String, Map<String, dynamic>>{
+              for (final assignment in assignmentsSnapshot.data!)
+                if (assignment['status'] == 'offered' || assignment['status'] == 'accepted')
+                  assignment['delivery_job_id'] as String: assignment,
+            };
+            if (jobs.isEmpty) return _empty('No deliveries assigned', 'Assigned deliveries and parcels will appear here.');
+            return ListView(padding: const EdgeInsets.all(16), children: jobs.map((job) {
+              final status = job['status']?.toString() ?? 'pending';
+              final assignment = assignments[job['id']];
+              final assignmentStatus = assignment?['status']?.toString() ?? '';
+              final buttons = <Widget>[];
+              if (status == 'assigned' && assignmentStatus == 'offered') {
+                buttons.add(OutlinedButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'reject'}, 'Delivery declined.'), child: const Text('Decline')));
+                buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
+              }
+              if (status == 'assigned' && assignmentStatus == 'accepted') {
+                buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
+              }
+              if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
+              if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'delivered'}, 'Delivery completed.'), child: const Text('Delivered')));
+              return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 6),
+                Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
+                if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
+                if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
+                if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: buttons)),
+              ])));
+            }).toList());
+          },
+        );
       },
     ),
   );
