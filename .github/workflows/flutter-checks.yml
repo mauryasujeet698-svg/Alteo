@@ -54,6 +54,8 @@ jobs:
         with:
           channel: stable
           cache: true
+      - name: Show Flutter version
+        run: flutter --version
       - name: Generate Android project files if absent
         shell: bash
         run: |
