@@ -11,3 +11,9 @@ create policy sellers_read_approved_public
   for select
   to anon
   using (status = 'approved');
+
+-- Seed a first editable public banner so the customer carousel is populated on launch.
+insert into public.app_banners (title, subtitle, action_type, action_value, area_code, priority, active)
+select 'Everyday, made easier', 'Shop essentials, discover food and book rides with Alteo.',
+       'none', null, 'DEFAULT', 1, true
+where not exists (select 1 from public.app_banners);
