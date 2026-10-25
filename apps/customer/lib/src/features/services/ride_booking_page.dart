@@ -16,6 +16,8 @@ class RideBookingPage extends StatefulWidget {
 class _RideBookingPageState extends State<RideBookingPage> {
   final pickupController = TextEditingController();
   final destinationController = TextEditingController();
+  final MapController mapController = MapController();
+  List<double>? currentCoordinates;
   List<double>? pickupCoordinates;
   List<double>? destinationCoordinates;
   String vehicleType = 'bike';
@@ -24,6 +26,16 @@ class _RideBookingPageState extends State<RideBookingPage> {
   bool searchingDestination = false;
   bool requestingRide = false;
   Map<String, dynamic>? fareQuote;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.enableBackendQueries) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _useCurrentLocation(silent: true);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -36,17 +48,17 @@ class _RideBookingPageState extends State<RideBookingPage> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
-  Future<void> _useCurrentLocation() async {
+  Future<void> _useCurrentLocation({bool silent = false}) async {
     setState(() => locating = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        _message('Turn on Location on your phone to use your current pickup point.');
+        if (!silent) _message('Turn on Location on your phone to use your current pickup point.');
         return;
       }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        _message('Location permission is needed for current pickup. You can enter a pickup address manually instead.');
+        if (!silent) _message('Location permission is needed for current pickup. You can enter a pickup address manually instead.');
         return;
       }
       final position = await Geolocator.getCurrentPosition(
@@ -63,7 +75,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         _message('Current location is selected. Add a restricted Mapbox public token to show a readable address and search destinations.');
       }
     } catch (_) {
-      _message('Could not get your current location. Try again or enter a pickup address.');
+      if (!silent) _message('Could not get your current location. Try again or enter a pickup address.');
     } finally {
       if (mounted) setState(() => locating = false);
     }
@@ -79,6 +91,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
       if (coords == null) { _message('Pickup not found. Try a fuller address or nearby landmark.'); return; }
       if (!mounted) return;
       setState(() => pickupCoordinates = coords);
+      try { mapController.move(LatLng(coords[1], coords[0]), 14.5); } catch (_) {}
       await _refreshQuote();
     } finally {
       if (mounted) setState(() => searchingPickup = false);
@@ -95,6 +108,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
       if (coords == null) { _message('Destination not found. Try a fuller address or nearby landmark.'); return; }
       if (!mounted) return;
       setState(() => destinationCoordinates = coords);
+      try { mapController.move(LatLng((pickupCoordinates ?? coords)[1], (pickupCoordinates ?? coords)[0]), 14.5); } catch (_) {}
       await _refreshQuote();
     } finally {
       if (mounted) setState(() => searchingDestination = false);
@@ -182,21 +196,8 @@ class _RideBookingPageState extends State<RideBookingPage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 26),
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF3C9875)]),
-              borderRadius: BorderRadius.circular(23),
-            ),
-            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('YOUR NEXT TRIP, SIMPLIFIED', style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1.3)),
-              SizedBox(height: 8),
-              Text('Where to?', style: TextStyle(fontSize: 27, color: Colors.white, fontWeight: FontWeight.w900)),
-              SizedBox(height: 5),
-              Text('Set your pickup, search a destination and compare ride options.', style: TextStyle(color: Colors.white, height: 1.4)),
-            ]),
-          ),
-          const SizedBox(height: 17),
+          _mapPreview(),
+          const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: const Color(0xFFE2E9E5))),
@@ -233,8 +234,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             label: const Text('Use current location for pickup'),
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), alignment: Alignment.centerLeft),
           ),
-          const SizedBox(height: 16),
-          if (anyCoordinates) _mapPreview() else _mapPlaceholder(),
+          const SizedBox(height: 10),
           const SizedBox(height: 22),
           const Text('Choose your ride', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
@@ -335,28 +335,92 @@ class _RideBookingPageState extends State<RideBookingPage> {
   }
 
   Widget _mapPreview() {
-    final points = <LatLng>[];
-    if (pickupCoordinates != null) points.add(LatLng(pickupCoordinates![1], pickupCoordinates![0]));
-    if (destinationCoordinates != null) points.add(LatLng(destinationCoordinates![1], destinationCoordinates![0]));
-    final center = points.first;
+    final current = currentCoordinates;
+    final pickup = pickupCoordinates;
+    final destination = destinationCoordinates;
+    final focus = pickup ?? current ?? destination;
+    final center = focus == null ? const LatLng(20.5937, 78.9629) : LatLng(focus[1], focus[0]);
     final markers = <Marker>[];
-    if (pickupCoordinates != null) {
-      markers.add(Marker(point: LatLng(pickupCoordinates![1], pickupCoordinates![0]), width: 42, height: 42, child: const Icon(Icons.trip_origin_rounded, color: Color(0xFF176B57), size: 32)));
-    }
-    if (destinationCoordinates != null) {
-      markers.add(Marker(point: LatLng(destinationCoordinates![1], destinationCoordinates![0]), width: 42, height: 42, child: const Icon(Icons.location_on_rounded, color: Color(0xFFC45E27), size: 36)));
-    }
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(19),
-      child: SizedBox(
-        height: 190,
-        child: FlutterMap(
-          options: MapOptions(initialCenter: center, initialZoom: 13),
-          children: [
-            TileLayer(urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.alteo.customer'),
-            MarkerLayer(markers: markers),
-          ],
+    if (current != null) {
+      markers.add(Marker(
+        point: LatLng(current[1], current[0]), width: 44, height: 44,
+        child: Container(
+          decoration: BoxDecoration(
+            color: const Color(0x331768C2), shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFF1768C2), width: 2),
+          ),
+          child: const Center(child: Icon(Icons.my_location_rounded, color: Color(0xFF1768C2), size: 22)),
         ),
+      ));
+    }
+    if (pickup != null) {
+      markers.add(Marker(point: LatLng(pickup[1], pickup[0]), width: 38, height: 42,
+        child: const Icon(Icons.trip_origin_rounded, color: Color(0xFF176B57), size: 30)));
+    }
+    if (destination != null) {
+      markers.add(Marker(point: LatLng(destination[1], destination[0]), width: 38, height: 42,
+        child: const Icon(Icons.location_on_rounded, color: Color(0xFFC45E27), size: 34)));
+    }
+    final tileUrl = MapboxService.isConfigured
+      ? 'https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/256/{z}/{x}/{y}@2x?access_token=' + MapboxService.publicToken
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(22),
+      child: SizedBox(
+        height: 285,
+        child: Stack(fit: StackFit.expand, children: [
+          FlutterMap(
+            mapController: mapController,
+            options: MapOptions(initialCenter: center, initialZoom: focus == null ? 4.3 : 14.5),
+            children: [
+              TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer'),
+              if (pickup != null && destination != null)
+                PolylineLayer(polylines: [
+                  Polyline(
+                    points: [LatLng(pickup[1], pickup[0]), LatLng(destination[1], destination[0])],
+                    strokeWidth: 4, color: const Color(0xFF176B57),
+                  ),
+                ]),
+              if (markers.isNotEmpty) MarkerLayer(markers: markers),
+              RichAttributionWidget(attributions: [
+                if (MapboxService.isConfigured) const TextSourceAttribution('© Mapbox'),
+                const TextSourceAttribution('© OpenStreetMap contributors'),
+              ]),
+            ],
+          ),
+          Positioned(
+            left: 12, top: 12, right: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: .96),
+                borderRadius: BorderRadius.circular(14),
+                boxShadow: const [BoxShadow(color: Color(0x18000000), blurRadius: 12, offset: Offset(0, 3))],
+              ),
+              child: Row(children: [
+                const Icon(Icons.location_on_rounded, color: Color(0xFF176B57)),
+                const SizedBox(width: 8),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('YOUR PICKUP AREA', style: TextStyle(fontSize: 10, letterSpacing: 1, fontWeight: FontWeight.w900, color: Color(0xFF68736D))),
+                  Text(current != null ? 'Current location detected' : 'Locate yourself on the map', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w800)),
+                ])),
+                IconButton(
+                  tooltip: 'Use current location',
+                  onPressed: locating ? null : () => _useCurrentLocation(),
+                  icon: locating ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location_rounded),
+                ),
+              ]),
+            ),
+          ),
+          Positioned(
+            right: 10, bottom: 10,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: .92), borderRadius: BorderRadius.circular(8)),
+              child: Text(MapboxService.isConfigured ? 'Mapbox' : 'Map preview', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+            ),
+          ),
+        ]),
       ),
     );
   }
