@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:alteo_notifications/alteo_notifications.dart';
 import '../../services/customer_preferences.dart';
 import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
@@ -102,7 +103,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
           OutlinedButton.icon(
             onPressed: busy ? null : () async {
               setState(() => busy = true);
-              try { await client?.auth.signOut(); } finally { if (mounted) setState(() => busy = false); }
+              try { await AlteoPushNotifications.instance.unregisterCurrentDevice(); await client?.auth.signOut(); } finally { if (mounted) setState(() => busy = false); }
             },
             icon: const Icon(Icons.logout_rounded), label: Text(busy ? 'Signing out…' : 'Sign out'),
           ),
