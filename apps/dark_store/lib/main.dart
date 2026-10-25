@@ -103,9 +103,9 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       } else {
         setState(() {
           authorized = false;
-          message = 'Google sign-in succeeded, but this account has not been granted the $requiredRole role yet. Ask the Alteo administrator to approve it.';
+          message = 'Google sign-in succeeded. This account is signed in, but it has not been granted the $requiredRole role yet. Protected operations stay locked until an administrator approves the role.';
         });
-        await client.auth.signOut();
+        if (authSheetOpen && mounted) Navigator.of(context).maybePop();
       }
     } catch (_) {
       if (mounted) setState(() => message = 'Could not verify your app role. Check the user_roles policy and try again.');
@@ -146,7 +146,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
         const SizedBox(width: 10),
         const Expanded(child: Text(appName, style: TextStyle(fontWeight: FontWeight.w800))),
       ]),
-      actions: [TextButton(onPressed: () => showAuth(context), child: Text(authorized ? 'Access' : 'Sign in'))],
+      actions: [TextButton(onPressed: () => showAuth(context), child: Text(authorized ? 'Access' : (widget.backendReady && Supabase.instance.client.auth.currentSession != null ? 'Account' : 'Sign in')))],
     ),
     body: selectedTab == 0 ? ListView(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
@@ -160,6 +160,33 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
           ]),
         ),
         const SizedBox(height: 14),
+        if (message != null && !authorized)
+          Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7E0),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE8D49A)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.info_outline_rounded, color: Color(0xFF8A6414)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(message!, style: const TextStyle(height: 1.45))),
+                if (widget.backendReady && Supabase.instance.client.auth.currentSession != null)
+                  IconButton(
+                    tooltip: 'Sign out',
+                    onPressed: () async {
+                      await Supabase.instance.client.auth.signOut();
+                      if (mounted) setState(() { authorized = false; message = null; });
+                    },
+                    icon: const Icon(Icons.logout_rounded),
+                  ),
+              ],
+            ),
+          ),
         const Text('Explore features', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
         const SizedBox(height: 5),
         const Text('Open any section to learn how it works. Private records and live operations require authorised access.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
