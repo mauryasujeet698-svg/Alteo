@@ -306,6 +306,31 @@ jobs:
           if gradle is None:
               raise SystemExit("Generated Android app Gradle file was not found")
           source = gradle.read_text()
+
+          # firebase_messaging's local-notifications integration needs Java 8+
+          # core library desugaring in Android release builds.
+          if "isCoreLibraryDesugaringEnabled = true" not in source and "coreLibraryDesugaringEnabled true" not in source:
+              if "compileOptions {" in source:
+                  source = source.replace(
+                      "compileOptions {",
+                      "compileOptions {\\n        isCoreLibraryDesugaringEnabled = true" if gradle.suffix == ".kts"
+                      else "compileOptions {\\n        coreLibraryDesugaringEnabled true",
+                      1,
+                  )
+              else:
+                  raise SystemExit("Android Gradle compileOptions block was not found for desugaring.")
+          if gradle.suffix == ".kts":
+              dependency = 'coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+              dep_line = '    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")'
+          else:
+              dependency = "coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+              dep_line = "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
+          if dependency not in source:
+              if "dependencies {" in source:
+                  source = source.replace("dependencies {", "dependencies {\\n" + dep_line, 1)
+              else:
+                  source += "\\ndependencies {\\n" + dep_line + "\\n}\\n"
+
           setting = "packaging { jniLibs { useLegacyPackaging = true } }"
           if "useLegacyPackaging" not in source:
               # Insert into the app-level android block, not the top-level plugins block.
