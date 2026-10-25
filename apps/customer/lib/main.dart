@@ -26,9 +26,10 @@ Future<void> main() async {
 }
 
 class AlteoCustomerApp extends StatelessWidget {
-  const AlteoCustomerApp({super.key, this.backendNotice, this.enableRealtimeBanners = true});
+  const AlteoCustomerApp({super.key, this.backendNotice, this.enableRealtimeBanners = true, this.enableBackendQueries = true});
   final String? backendNotice;
   final bool enableRealtimeBanners;
+  final bool enableBackendQueries;
 
   @override
   Widget build(BuildContext context) => ValueListenableBuilder<ThemeMode>(
@@ -47,15 +48,16 @@ class AlteoCustomerApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF43B58A), brightness: Brightness.dark),
         useMaterial3: true,
       ),
-      home: CustomerAppShell(backendNotice: backendNotice, enableRealtimeBanners: enableRealtimeBanners),
+      home: CustomerAppShell(backendNotice: backendNotice, enableRealtimeBanners: enableRealtimeBanners, enableBackendQueries: enableBackendQueries),
     ),
   );
 }
 
 class CustomerAppShell extends StatefulWidget {
-  const CustomerAppShell({super.key, this.backendNotice, this.enableRealtimeBanners = true});
+  const CustomerAppShell({super.key, this.backendNotice, this.enableRealtimeBanners = true, this.enableBackendQueries = true});
   final String? backendNotice;
   final bool enableRealtimeBanners;
+  final bool enableBackendQueries;
   @override
   State<CustomerAppShell> createState() => _CustomerAppShellState();
 }
@@ -74,8 +76,8 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
     }
     return [
       CustomerHomePage(enableRealtimeBanners: widget.enableRealtimeBanners),
-      ServiceBrowsePage(service: 'Food'),
-      ServiceBrowsePage(service: 'Rides'),
+      ServiceBrowsePage(service: 'Food', enableBackendQueries: widget.enableBackendQueries),
+      ServiceBrowsePage(service: 'Rides', enableBackendQueries: widget.enableBackendQueries),
       CustomerAccountPage(),
     ];
   }
