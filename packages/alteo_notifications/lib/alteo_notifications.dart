@@ -68,8 +68,6 @@ class AlteoPushNotifications {
       _authSubscription = client.auth.onAuthStateChange.listen((state) {
         if (state.session != null) {
           unawaited(_requestPermissionAndRegister());
-        } else {
-          unawaited(_removeCurrentToken());
         }
       });
 
@@ -165,16 +163,22 @@ class AlteoPushNotifications {
     }
   }
 
-  Future<void> _removeCurrentToken() async {
+  /// Call this before Supabase sign-out so the token mapping can be removed
+  /// while the user's access token is still active.
+  Future<void> unregisterCurrentDevice() async {
     final client = _client;
     final user = client?.auth.currentUser;
     final appId = _appId;
-    if (client == null || user == null || appId == null) return;
+    final messaging = _messaging;
+    if (client == null || user == null || appId == null || messaging == null) return;
     try {
+      final token = await messaging.getToken();
+      if (token == null || token.isEmpty) return;
       await client.from('user_device_tokens')
           .delete()
           .eq('user_id', user.id)
-          .eq('app_id', appId);
+          .eq('app_id', appId)
+          .eq('token', token);
     } catch (error) {
       debugPrint('Could not remove Alteo push-token association: $error');
     }
