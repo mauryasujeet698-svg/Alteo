@@ -183,7 +183,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
               title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
               subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
               trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => RolePublicFeaturePage(feature: feature, selectedIndex: selectedTab, onNavigate: (index) { if (!mounted) return; setState(() => selectedTab = index); Navigator.of(context).pop(); }, onSignIn: () async { await showAuth(context); if (mounted && authorized) Navigator.of(context).pop(); }))),
             ),
           ),
         const SizedBox(height: 8),
@@ -986,9 +986,33 @@ const _features = <_Feature>[
 ];
 
 class RolePublicFeaturePage extends StatelessWidget {
-  const RolePublicFeaturePage({super.key, required this.feature, required this.onSignIn});
+  const RolePublicFeaturePage({super.key, required this.feature, required this.onSignIn, this.selectedIndex = 0, this.onNavigate});
   final _Feature feature;
   final VoidCallback onSignIn;
+  final int selectedIndex;
+  final ValueChanged<int>? onNavigate;
+
+  List<String> get _navLabels => switch (requiredRole) {
+    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
+    'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
+    'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
+    'dark_store' => const ['Home', 'Picking', 'Inventory', 'Profile'],
+    _ => const ['Home', 'Activity', 'Services', 'Profile'],
+  };
+
+  IconData _navIcon(String label, bool selected) => switch (label) {
+    'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
+    'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
+    'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
+    'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
+    'Earnings' => selected ? Icons.account_balance_wallet_rounded : Icons.account_balance_wallet_outlined,
+    'Products' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
+    'Picking' => selected ? Icons.checklist_rounded : Icons.checklist_outlined,
+    'Inventory' => selected ? Icons.warehouse_rounded : Icons.warehouse_outlined,
+    _ => selected ? Icons.person_rounded : Icons.person_outline_rounded,
+  };
 
   List<String> get sections {
     switch (requiredRole) {
@@ -1039,5 +1063,14 @@ class RolePublicFeaturePage extends StatelessWidget {
       const SizedBox(height: 8),
       OutlinedButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Back to app overview')),
     ]),
+    bottomNavigationBar: onNavigate == null ? null : NavigationBar(
+      selectedIndex: selectedIndex,
+      onDestinationSelected: onNavigate,
+      destinations: _navLabels.map((label) => NavigationDestination(
+        icon: Icon(_navIcon(label, false)),
+        selectedIcon: Icon(_navIcon(label, true)),
+        label: label,
+      )).toList(),
+    ),
   );
 }
