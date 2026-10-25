@@ -110,8 +110,8 @@ jobs:
           settings_text = settings.read_text()
           if "com.google.gms.google-services" not in settings_text:
               settings_text = re.sub(
-                  r"(plugins\\s*\\{)",
-                  r'\\1\\n    id("com.google.gms.google-services") version "4.4.2" apply false',
+                  r"(plugins\s*\{)",
+                  r'\1\n    id("com.google.gms.google-services") version "4.4.2" apply false',
                   settings_text,
                   count=1,
               )
@@ -123,7 +123,7 @@ jobs:
           if "com.google.gms.google-services" not in app_text:
               app_text = re.sub(
                   r"(plugins\\s*\\{)",
-                  r'\\1\\n    id("com.google.gms.google-services")',
+                  r'\1\n    id("com.google.gms.google-services")',
                   app_text,
                   count=1,
               )
