@@ -7,7 +7,8 @@ import '../auth/customer_auth_page.dart';
 import '../../services/mapbox_service.dart';
 
 class RideBookingPage extends StatefulWidget {
-  const RideBookingPage({super.key});
+  const RideBookingPage({super.key, this.enableBackendQueries = true});
+  final bool enableBackendQueries;
   @override
   State<RideBookingPage> createState() => _RideBookingPageState();
 }
@@ -101,6 +102,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
   }
 
   Future<void> _refreshQuote() async {
+    if (!widget.enableBackendQueries) { if (mounted) setState(() => fareQuote = {'enabled': false, 'message': 'Preview mode: live ride prices load when backend access is enabled.'}); return; }
     if (pickupCoordinates == null || destinationCoordinates == null) {
       if (mounted) setState(() => fareQuote = null);
       return;
