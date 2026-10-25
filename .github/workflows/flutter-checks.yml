@@ -81,6 +81,8 @@ jobs:
               raise SystemExit("AndroidManifest.xml was not generated")
           text = manifest.read_text()
           permissions = [
+              # Release APKs need network access for Supabase OAuth code exchange and API calls.
+              "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",
               "android.permission.ACCESS_FINE_LOCATION",
               "android.permission.ACCESS_COARSE_LOCATION",
