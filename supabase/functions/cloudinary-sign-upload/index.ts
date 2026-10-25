@@ -70,11 +70,39 @@ Deno.serve(async (request: Request) => {
     return json({ error: "This account is not allowed to upload this type of media." }, 403);
   }
 
-  // Only fixed, type-specific folders are signed; clients cannot request arbitrary operations.
   const timestamp = Math.floor(Date.now() / 1000);
-  // Delivery proof photos use Cloudinary's authenticated asset type; banner and catalogue images stay public-readable.
   const mediaType = assetType === "delivery_proof" ? "authenticated" : "upload";
-  const canonicalParams = "folder=" + rule.folder + "&timestamp=" + timestamp + "&type=" + mediaType;
+  const signedParams: Record<string, string> = {
+    folder: rule.folder,
+    timestamp: String(timestamp),
+    type: mediaType,
+  };
+
+  // Delivery proof upload signatures are tied to one of the current user's in-transit jobs.
+  // This prevents a delivery role from obtaining a proof signature for arbitrary media paths/jobs.
+  if (assetType === "delivery_proof") {
+    const deliveryJobId = typeof body.delivery_job_id === "string" ? body.delivery_job_id : "";
+    if (!/^[0-9a-fA-F-]{36}$/.test(deliveryJobId)) {
+      return json({ error: "A valid delivery_job_id is required for proof uploads." }, 400);
+    }
+    const { data: job, error: jobError } = await serviceClient
+      .from("delivery_jobs")
+      .select("id")
+      .eq("id", deliveryJobId)
+      .eq("delivery_partner_id", userResult.user.id)
+      .eq("status", "in_transit")
+      .maybeSingle();
+    if (jobError || !job) {
+      return json({ error: "Proof can only be uploaded for your own delivery that is currently in transit." }, 403);
+    }
+    signedParams.public_id = "alteo/delivery-proof/" + deliveryJobId + "_" + crypto.randomUUID();
+  }
+
+  // Cloudinary requires alphabetically sorted upload parameters with the API secret appended.
+  const canonicalParams = Object.entries(signedParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => key + "=" + value)
+    .join("&");
   const digest = await crypto.subtle.digest(
     "SHA-1",
     new TextEncoder().encode(canonicalParams + cloudApiSecret),
@@ -87,6 +115,7 @@ Deno.serve(async (request: Request) => {
     timestamp,
     folder: rule.folder,
     type: mediaType,
+    ...(signedParams.public_id ? { public_id: signedParams.public_id } : {}),
     signature,
     asset_type: assetType,
   });
