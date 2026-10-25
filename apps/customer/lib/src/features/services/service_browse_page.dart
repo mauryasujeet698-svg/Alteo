@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../../services/mapbox_service.dart';
+import 'food_discovery_page.dart';
+import 'ride_booking_page.dart';
 
 class ServiceBrowsePage extends StatelessWidget {
   const ServiceBrowsePage({super.key, required this.service});
@@ -42,6 +44,8 @@ class ServiceBrowsePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (service == 'Rides') return const RideBookingPage();
+    if (service == 'Food') return const FoodDiscoveryPage();
     final options = _options[service] ?? _options['More']!;
     return Scaffold(
       appBar: AppBar(title: Text(service)),
