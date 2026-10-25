@@ -1,0 +1,15 @@
+name: alteo_notifications
+description: Shared Firebase Cloud Messaging integration for Alteo apps.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^2.8.0
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  flutter_local_notifications: ^19.5.0
