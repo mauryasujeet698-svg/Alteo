@@ -60,6 +60,7 @@ class RoleExplorePage extends StatefulWidget {
 class _RoleExplorePageState extends State<RoleExplorePage> {
   bool busy = false;
   bool authorized = false;
+  int selectedTab = 0;
   bool authSheetOpen = false;
   String? message;
   StreamSubscription<AuthState>? authSubscription;
