@@ -275,6 +275,9 @@ jobs:
       - name: Build arm64 release APK
         env:
           MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          ALTEO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEYSTORE_PASSWORD }}
+          ALTEO_ANDROID_KEY_ALIAS: ${{ secrets.ALTEO_ANDROID_KEY_ALIAS }}
+          ALTEO_ANDROID_KEY_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEY_PASSWORD }}
         run: flutter build apk --release --target-platform android-arm64 --dart-define=MAPBOX_PUBLIC_TOKEN="$MAPBOX_PUBLIC_TOKEN"
       - name: Enforce APK size limit (15 MB)
         shell: bash
