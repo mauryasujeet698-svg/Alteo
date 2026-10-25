@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:alteo_notifications/alteo_notifications.dart';
 import 'src/config/app_config.dart';
 import 'src/features/home/customer_home_page.dart';
 import 'src/features/account/customer_account_page.dart';
@@ -22,6 +24,12 @@ Future<void> main() async {
     backendNotice = 'Live catalogue and sign-in are temporarily unavailable. You can still explore Alteo services.';
   }
   MapboxService.configure(config.mapboxPublicToken);
+  if (backendNotice == null) {
+    unawaited(AlteoPushNotifications.instance.initialize(
+      client: Supabase.instance.client,
+      appId: 'customer',
+    ));
+  }
   runApp(AlteoCustomerApp(backendNotice: backendNotice));
 }
 
