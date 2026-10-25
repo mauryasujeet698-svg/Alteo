@@ -208,7 +208,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
 
   List<String> get _publicNavLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Banners', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -219,6 +219,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   IconData _publicNavIcon(String label, bool selected) => switch (label) {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
@@ -230,6 +231,22 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   };
 
   Widget _publicNavContent(String label) {
+    if (label == 'Banners') {
+      return ListView(padding: const EdgeInsets.all(20), children: [
+        const Text('Customer homepage banners', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        const Text('Create, edit, reorder, publish or unpublish the swipeable carousel shown at the top of the Customer app. Banner changes are delivered through Supabase and do not require an app reinstall.', style: TextStyle(color: Color(0xFF68736D), height: 1.5)),
+        const SizedBox(height: 18),
+        Card(elevation: 0, child: ListTile(
+          leading: const Icon(Icons.view_carousel_rounded, color: Color(0xFF176B57)),
+          title: const Text('Homepage banner manager'),
+          subtitle: const Text('Sign in as an approved Admin to manage live banners.'),
+          trailing: const Icon(Icons.lock_outline_rounded),
+        )),
+        const SizedBox(height: 12),
+        FilledButton.icon(onPressed: () => showAuth(context), icon: const Icon(Icons.login_rounded), label: const Text('Sign in to manage banners')),
+      ]);
+    }
     if (label == 'Profile') {
       return ListView(padding: const EdgeInsets.all(20), children: [
         const Text('Profile & preferences', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
@@ -583,7 +600,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   List<String> get _navLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Banners', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -594,6 +611,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   IconData _navIcon(String label, bool selected) => switch (label) {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
@@ -606,6 +624,32 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _navigationPage() {
     final label = _navLabels[selectedTab];
+    if (requiredRole == 'admin' && label == 'Banners') {
+      return Scaffold(
+        appBar: _appBar('Customer homepage banners'),
+        body: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+          children: [
+            const Text('Customer homepage banners', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 6),
+            const Text('Manage the swipeable Customer home carousel here. Published changes are read live from Supabase; the Customer app does not need reinstalling.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+            const SizedBox(height: 18),
+            _bannerManagement(),
+          ],
+        ),
+      );
+    }
+    if (requiredRole == 'admin' && label == 'Orders') {
+      return _adminOrdersPage();
+    }
+    if (requiredRole == 'admin' && label == 'Partners') {
+      return _adminPartnersPage();
+    }
+    if (requiredRole == 'driver_partner' && label == 'Rides') return _driverDashboard();
+    if (requiredRole == 'delivery_partner' && label == 'Deliveries') return _deliveryDashboard();
+    if (requiredRole == 'seller' && label == 'Orders') return _sellerOrdersPage();
+    if (requiredRole == 'seller' && label == 'Products') return _sellerProductsPage();
+    if (requiredRole == 'dark_store' && label == 'Inventory') return _darkStoreDashboard();
     if (label == 'Profile') {
       return Scaffold(
         appBar: _appBar('Profile'),
@@ -823,7 +867,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
-      _bannerManagement(),
       const SizedBox(height: 24),
       const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
