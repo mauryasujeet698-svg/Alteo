@@ -1066,7 +1066,7 @@ class RolePublicFeaturePage extends StatelessWidget {
     ]),
     bottomNavigationBar: onNavigate == null ? null : NavigationBar(
       selectedIndex: selectedIndex,
-      onDestinationSelected: onNavigate,
+      onDestinationSelected: (index) => onNavigate?.call(index),
       destinations: _navLabels.map((label) => NavigationDestination(
         icon: Icon(_navIcon(label, false)),
         selectedIcon: Icon(_navIcon(label, true)),
