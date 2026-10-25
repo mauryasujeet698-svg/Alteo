@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-const customerRedirectScheme = 'com.alteo.customer';
+const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
+Future<void>? _googleSignInInitialization;
 
 class CustomerAuthPage extends StatefulWidget {
   const CustomerAuthPage({super.key});
@@ -35,19 +37,35 @@ class _CustomerAuthPageState extends State<CustomerAuthPage> {
   Future<void> signInWithGoogle() async {
     setState(() { busy = true; message = null; });
     try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: '$customerRedirectScheme://login-callback/',
+      if (googleWebClientId.isEmpty) {
+        throw const AuthException('Google native sign-in is not configured yet. Please set GOOGLE_WEB_CLIENT_ID in the release build.');
+      }
+      _googleSignInInitialization ??= GoogleSignIn.instance.initialize(
+        serverClientId: googleWebClientId,
+      );
+      await _googleSignInInitialization;
+      final googleUser = await GoogleSignIn.instance.authenticate();
+      final googleAuthentication = googleUser.authentication;
+      final idToken = googleAuthentication.idToken;
+      if (idToken == null) {
+        throw const AuthException('Google did not return an ID token. Check the Android OAuth client and signing SHA-1.');
+      }
+      final authorization = await googleUser.authorizationClient
+          .authorizationForScopes(const ['email']);
+      await Supabase.instance.client.auth.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: idToken,
+        accessToken: authorization?.accessToken,
       );
       if (mounted) {
-        setState(() => message = 'Complete sign-in in the Google window. Alteo will return here automatically.');
+        setState(() => message = 'Google sign-in completed. Finishing your Alteo session…');
       }
     } catch (e) {
       if (!mounted) return;
       final lower = e.toString().toLowerCase();
-      setState(() => message = lower.contains('provider is not enabled') || lower.contains('unsupported provider')
-          ? 'Google sign-in is not enabled in Supabase yet. The project owner must enable Google and add OAuth credentials.'
-          : 'Google sign-in could not start: ' + e.toString());
+      setState(() => message = lower.contains('canceled') || lower.contains('cancelled')
+          ? 'Google sign-in was cancelled.'
+          : 'Google sign-in failed: ' + e.toString());
     } finally {
       if (mounted) setState(() => busy = false);
     }
