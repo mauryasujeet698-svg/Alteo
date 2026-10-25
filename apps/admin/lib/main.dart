@@ -511,6 +511,36 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     } finally { id.dispose(); }
   }
 
+
+  Future<void> assignOrderToDarkStore(Map<String, dynamic> order) async {
+    if ((order['payment_status']?.toString() ?? 'pending') != 'paid') {
+      notice('Only paid orders can be assigned to a dark store.');
+      return;
+    }
+    final storeId = TextEditingController();
+    try {
+      final ok = await showDialog<bool>(context: context, builder: (dc) => AlertDialog(
+        title: const Text('Assign order to dark store'),
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text('Order ' + _short(order['id'])),
+          const SizedBox(height: 10),
+          TextField(controller: storeId, decoration: const InputDecoration(labelText: 'Active dark-store UUID', border: OutlineInputBorder())),
+          const SizedBox(height: 8),
+          const Text('The selected store must be active. The task will appear in its Picking tab.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Assign')),
+        ],
+      ));
+      if (ok != true) return;
+      if (storeId.text.trim().isEmpty) { notice('Enter the active dark-store UUID.'); return; }
+      await rpc('admin_assign_order_to_dark_store', {'p_order_id': order['id'], 'p_store_id': storeId.text.trim()}, 'Order assigned to the dark store picking queue.');
+    } finally {
+      storeId.dispose();
+    }
+  }
+
   Future<void> assignDelivery(Map<String, dynamic> job) async {
     final id = TextEditingController();
     try {
@@ -653,6 +683,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     if (requiredRole == 'seller' && label == 'Orders') return _sellerOrdersPage();
     if (requiredRole == 'seller' && label == 'Products') return _sellerProductsPage();
     if (requiredRole == 'dark_store' && label == 'Inventory') return _darkStoreDashboard();
+    if (requiredRole == 'dark_store' && label == 'Picking') return _darkStorePickingPage();
     if (label == 'Profile') {
       return Scaffold(
         appBar: _appBar('Profile'),
@@ -1040,6 +1071,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           return Column(children: s.data!.take(30).map((o) => Card(elevation: 0, child: ListTile(
             title: Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
             subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+            trailing: IconButton(
+              tooltip: 'Assign to dark store',
+              onPressed: (o['payment_status']?.toString() ?? 'pending') == 'paid' ? () => assignOrderToDarkStore(o) : null,
+              icon: const Icon(Icons.warehouse_outlined),
+            ),
           ))).toList());
         },
       ),
