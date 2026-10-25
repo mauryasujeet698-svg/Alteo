@@ -8,25 +8,25 @@ Google is the only intended authentication option. Public exploration remains av
 
 1. In Google Cloud Console, create an OAuth client of type **Web application** and configure the OAuth consent screen.
 2. Add this redirect URI to the Google Web OAuth client:
-   \`https://nkerkoptbrcadlpxffkn.supabase.co/auth/v1/callback\`
+   `https://nkerkoptbrcadlpxffkn.supabase.co/auth/v1/callback`
 3. In Supabase → Authentication → Sign In / Providers → Google, enable Google and enter the Web Client ID and Client Secret.
 4. In Supabase → Authentication → URL Configuration → Redirect URLs, add:
-   - \`com.alteo.customer://login-callback/\`
-   - \`com.alteo.admin://login-callback/\`
-   - \`com.alteo.driverpartner://login-callback/\`
-   - \`com.alteo.deliverypartner://login-callback/\`
-   - \`com.alteo.seller://login-callback/\`
-   - \`com.alteo.darkstore://login-callback/\`
+   - `com.alteo.customer://login-callback/`
+   - `com.alteo.admin://login-callback/`
+   - `com.alteo.driverpartner://login-callback/`
+   - `com.alteo.deliverypartner://login-callback/`
+   - `com.alteo.seller://login-callback/`
+   - `com.alteo.darkstore://login-callback/`
 5. Open Customer → Profile → Google sign-in once. In Supabase → Authentication → Users, copy the trusted owner account UUID.
-6. Run the one-time SQL documented in \`INITIAL_ADMIN_SETUP.md\` to grant only the owner the \`admin\` role. Use Admin → Partners to grant roles to approved staff/partners afterward.
+6. Run the one-time SQL documented in `INITIAL_ADMIN_SETUP.md` to grant only the owner the `admin` role. Use Admin → Partners to grant roles to approved staff/partners afterward.
 
-Never put the Google OAuth Client Secret or Supabase service-role key in an APK, GitHub source, or Flutter \`--dart-define\`.
+Never put the Google OAuth Client Secret or Supabase service-role key in an APK, GitHub source, or Flutter `--dart-define`.
 
 ## 2. Mapbox for Customer Ride and location search
 
 1. In Mapbox, create a **public access token** with only the scopes the app needs for style tiles and geocoding.
 2. Restrict the token to the app/project as supported by Mapbox token settings. Treat it as public client configuration, not as an API secret.
-3. In GitHub → Alteo repository → Settings → Secrets and variables → Actions, add repository secret \`MAPBOX_PUBLIC_TOKEN\`.
+3. In GitHub → Alteo repository → Settings → Secrets and variables → Actions, add repository secret `MAPBOX_PUBLIC_TOKEN`.
 4. Start a new workflow build after saving the secret. The workflow passes it as a Dart define into each app.
 5. On Android, enable Location and allow the permission prompt. If a user denies it, the app still permits manual pickup and destination entry.
 
@@ -34,32 +34,32 @@ With no token, Ride has a map preview fallback, but Mapbox tiles, readable rever
 
 ## 3. Cloudinary for banner/product images
 
-The Admin banner editor now supports selecting an image from the device. The Admin app asks the Supabase Edge Function \`cloudinary-sign-upload\` for a short-lived signature, then uploads directly to Cloudinary. The Cloudinary API Secret stays on the server.
+The Admin banner editor and Seller product editor support picking images from the device. The Supabase Edge Function `cloudinary-sign-upload` signs uploads for fixed asset folders after verifying the Google-authenticated user's app role. Delivery proof uploads use Cloudinary's authenticated asset type; the API Secret stays on the server.
 
 1. Create a Cloudinary account and locate the Cloud Name, API Key and API Secret in the Cloudinary console.
 2. In Supabase → Project → Edge Functions → Secrets, add:
-   - \`CLOUDINARY_CLOUD_NAME\`
-   - \`CLOUDINARY_API_KEY\`
-   - \`CLOUDINARY_API_SECRET\`
+   - `CLOUDINARY_CLOUD_NAME`
+   - `CLOUDINARY_API_KEY`
+   - `CLOUDINARY_API_SECRET`
 3. Do **not** put the API Secret in Flutter, GitHub Actions, or any app configuration. The deployed function requires a valid Supabase session and verifies the user has the Admin role.
 4. Rebuild and install the Admin APK that includes the gallery upload control.
 5. Open Admin → Banners → Add/Edit → Choose image and upload to Cloudinary. Save the banner and publish it. The Customer carousel listens for changes and does not require reinstalling.
 
 The Edge Function is deployed with JWT verification enabled. Until the three Cloudinary secrets are added, the image upload button will return a configuration error; the existing HTTPS image URL field remains usable.
 
-For product images, use the same secure signed-upload pattern and keep the public image URL in \`seller_products.image_url\`. Do not use a long-lived API Secret or an unrestricted public upload signature inside an app.
+For product images, use the signed-upload flow and keep the product's HTTPS URL in `seller_products.image_url`. For delivery proof, the app records the Cloudinary `public_id` through the `partner_record_delivery_proof` RPC; proof images use authenticated Cloudinary assets rather than public upload URLs. Do not put the Cloudinary API Secret or a permanent upload signature inside an app.
 
 ## 4. Live banner management
 
 - Admin → Banners: add, edit, delete, publish/unpublish, set priority, add a tap action and enter image URL or upload a new image.
-- Customer → Home: active banners are loaded from \`public.app_banners\`, sorted by priority, and displayed in a swipeable carousel.
+- Customer → Home: active banners are loaded from `public.app_banners`, sorted by priority, and displayed in a swipeable carousel.
 - Only Admin-role users can write banners. Anonymous users can read active banners within their schedule window. Keep the existing RLS policies enabled.
 - Use wide landscape artwork, ideally around 16:9, and keep headline/subtitle text short so it remains legible on small phones.
 
 ## 5. Enable and configure real services
 
 In Admin → Home / operational settings, confirm all of the following before test bookings:
-- Ride service enabled for the \`DEFAULT\` area and an active Ride pricing rule exists.
+- Ride service enabled for the `DEFAULT` area and an active Ride pricing rule exists.
 - A minimum fee, base fee and per-kilometre fee are configured. Test Bike, Auto and Car estimates.
 - Delivery/service areas, partner coverage and availability are correct.
 - Test both manual and automatic assignment only after roles and pricing are correct.
