@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -793,12 +796,44 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     }),
   );
 
+
+  Future<String> _uploadProductImage(XFile file) async {
+    final signatureResponse = await client.functions.invoke(
+      'cloudinary-sign-upload',
+      body: <String, dynamic>{'asset_type': 'product_image'},
+    );
+    if (signatureResponse.status < 200 || signatureResponse.status >= 300) {
+      final data = signatureResponse.data;
+      final message = data is Map ? data['error']?.toString() : null;
+      throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signatureResponse.status.toString());
+    }
+    final signed = Map<String, dynamic>.from(signatureResponse.data as Map);
+    final uri = Uri.https('api.cloudinary.com', '/v1_1/' + signed['cloud_name'].toString() + '/image/upload');
+    final upload = http.MultipartRequest('POST', uri);
+    upload.fields['api_key'] = signed['api_key'].toString();
+    upload.fields['timestamp'] = signed['timestamp'].toString();
+    upload.fields['folder'] = signed['folder'].toString();
+    upload.fields['signature'] = signed['signature'].toString();
+    upload.files.add(await http.MultipartFile.fromPath('file', file.path));
+    final response = await upload.send().timeout(const Duration(seconds: 60));
+    final responseBody = await response.stream.bytesToString();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+    }
+    final payload = jsonDecode(responseBody);
+    if (payload is! Map || payload['secure_url'] is! String) {
+      throw StateError('Cloudinary did not return a secure image URL.');
+    }
+    return payload['secure_url'] as String;
+  }
+
   Future<void> _editSellerProduct(String sellerId, [Map<String, dynamic>? existing]) async {
     final name = TextEditingController(text: existing?['name']?.toString() ?? '');
     final description = TextEditingController(text: existing?['description']?.toString() ?? '');
     final price = TextEditingController(text: existing == null ? '' : (((existing['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2));
     final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
     var kind = existing?['kind']?.toString() ?? 'shopping';
+    var uploadingImage = false;
     try {
       final saved = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
         title: Text(existing == null ? 'New product draft' : 'Edit product'),
@@ -816,10 +851,29 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder())),
           const SizedBox(height: 10),
           TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image HTTPS URL (Cloudinary)', border: OutlineInputBorder())),
+          const SizedBox(height: 6),
+          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+            onPressed: uploadingImage ? null : () async {
+              try {
+                final selectedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 86, maxWidth: 1600);
+                if (selectedFile == null) return;
+                setDialogState(() => uploadingImage = true);
+                final uploadedUrl = await _uploadProductImage(selectedFile);
+                setDialogState(() => image.text = uploadedUrl);
+                notice('Product image uploaded to Cloudinary.');
+              } catch (e) {
+                notice('Product image upload failed: ' + e.toString());
+              } finally {
+                setDialogState(() => uploadingImage = false);
+              }
+            },
+            icon: uploadingImage ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_upload_outlined),
+            label: Text(uploadingImage ? 'Uploading image…' : 'Choose image and upload'),
+          )),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Save draft')),
+          FilledButton(onPressed: uploadingImage ? null : () => Navigator.pop(dc, true), child: const Text('Save draft')),
         ],
       )));
       if (saved != true) return;
