@@ -26,31 +26,43 @@ jobs:
           - app: apps/customer
             name: customer
             project: alteo_customer
+            android_package: com.alteo.alteo_customer
+            firebase_secret: FIREBASE_CUSTOMER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.customer
             firebase_secret: FIREBASE_CUSTOMER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/admin
             name: admin
             project: alteo_admin
+            android_package: com.alteo.alteo_admin
+            firebase_secret: FIREBASE_ADMIN_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.admin
             firebase_secret: FIREBASE_ADMIN_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/seller
             name: seller
             project: alteo_seller
+            android_package: com.alteo.alteo_seller
+            firebase_secret: FIREBASE_SELLER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.seller
             firebase_secret: FIREBASE_SELLER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/driver_partner
             name: driver-partner
             project: alteo_driver_partner
+            android_package: com.alteo.alteo_driver_partner
+            firebase_secret: FIREBASE_DRIVER_PARTNER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.driverpartner
             firebase_secret: FIREBASE_DRIVER_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/delivery_partner
             name: delivery-partner
             project: alteo_delivery_partner
+            android_package: com.alteo.alteo_delivery_partner
+            firebase_secret: FIREBASE_DELIVERY_PARTNER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.deliverypartner
             firebase_secret: FIREBASE_DELIVERY_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/dark_store
             name: dark-store
             project: alteo_dark_store
+            android_package: com.alteo.alteo_dark_store
+            firebase_secret: FIREBASE_DARK_STORE_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.darkstore
             firebase_secret: FIREBASE_DARK_STORE_GOOGLE_SERVICES_JSON_BASE64
     defaults:
@@ -77,6 +89,7 @@ jobs:
       - name: Configure Firebase for this Android app when credentials are available
         env:
           FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets[matrix.firebase_secret] }}
+          ALTEO_ANDROID_PACKAGE: ${{ matrix.android_package }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -101,6 +114,16 @@ jobs:
               raise SystemExit("Firebase google-services.json contains no Android clients.")
           app_id = clients[0].get("client_info", {}).get("android_client_info", {}).get("package_name", "")
           print("Firebase Android package configured:", app_id)
+          expected_package = os.environ["ALTEO_ANDROID_PACKAGE"]
+          packages = [
+              item.get("client_info", {}).get("android_client_info", {}).get("package_name", "")
+              for item in clients
+          ]
+          if expected_package not in packages:
+              raise SystemExit(
+                  f"Firebase config package mismatch: expected {expected_package}; got {packages}"
+              )
+          print("Firebase Android package verified:", expected_package)
 
           settings = next((p for p in (android_dir / "settings.gradle.kts", android_dir / "settings.gradle") if p.exists()), None)
           app_gradle = next((p for p in (app_dir / "build.gradle.kts", app_dir / "build.gradle") if p.exists()), None)
