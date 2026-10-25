@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -881,7 +884,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 buttons.add(OutlinedButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'reject'}, 'Delivery declined.'), child: const Text('Decline')));
                 buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
               }
-              if (status == 'assigned' && assignmentStatus == 'accepted') {
+              if (status == 'accepted' || (status == 'assigned' && assignmentStatus == 'accepted')) {
                 buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
               }
               if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
@@ -892,6 +895,33 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
                 if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
                 if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
+                if (status == 'in_transit') ...[
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Icon((job['proof_media_public_id']?.toString().isNotEmpty ?? false) ? Icons.verified_rounded : Icons.photo_camera_back_outlined,
+                      color: const Color(0xFF176B57)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(
+                      (job['proof_media_public_id']?.toString().isNotEmpty ?? false)
+                        ? 'Proof of delivery attached'
+                        : 'Optional: attach a proof photo before completing delivery',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
+                    )),
+                  ]),
+                  const SizedBox(height: 6),
+                  Wrap(spacing: 8, children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _captureDeliveryProof(job, ImageSource.camera),
+                      icon: const Icon(Icons.camera_alt_outlined),
+                      label: const Text('Take photo'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _captureDeliveryProof(job, ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Choose photo'),
+                    ),
+                  ]),
+                ],
                 if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: buttons)),
               ])));
             }).toList());
@@ -900,6 +930,48 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       },
     ),
   );
+
+
+  Future<void> _captureDeliveryProof(Map<String, dynamic> job, ImageSource source) async {
+    try {
+      final file = await ImagePicker().pickImage(source: source, imageQuality: 82, maxWidth: 1600);
+      if (file == null) return;
+      notice('Uploading proof photo securely…');
+      final signingResponse = await Supabase.instance.client.functions.invoke(
+        'cloudinary-sign-upload',
+        body: <String, dynamic>{'asset_type': 'delivery_proof'},
+      );
+      if (signingResponse.status < 200 || signingResponse.status >= 300) {
+        final data = signingResponse.data;
+        final message = data is Map ? data['error']?.toString() : null;
+        throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signingResponse.status.toString());
+      }
+      final signed = Map<String, dynamic>.from(signingResponse.data as Map);
+      final uri = Uri.https('api.cloudinary.com', '/v1_1/' + signed['cloud_name'].toString() + '/image/upload');
+      final upload = http.MultipartRequest('POST', uri);
+      upload.fields['api_key'] = signed['api_key'].toString();
+      upload.fields['timestamp'] = signed['timestamp'].toString();
+      upload.fields['folder'] = signed['folder'].toString();
+      upload.fields['signature'] = signed['signature'].toString();
+      upload.files.add(await http.MultipartFile.fromPath('file', file.path));
+      final response = await upload.send().timeout(const Duration(seconds: 60));
+      final responseBody = await response.stream.bytesToString();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+      }
+      final result = jsonDecode(responseBody);
+      if (result is! Map || result['public_id'] is! String) {
+        throw StateError('Cloudinary did not return a proof media reference.');
+      }
+      await Supabase.instance.client.rpc('partner_record_delivery_proof', params: {
+        'p_delivery_job_id': job['id'],
+        'p_cloudinary_public_id': result['public_id'],
+      });
+      notice('Proof of delivery saved.');
+    } catch (e) {
+      notice('Could not attach proof: ' + e.toString());
+    }
+  }
 
   Widget _sellerDashboard() => Scaffold(
     appBar: _appBar('Seller operations'),
