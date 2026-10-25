@@ -39,6 +39,17 @@ Deno.serve(async (request: Request) => {
     return json({ error: "Cloudinary secrets are not configured in Supabase Edge Function secrets." }, 503);
   }
 
+  let body: Record<string, unknown> = {};
+  try { body = await request.json() as Record<string, unknown>; } catch (_) {}
+  const assetType = typeof body.asset_type === "string" ? body.asset_type : "banner";
+  const uploadRules: Record<string, { folder: string; permittedRoles: string[] }> = {
+    banner: { folder: "alteo/banners", permittedRoles: ["admin"] },
+    product_image: { folder: "alteo/products", permittedRoles: ["admin", "seller"] },
+    delivery_proof: { folder: "alteo/delivery-proof", permittedRoles: ["delivery_partner"] },
+  };
+  const rule = uploadRules[assetType];
+  if (!rule) return json({ error: "Unsupported upload type." }, 400);
+
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authorization } },
     auth: { persistSession: false, autoRefreshToken: false },
@@ -49,19 +60,19 @@ Deno.serve(async (request: Request) => {
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const { data: adminRole, error: roleError } = await serviceClient
+  const { data: roleRows, error: roleError } = await serviceClient
     .from("user_roles")
     .select("role")
     .eq("user_id", userResult.user.id)
-    .eq("role", "admin")
-    .maybeSingle();
+    .in("role", rule.permittedRoles);
 
-  if (roleError || !adminRole) return json({ error: "Only an approved Alteo Admin can upload banner images." }, 403);
+  if (roleError || !roleRows || roleRows.length === 0) {
+    return json({ error: "This account is not allowed to upload this type of media." }, 403);
+  }
 
-  // Fixed folder and narrowly scoped fields: clients cannot request arbitrary signed Cloudinary operations.
-  const folder = "alteo/banners";
+  // Only fixed, type-specific folders are signed; clients cannot request arbitrary operations.
   const timestamp = Math.floor(Date.now() / 1000);
-  const canonicalParams = "folder=" + folder + "&timestamp=" + timestamp;
+  const canonicalParams = "folder=" + rule.folder + "&timestamp=" + timestamp;
   const digest = await crypto.subtle.digest(
     "SHA-1",
     new TextEncoder().encode(canonicalParams + cloudApiSecret),
@@ -72,7 +83,8 @@ Deno.serve(async (request: Request) => {
     cloud_name: cloudName,
     api_key: cloudApiKey,
     timestamp,
-    folder,
+    folder: rule.folder,
     signature,
+    asset_type: assetType,
   });
 });
