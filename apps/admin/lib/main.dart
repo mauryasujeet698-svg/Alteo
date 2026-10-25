@@ -754,7 +754,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
 
   Future<String> _uploadBannerImage(XFile file) async {
-    final signatureResponse = await client.functions.invoke('cloudinary-sign-upload', body: <String, dynamic>{});
+    final signatureResponse = await client.functions.invoke('cloudinary-sign-upload', body: <String, dynamic>{'asset_type': 'banner'});
     if (signatureResponse.status < 200 || signatureResponse.status >= 300) {
       final data = signatureResponse.data;
       final message = data is Map ? data['error']?.toString() : null;
