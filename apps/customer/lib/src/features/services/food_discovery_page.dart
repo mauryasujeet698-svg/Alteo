@@ -6,7 +6,8 @@ import '../../services/customer_content_service.dart';
 import '../../services/mapbox_service.dart';
 
 class FoodDiscoveryPage extends StatefulWidget {
-  const FoodDiscoveryPage({super.key});
+  const FoodDiscoveryPage({super.key, this.enableBackendQueries = true});
+  final bool enableBackendQueries;
   @override
   State<FoodDiscoveryPage> createState() => _FoodDiscoveryPageState();
 }
@@ -24,6 +25,7 @@ class _FoodDiscoveryPageState extends State<FoodDiscoveryPage> {
   void dispose() { searchController.dispose(); super.dispose(); }
 
   Future<List<Map<String, dynamic>>> _loadFood() async {
+    if (!widget.enableBackendQueries) return <Map<String, dynamic>>[];
     final client = Supabase.instance.client;
     final raw = await client.from('seller_products')
         .select('id,name,description,price_minor,image_url,seller_id')
