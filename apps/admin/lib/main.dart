@@ -265,7 +265,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
 
   List<String> get _publicNavLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Banners', 'Notifications', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Banners', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -277,7 +277,6 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
     'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
-    'Notifications' => selected ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
@@ -697,7 +696,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   List<String> get _navLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Banners', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Banners', 'Notifications', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -709,6 +708,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
     'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
+    'Notifications' => selected ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
