@@ -167,7 +167,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   @override
   Widget build(BuildContext context) {
-    if (authorized) return RoleOperationsPage(onSignOut: () async { await Supabase.instance.client.auth.signOut(); if (mounted) setState(() => authorized = false); });
+    if (authorized) return RoleOperationsPage(onSignOut: () async { await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut(); if (mounted) setState(() => authorized = false); });
     return Scaffold(
     appBar: AppBar(
       title: Row(children: [
@@ -209,7 +209,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                   IconButton(
                     tooltip: 'Sign out',
                     onPressed: () async {
-                      await Supabase.instance.client.auth.signOut();
+                      await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut();
                       if (mounted) setState(() { authorized = false; message = null; });
                     },
                     icon: const Icon(Icons.logout_rounded),
