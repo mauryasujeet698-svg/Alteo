@@ -36,4 +36,26 @@ class MapboxService {
       return null;
     }
   }
+  /// Reverse-geocodes coordinates to a readable address.
+  static Future<String?> reverseGeocode(double longitude, double latitude) async {
+    if (_publicToken.isEmpty || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return null;
+    final uri = Uri.https(
+      'api.mapbox.com',
+      '/geocoding/v5/mapbox.places/$longitude,$latitude.json',
+      {'access_token': _publicToken, 'limit': '1', 'country': 'IN', 'language': 'en'},
+    );
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) return null;
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final features = decoded['features'] as List<dynamic>? ?? const [];
+      if (features.isEmpty) return null;
+      final feature = features.first as Map<String, dynamic>;
+      final name = feature['place_name'] as String?;
+      return name?.trim().isNotEmpty == true ? name : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
 }
