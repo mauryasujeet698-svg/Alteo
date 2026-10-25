@@ -154,7 +154,7 @@ jobs:
                   if quote:
                       if escaped:
                           escaped = False
-                      elif ch == "\\\\":
+                      elif ch == "\\":
                           escaped = True
                       elif ch == quote:
                           quote = None
