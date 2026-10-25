@@ -837,42 +837,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
-  Widget _deliveryEarningsPage() => Scaffold(
-    appBar: _appBar('Delivery earnings'),
-    body: StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('delivery_jobs').stream(primaryKey: ['id']).eq('delivery_partner_id', user!.id).eq('status', 'delivered').order('updated_at', ascending: false),
-      builder: (context, s) {
-        if (s.hasError) return _error('Completed deliveries unavailable.');
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        final jobs = s.data!;
-        final total = jobs.fold<int>(0, (sum, row) => sum + ((row['fare_minor'] as num?)?.toInt() ?? 0));
-        return ListView(padding: const EdgeInsets.all(18), children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(20)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('COMPLETED DELIVERY FARES', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text('₹' + (total / 100).toStringAsFixed(0), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
-              Text(jobs.length.toString() + ' completed deliveries', style: const TextStyle(color: Colors.white)),
-            ]),
-          ),
-          const SizedBox(height: 10),
-          const Text('This is a gross fare total, not a confirmed payout balance. Configure settlement records before using it for payroll.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-          const SizedBox(height: 18),
-          for (final job in jobs)
-            Card(elevation: 0, child: ListTile(
-              leading: const Icon(Icons.local_shipping_rounded, color: Color(0xFF176B57)),
-              title: Text((job['job_type']?.toString() ?? 'delivery').toUpperCase() + ' · ' + _short(job['id'])),
-              subtitle: Text((job['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (job['destination_label']?.toString() ?? 'Destination')),
-              trailing: Text('₹' + ((((job['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)), style: const TextStyle(fontWeight: FontWeight.w900)),
-            )),
-          if (jobs.isEmpty) _empty('No completed deliveries yet', 'Completed deliveries will appear here.'),
-        ]);
-      },
-    ),
-  );
-
   Widget _driverDashboard() => Scaffold(
     appBar: _partnerAppBar('My rides'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
