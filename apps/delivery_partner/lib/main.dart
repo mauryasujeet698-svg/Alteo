@@ -147,7 +147,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       ]),
       actions: [TextButton(onPressed: () => showAuth(context), child: Text(authorized ? 'Access' : 'Sign in'))],
     ),
-    body: ListView(
+    body: selectedTab == 0 ? ListView(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
       children: [
         Container(
@@ -200,8 +200,152 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
           ]),
         ),
       ],
+    ) : _publicNavContent(_publicNavLabels[selectedTab]),
+    bottomNavigationBar: NavigationBar(
+      selectedIndex: selectedTab,
+      onDestinationSelected: (index) => setState(() => selectedTab = index),
+      destinations: _publicNavLabels.map((label) => NavigationDestination(
+        icon: Icon(_publicNavIcon(label, false)),
+        selectedIcon: Icon(_publicNavIcon(label, true)),
+        label: label,
+      )).toList(),
     ),
   );
+  }
+
+
+  List<String> get _publicNavLabels => switch (requiredRole) {
+    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
+    'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
+    'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
+    'dark_store' => const ['Home', 'Picking', 'Inventory', 'Profile'],
+    _ => const ['Home', 'Activity', 'Services', 'Profile'],
+  };
+
+  IconData _publicNavIcon(String label, bool selected) => switch (label) {
+    'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
+    'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
+    'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
+    'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
+    'Earnings' => selected ? Icons.account_balance_wallet_rounded : Icons.account_balance_wallet_outlined,
+    'Products' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
+    'Picking' => selected ? Icons.checklist_rounded : Icons.checklist_outlined,
+    'Inventory' => selected ? Icons.warehouse_rounded : Icons.warehouse_outlined,
+    _ => selected ? Icons.person_rounded : Icons.person_outline_rounded,
+  };
+
+  Widget _publicNavContent(String label) {
+    if (label == 'Profile') {
+      return ListView(padding: const EdgeInsets.all(20), children: [
+        const Text('Profile & preferences', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        Text(appName, style: const TextStyle(color: Color(0xFF68736D))),
+        const SizedBox(height: 16),
+        Card(elevation: 0, child: ValueListenableBuilder<ThemeMode>(
+          valueListenable: roleThemeMode,
+          builder: (context, mode, _) => SwitchListTile(
+            secondary: const Icon(Icons.dark_mode_outlined),
+            title: const Text('Dark theme'),
+            subtitle: const Text('Change the appearance of this app'),
+            value: mode == ThemeMode.dark,
+            onChanged: (value) => roleThemeMode.value = value ? ThemeMode.dark : ThemeMode.light,
+          ),
+        )),
+        Card(elevation: 0, child: ValueListenableBuilder<String>(
+          valueListenable: roleLanguage,
+          builder: (context, language, _) => ListTile(
+            leading: const Icon(Icons.language_rounded),
+            title: const Text('Language'),
+            subtitle: Text(language),
+            trailing: DropdownButton<String>(
+              value: language,
+              underline: const SizedBox.shrink(),
+              items: const [
+                DropdownMenuItem(value: 'English', child: Text('English')),
+                DropdownMenuItem(value: 'Hindi', child: Text('हिन्दी')),
+              ],
+              onChanged: (value) { if (value != null) roleLanguage.value = value; },
+            ),
+          ),
+        )),
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () => showAuth(context),
+          icon: const Icon(Icons.login_rounded),
+          label: const Text('Sign in with Google'),
+        ),
+        const SizedBox(height: 8),
+        const Text('Sign-in is only needed for protected operations. Public exploration remains available.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+      ]);
+    }
+
+    final List<_Feature> selectedFeatures = _features.where((feature) {
+      final title = feature.title.toLowerCase();
+      switch (label) {
+        case 'Orders': return title.contains('order') || title.contains('fulfil') || title.contains('fulfill');
+        case 'Partners': return title.contains('partner') || title.contains('assignment') || title.contains('approval');
+        case 'Rides': return title.contains('ride') || title.contains('trip') || title.contains('availability') || title.contains('safety');
+        case 'Deliveries': return title.contains('delivery') || title.contains('pickup') || title.contains('dispatch') || title.contains('safety');
+        case 'Earnings': return title.contains('earning') || title.contains('business') || title.contains('insight') || title.contains('payout');
+        case 'Products': return title.contains('catalogue') || title.contains('product') || title.contains('pricing') || title.contains('stock');
+        case 'Picking': return title.contains('picking') || title.contains('packing') || title.contains('dispatch');
+        case 'Inventory': return title.contains('stock') || title.contains('inventory') || title.contains('catalogue');
+        default: return true;
+      }
+    }).toList();
+
+    final detail = switch (label) {
+      'Orders' => 'Review order stages and learn how fulfilment moves from seller to delivery.',
+      'Partners' => 'Explore onboarding, role approvals and assignment responsibilities.',
+      'Rides' => 'Explore availability, incoming ride requests and trip completion.',
+      'Deliveries' => 'Explore assigned jobs, pickup confirmation and delivery milestones.',
+      'Earnings' => 'Explore earnings summaries and payout history.',
+      'Products' => 'Explore catalogue, pricing, offers and inventory workflows.',
+      'Picking' => 'Explore picking, packing and dispatch preparation.',
+      'Inventory' => 'Explore stock levels, stock adjustments and availability.',
+      _ => 'Explore the tools available in this Alteo app.',
+    };
+    return ListView(padding: const EdgeInsets.all(20), children: [
+      Text(label, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      Text(detail, style: const TextStyle(color: Color(0xFF68736D), height: 1.45)),
+      const SizedBox(height: 18),
+      if (selectedFeatures.isEmpty)
+        const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(18), child: Text('More tools will appear here as the account is set up.')))
+      else
+        for (final feature in selectedFeatures)
+          Card(
+            elevation: 0,
+            color: Colors.white,
+            margin: const EdgeInsets.only(bottom: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE5EAE5))),
+            child: ListTile(
+              leading: CircleAvatar(backgroundColor: const Color(0xFFE3F2E9), child: Icon(feature.icon, color: const Color(0xFF176B57))),
+              title: Text(feature.title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Padding(padding: const EdgeInsets.only(top: 4), child: Text(feature.subtitle)),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => showModalBottomSheet<void>(
+                context: context, showDragHandle: true,
+                builder: (context) => SafeArea(child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 12, 22, 28),
+                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(feature.icon, color: const Color(0xFF176B57), size: 38),
+                    const SizedBox(height: 12),
+                    Text(feature.title, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 8),
+                    Text(feature.detail, style: const TextStyle(height: 1.5)),
+                    const SizedBox(height: 12),
+                    const Text('Live records appear after the backend is configured and the signed-in account is authorised.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+                  ]),
+                )),
+              ),
+            ),
+          ),
+      const SizedBox(height: 12),
+      OutlinedButton.icon(onPressed: () => setState(() => selectedTab = 0), icon: const Icon(Icons.home_outlined), label: const Text('Back to Home')),
+    ]);
   }
 
   Future<void> showAuth(BuildContext context) async {
