@@ -126,12 +126,21 @@ Deno.serve(async (request: Request) => {
     return json({ error: "A JSON request body is required." }, 400);
   }
 
+  const audience = typeof body.audience === "string" ? body.audience : "specific_user";
   const targetUserId = typeof body.user_id === "string" ? body.user_id.trim() : "";
   const appId = typeof body.app_id === "string" ? body.app_id : "";
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const messageBody = typeof body.body === "string" ? body.body.trim() : "";
-  if (!/^[0-9a-fA-F-]{36}$/.test(targetUserId)) return json({ error: "A valid target user_id is required." }, 400);
   if (!allowedApps.has(appId)) return json({ error: "Unsupported app_id." }, 400);
+  if (!["all_customers", "specific_user"].includes(audience)) {
+    return json({ error: "Unsupported notification audience." }, 400);
+  }
+  if (audience === "all_customers" && appId !== "customer") {
+    return json({ error: "Broadcast notifications are currently limited to customer apps." }, 400);
+  }
+  if (audience === "specific_user" && !/^[0-9a-fA-F-]{36}$/.test(targetUserId)) {
+    return json({ error: "A valid target user_id is required." }, 400);
+  }
   if (!title || title.length > 100 || !messageBody || messageBody.length > 1000) {
     return json({ error: "Title (max 100 chars) and body (max 1000 chars) are required." }, 400);
   }
@@ -145,13 +154,19 @@ Deno.serve(async (request: Request) => {
     }
   }
 
-  const { data: rows, error: tokenError } = await serviceClient
-    .from("user_device_tokens")
-    .select("token")
-    .eq("user_id", targetUserId)
-    .eq("app_id", appId);
-  if (tokenError) return json({ error: "Could not find registered devices for this account." }, 500);
-  if (!rows || rows.length === 0) return json({ sent: 0, message: "No registered devices for this user and app yet." }, 200);
+  let tokens: string[] = [];
+  if (audience === "specific_user") {
+    const { data: rows, error: tokenError } = await serviceClient
+      .from("user_device_tokens")
+      .select("token")
+      .eq("user_id", targetUserId)
+      .eq("app_id", appId);
+    if (tokenError) return json({ error: "Could not find registered devices for this account." }, 500);
+    tokens = (rows ?? []).map((row) => String(row.token ?? "")).filter(Boolean);
+    if (tokens.length === 0) {
+      return json({ sent: 0, attempted: 0, message: "No registered devices for this user and app yet. Open the app, sign in and allow notifications first." }, 200);
+    }
+  }
 
   let account: Record<string, unknown>;
   try {
@@ -166,31 +181,47 @@ Deno.serve(async (request: Request) => {
     if (!projectId) throw new Error("Firebase project_id is missing.");
     let sent = 0;
     const failures: string[] = [];
-    for (const row of rows) {
-      const response = await fetch(
-        `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: {
-              token: row.token,
-              notification: { title, body: messageBody },
-              data: dataPayload,
-              android: { priority: "HIGH", notification: { channel_id: "alteo_updates" } },
-            },
-          }),
-        },
-      );
-      if (response.ok) {
-        sent++;
-      } else {
+    // A notification payload is shown by Android's FCM SDK in the system tray
+    // when the app is backgrounded or terminated (unless force-stopped/blocked).
+    const destinations: Array<{ token?: string; topic?: string }> =
+      audience === "all_customers"
+        ? [{ topic: "alteo_customers" }]
+        : tokens.map((token) => ({ token }));
+
+    for (let offset = 0; offset < destinations.length; offset += 20) {
+      const batch = destinations.slice(offset, offset + 20);
+      const results = await Promise.all(batch.map(async (destination) => {
+        const response = await fetch(
+          `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(projectId)}/messages:send`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: {
+                ...destination,
+                notification: { title, body: messageBody },
+                data: dataPayload,
+                android: { priority: "HIGH", notification: { channel_id: "alteo_updates" } },
+              },
+            }),
+          },
+        );
+        if (response.ok) return true;
         const fcmResponse = await response.text();
         failures.push(`FCM delivery failed (HTTP ${response.status}).`);
         console.error("FCM send failed:", response.status, fcmResponse.slice(0, 1000));
-      }
+        return false;
+      }));
+      sent += results.filter(Boolean).length;
     }
-    return json({ sent, attempted: rows.length, failures });
+    return json({
+      sent,
+      attempted: destinations.length,
+      audience,
+      app_id: appId,
+      delivery: audience === "all_customers" ? "submitted_to_customer_topic" : "submitted_to_registered_devices",
+      failures,
+    });
   } catch (error) {
     console.error("Push notification send failed:", error);
     return json({ error: "Could not send push notification. Verify Firebase service-account permissions and project configuration." }, 502);
