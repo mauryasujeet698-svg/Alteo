@@ -75,7 +75,7 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
       ];
     }
     return [
-      CustomerHomePage(enableRealtimeBanners: widget.enableRealtimeBanners),
+      CustomerHomePage(enableRealtimeBanners: widget.enableRealtimeBanners, enableBackendQueries: widget.enableBackendQueries),
       ServiceBrowsePage(service: 'Food', enableBackendQueries: widget.enableBackendQueries),
       ServiceBrowsePage(service: 'Rides', enableBackendQueries: widget.enableBackendQueries),
       CustomerAccountPage(),
