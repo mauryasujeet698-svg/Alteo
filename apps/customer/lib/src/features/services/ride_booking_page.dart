@@ -62,7 +62,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         return;
       }
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
       );
       final address = await MapboxService.reverseGeocode(position.longitude, position.latitude);
       if (!mounted) return;
@@ -185,7 +185,6 @@ class _RideBookingPageState extends State<RideBookingPage> {
 
   @override
   Widget build(BuildContext context) {
-    final anyCoordinates = pickupCoordinates != null || destinationCoordinates != null;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Book a ride', style: TextStyle(fontWeight: FontWeight.w900)),
@@ -234,8 +233,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             label: const Text('Use current location for pickup'),
             style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), alignment: Alignment.centerLeft),
           ),
-          const SizedBox(height: 10),
-          const SizedBox(height: 22),
+          const SizedBox(height: 18),
           const Text('Choose your ride', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
           Row(children: [
@@ -425,18 +423,4 @@ class _RideBookingPageState extends State<RideBookingPage> {
     );
   }
 
-  Widget _mapPlaceholder() => Container(
-    height: 145,
-    padding: const EdgeInsets.all(20),
-    decoration: BoxDecoration(color: const Color(0xFFEAF2ED), borderRadius: BorderRadius.circular(19)),
-    child: const Row(children: [
-      Icon(Icons.map_outlined, size: 42, color: Color(0xFF176B57)),
-      SizedBox(width: 14),
-      Expanded(child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Your route preview', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
-        SizedBox(height: 5),
-        Text('Select a pickup and destination to see both points on the map.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-      ])),
-    ]),
-  );
 }
