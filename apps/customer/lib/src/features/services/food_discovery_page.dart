@@ -166,7 +166,7 @@ class _FoodDiscoveryPageState extends State<FoodDiscoveryPage> {
               const SizedBox(height: 22),
               const Text('Explore by craving', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
               const SizedBox(height: 12),
-              SizedBox(height: 98, child: ListView(scrollDirection: Axis.horizontal, children: [
+              SizedBox(height: 106, child: ListView(scrollDirection: Axis.horizontal, children: [
                 _category('Biryani', Icons.rice_bowl_rounded, const Color(0xFFFFE7D7)),
                 _category('Pizza', Icons.local_pizza_rounded, const Color(0xFFFFE2E2)),
                 _category('Thali', Icons.dinner_dining_rounded, const Color(0xFFFFF0C7)),
@@ -229,7 +229,7 @@ class _FoodDiscoveryPageState extends State<FoodDiscoveryPage> {
     onTap: () => setState(() => category = label),
     borderRadius: BorderRadius.circular(15),
     child: Container(width: 76, margin: const EdgeInsets.only(right: 10), child: Column(children: [
-      Container(height: 61, width: 61, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: Icon(icon, color: const Color(0xFF176B57), size: 29)),
+      Container(height: 56, width: 56, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(20)), child: Icon(icon, color: const Color(0xFF176B57), size: 29)),
       const SizedBox(height: 7), Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
     ])),
   );
