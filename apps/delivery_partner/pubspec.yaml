@@ -5,6 +5,8 @@ version: 0.1.0+1
 environment:
   sdk: '>=3.4.0 <4.0.0'
 dependencies:
+  alteo_notifications:
+    path: ../../packages/alteo_notifications
   flutter:
     sdk: flutter
   supabase_flutter: ^2.8.0
