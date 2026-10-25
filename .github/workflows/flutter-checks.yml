@@ -27,26 +27,32 @@ jobs:
             name: customer
             project: alteo_customer
             scheme: com.alteo.customer
+            firebase_secret: FIREBASE_CUSTOMER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/admin
             name: admin
             project: alteo_admin
             scheme: com.alteo.admin
+            firebase_secret: FIREBASE_ADMIN_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/seller
             name: seller
             project: alteo_seller
             scheme: com.alteo.seller
+            firebase_secret: FIREBASE_SELLER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/driver_partner
             name: driver-partner
             project: alteo_driver_partner
             scheme: com.alteo.driverpartner
+            firebase_secret: FIREBASE_DRIVER_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/delivery_partner
             name: delivery-partner
             project: alteo_delivery_partner
             scheme: com.alteo.deliverypartner
+            firebase_secret: FIREBASE_DELIVERY_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/dark_store
             name: dark-store
             project: alteo_dark_store
             scheme: com.alteo.darkstore
+            firebase_secret: FIREBASE_DARK_STORE_GOOGLE_SERVICES_JSON_BASE64
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -68,6 +74,63 @@ jobs:
           if [ ! -d android ]; then
             flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
+      - name: Configure Firebase for this Android app when credentials are available
+        env:
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets[matrix.firebase_secret] }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          encoded = os.environ.get("FIREBASE_ANDROID_CONFIG_BASE64", "").strip()
+          if not encoded:
+              print("Firebase Android config is not configured for this app yet; push notifications will remain disabled.")
+              raise SystemExit(0)
+
+          android_dir = Path("android")
+          app_dir = android_dir / "app"
+          config_path = app_dir / "google-services.json"
+          config_path.write_bytes(base64.b64decode(encoded, validate=True))
+          config = json.loads(config_path.read_text())
+          clients = config.get("client", [])
+          if not clients:
+              raise SystemExit("Firebase google-services.json contains no Android clients.")
+          app_id = clients[0].get("client_info", {}).get("android_client_info", {}).get("package_name", "")
+          print("Firebase Android package configured:", app_id)
+
+          settings = next((p for p in (android_dir / "settings.gradle.kts", android_dir / "settings.gradle") if p.exists()), None)
+          app_gradle = next((p for p in (app_dir / "build.gradle.kts", app_dir / "build.gradle") if p.exists()), None)
+          if settings is None or app_gradle is None:
+              raise SystemExit("Could not locate generated Android Gradle files.")
+
+          settings_text = settings.read_text()
+          if "com.google.gms.google-services" not in settings_text:
+              settings_text = re.sub(
+                  r"(plugins\\s*\\{)",
+                  r'\\1\\n    id("com.google.gms.google-services") version "4.4.2" apply false',
+                  settings_text,
+                  count=1,
+              )
+              if settings_text == settings.read_text():
+                  raise SystemExit("Could not add the Google Services Gradle plugin to settings.")
+              settings.write_text(settings_text)
+
+          app_text = app_gradle.read_text()
+          if "com.google.gms.google-services" not in app_text:
+              app_text = re.sub(
+                  r"(plugins\\s*\\{)",
+                  r'\\1\\n    id("com.google.gms.google-services")',
+                  app_text,
+                  count=1,
+              )
+              if app_text == app_gradle.read_text():
+                  raise SystemExit("Could not apply the Google Services Gradle plugin.")
+              app_gradle.write_text(app_text)
+          PY
       - name: Configure permanent Android release signing
         env:
           ALTEO_ANDROID_KEYSTORE_BASE64: ${{ secrets.ALTEO_ANDROID_KEYSTORE_BASE64 }}
@@ -197,6 +260,7 @@ jobs:
               "android.permission.RECORD_AUDIO",
               "android.permission.ACCESS_FINE_LOCATION",
               "android.permission.ACCESS_COARSE_LOCATION",
+              "android.permission.POST_NOTIFICATIONS",
           ]
           for permission_name in permissions:
               if f'android:name="{permission_name}"' not in text:
