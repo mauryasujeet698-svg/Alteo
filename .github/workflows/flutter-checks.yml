@@ -170,7 +170,11 @@ jobs:
                           break
               if end is None:
                   raise SystemExit("Could not locate the end of the Android Gradle block")
-              source = source[:end] + config + "\n    " + source[end:]
+              build_types = source.find("buildTypes {", start, end)
+              if build_types >= 0:
+                  source = source[:build_types] + config + "\n    " + source[build_types:]
+              else:
+                  source = source[:end] + config + "\n    " + source[end:]
               gradle.write_text(source)
 
           print("Permanent release signing is configured; keystore material was not printed.")
