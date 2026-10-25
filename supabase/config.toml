@@ -2,3 +2,7 @@ project_id = "alteo"
 
 [functions.cloudinary-upload-signature]
 verify_jwt = true
+
+[functions.send-push-notification]
+verify_jwt = true
+
