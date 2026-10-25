@@ -208,7 +208,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
 
   List<String> get _publicNavLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Banners', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -1022,6 +1022,7 @@ class RolePublicFeaturePage extends StatelessWidget {
   IconData _navIcon(String label, bool selected) => switch (label) {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
