@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -448,16 +450,62 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Future<void> _setAvailability() async {
     final next = !partnerOnline;
+    double? latitude;
+    double? longitude;
     try {
+      if (next) {
+        if (!await Geolocator.isLocationServiceEnabled()) {
+          notice('Turn on Location to go online for nearby delivery assignments.');
+          return;
+        }
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+          notice('Allow location access to go online and receive location-relevant deliveries.');
+          return;
+        }
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+        );
+        latitude = position.latitude;
+        longitude = position.longitude;
+      }
       await client.rpc('partner_set_availability', params: {
         'p_role': requiredRole,
         'p_area_code': 'DEFAULT',
         'p_is_online': next,
+        'p_latitude': latitude,
+        'p_longitude': longitude,
       });
       if (mounted) setState(() => partnerOnline = next);
-      notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
+      notice(next ? 'You are online. Location updated; dispatch can assign eligible deliveries.' : 'You are offline.');
     } catch (e) {
       notice('Could not update availability: ' + e.toString());
+    }
+  }
+
+  Future<void> _openDeliveryDirections(Map<String, dynamic> job, {required bool toPickup}) async {
+    final latitude = ((toPickup ? job['pickup_latitude'] : job['destination_latitude']) as num?)?.toDouble();
+    final longitude = ((toPickup ? job['pickup_longitude'] : job['destination_longitude']) as num?)?.toDouble();
+    final label = (toPickup ? job['pickup_label'] : job['destination_label'])?.toString() ?? '';
+    final destination = latitude != null && longitude != null
+        ? latitude.toString() + ',' + longitude.toString()
+        : label.trim();
+    if (destination.isEmpty) {
+      notice('The required address is not available for map navigation.');
+      return;
+    }
+    final uri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': destination,
+      'travelmode': 'driving',
+    });
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        notice('Could not open map navigation on this device.');
+      }
+    } catch (_) {
+      notice('Could not open map navigation on this device.');
     }
   }
 
@@ -895,6 +943,15 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
                 if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
                 if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
+                if (status == 'accepted' || status == 'assigned' || status == 'picked_up' || status == 'in_transit')
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: OutlinedButton.icon(
+                      onPressed: () => _openDeliveryDirections(job, toPickup: status == 'accepted' || status == 'assigned'),
+                      icon: const Icon(Icons.navigation_outlined),
+                      label: Text(status == 'accepted' || status == 'assigned' ? 'Navigate to pickup' : 'Navigate to drop-off'),
+                    ),
+                  ),
                 if (status == 'in_transit') ...[
                   const SizedBox(height: 10),
                   Row(children: [
