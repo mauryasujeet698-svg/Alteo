@@ -27,7 +27,7 @@ void main() {
   });
 
   testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp());
+    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false));
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Food')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
