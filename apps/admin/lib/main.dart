@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -730,6 +733,37 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
   ]);
 
+
+  Future<String> _uploadBannerImage(XFile file) async {
+    final signatureResponse = await client.functions.invoke('cloudinary-sign-upload', body: <String, dynamic>{});
+    if (signatureResponse.status < 200 || signatureResponse.status >= 300) {
+      final data = signatureResponse.data;
+      final message = data is Map ? data['error']?.toString() : null;
+      throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signatureResponse.status.toString());
+    }
+    final signed = Map<String, dynamic>.from(signatureResponse.data as Map);
+    final uri = Uri.https(
+      'api.cloudinary.com',
+      '/v1_1/' + signed['cloud_name'].toString() + '/image/upload',
+    );
+    final upload = http.MultipartRequest('POST', uri);
+    upload.fields['api_key'] = signed['api_key'].toString();
+    upload.fields['timestamp'] = signed['timestamp'].toString();
+    upload.fields['folder'] = signed['folder'].toString();
+    upload.fields['signature'] = signed['signature'].toString();
+    upload.files.add(await http.MultipartFile.fromPath('file', file.path));
+    final response = await upload.send().timeout(const Duration(seconds: 60));
+    final responseBody = await response.stream.bytesToString();
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+    }
+    final payload = jsonDecode(responseBody);
+    if (payload is! Map || payload['secure_url'] is! String) {
+      throw StateError('Cloudinary did not return a secure image URL.');
+    }
+    return payload['secure_url'] as String;
+  }
+
   Widget _bannerManagement() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Row(children: [
       const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -768,6 +802,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final priority = TextEditingController(text: (existing?['priority'] ?? 100).toString());
     var action = existing?['action_type']?.toString() ?? 'none';
     var active = existing?['active'] == true;
+    var uploading = false;
     try {
       final save = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
         title: Text(existing == null ? 'New banner' : 'Edit banner'),
@@ -777,6 +812,25 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           TextField(controller: subtitle, maxLength: 240, maxLines: 2, decoration: const InputDecoration(labelText: 'Subtitle', border: OutlineInputBorder())),
           const SizedBox(height: 10),
           TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image URL (HTTPS)', border: OutlineInputBorder())),
+          const SizedBox(height: 6),
+          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
+            onPressed: uploading ? null : () async {
+              try {
+                final selectedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 86, maxWidth: 1800);
+                if (selectedFile == null) return;
+                setDialogState(() => uploading = true);
+                final uploadedUrl = await _uploadBannerImage(selectedFile);
+                setDialogState(() => image.text = uploadedUrl);
+                notice('Banner image uploaded to Cloudinary.');
+              } catch (e) {
+                notice('Image upload failed: ' + e.toString());
+              } finally {
+                setDialogState(() => uploading = false);
+              }
+            },
+            icon: uploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_upload_outlined),
+            label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Cloudinary'),
+          )),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(value: action, decoration: const InputDecoration(labelText: 'Tap action', border: OutlineInputBorder()), items: const [
             DropdownMenuItem(value: 'none', child: Text('No action')),
@@ -790,7 +844,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           TextField(controller: priority, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Display priority (lower first)', border: OutlineInputBorder())),
           SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Published'), value: active, onChanged: (v) => setDialogState(() => active = v)),
         ]))),
-        actions: [TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')), FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Save'))],
+        actions: [TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')), FilledButton(onPressed: uploading ? null : () => Navigator.pop(dc, true), child: const Text('Save'))],
       )));
       if (save != true) return;
       if (title.text.trim().length < 2) { notice('Headline must contain at least 2 characters.'); return; }
