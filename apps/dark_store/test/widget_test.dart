@@ -7,6 +7,8 @@ void main() {
     await tester.pumpWidget(const MaterialApp(home: RoleExplorePage(backendReady: false)));
     expect(find.text('Explore features'), findsOneWidget);
     expect(find.text('Stock overview'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Picking queue'), 240, scrollable: find.byType(Scrollable).first);
     expect(find.text('Picking queue'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
   });
 }
