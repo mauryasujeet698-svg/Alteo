@@ -151,23 +151,15 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     body: selectedTab == 0 ? ListView(
       padding: const EdgeInsets.fromLTRB(18, 10, 18, 28),
       children: [
-        Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(colors: [Color(0xFF176B57), Color(0xFF2C8B70)]),
-            borderRadius: BorderRadius.circular(24),
-          ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(2, 10, 2, 6),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('EXPLORE ALTEO', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w800, letterSpacing: 1.3, fontSize: 11)),
-            const SizedBox(height: 10),
-            const Text('Your operations, connected', style: TextStyle(color: Colors.white, fontSize: 27, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            const Text('Explore the control centre for orders, partners, fulfilment and service configuration.', style: TextStyle(color: Colors.white, height: 1.45)),
-            const SizedBox(height: 12),
-            const Text('No account is needed to explore. Sign in only for protected operations.', style: TextStyle(color: Colors.white, height: 1.4)),
+            Text('Welcome to ' + appName, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 5),
+            const Text('Explore the tools and workflows available in this app. Sign in with Google for authorised operations.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
           ]),
         ),
-        const SizedBox(height: 22),
+        const SizedBox(height: 14),
         const Text('Explore features', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
         const SizedBox(height: 5),
         const Text('Open any section to learn how it works. Private records and live operations require authorised access.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
