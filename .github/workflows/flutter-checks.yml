@@ -313,8 +313,8 @@ jobs:
               if "compileOptions {" in source:
                   source = source.replace(
                       "compileOptions {",
-                      "compileOptions {\\n        isCoreLibraryDesugaringEnabled = true" if gradle.suffix == ".kts"
-                      else "compileOptions {\\n        coreLibraryDesugaringEnabled true",
+                      "compileOptions {\n        isCoreLibraryDesugaringEnabled = true" if gradle.suffix == ".kts"
+                      else "compileOptions {\n        coreLibraryDesugaringEnabled true",
                       1,
                   )
               else:
@@ -327,9 +327,9 @@ jobs:
               dep_line = "    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'"
           if dependency not in source:
               if "dependencies {" in source:
-                  source = source.replace("dependencies {", "dependencies {\\n" + dep_line, 1)
+                  source = source.replace("dependencies {", "dependencies {\n" + dep_line, 1)
               else:
-                  source += "\\ndependencies {\\n" + dep_line + "\\n}\\n"
+                  source += "\ndependencies {\n" + dep_line + "\n}\n"
 
           setting = "packaging { jniLibs { useLegacyPackaging = true } }"
           if "useLegacyPackaging" not in source:
