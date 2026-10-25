@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:geolocator/geolocator.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -445,16 +447,59 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Future<void> _setAvailability() async {
     final next = !partnerOnline;
+    double? latitude;
+    double? longitude;
     try {
+      if (next) {
+        if (!await Geolocator.isLocationServiceEnabled()) {
+          notice('Turn on Location to go online for nearby ride assignments.');
+          return;
+        }
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+          notice('Allow location access to go online and receive location-relevant trips.');
+          return;
+        }
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+        );
+        latitude = position.latitude;
+        longitude = position.longitude;
+      }
       await client.rpc('partner_set_availability', params: {
         'p_role': requiredRole,
         'p_area_code': 'DEFAULT',
         'p_is_online': next,
+        'p_latitude': latitude,
+        'p_longitude': longitude,
       });
       if (mounted) setState(() => partnerOnline = next);
-      notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
+      notice(next ? 'You are online. Location updated; dispatch can assign eligible rides.' : 'You are offline.');
     } catch (e) {
       notice('Could not update availability: ' + e.toString());
+    }
+  }
+
+  Future<void> _openDirections({double? latitude, double? longitude, String? label}) async {
+    final destination = latitude != null && longitude != null
+        ? latitude.toString() + ',' + longitude.toString()
+        : (label ?? '').trim();
+    if (destination.isEmpty) {
+      notice('Pickup/destination coordinates are not available yet.');
+      return;
+    }
+    final uri = Uri.https('www.google.com', '/maps/dir/', {
+      'api': '1',
+      'destination': destination,
+      'travelmode': 'driving',
+    });
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        notice('Could not open map navigation on this device.');
+      }
+    } catch (_) {
+      notice('Could not open map navigation on this device.');
     }
   }
 
@@ -846,7 +891,29 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text((r['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (r['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w900)),
             const SizedBox(height: 6), Text('Status: ' + status + ' · Fare ₹' + (((r['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, children: buttons)),
+            Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: [
+              if (status != 'in_progress' && status != 'completed')
+                OutlinedButton.icon(
+                  onPressed: () => _openDirections(
+                    latitude: (r['pickup_latitude'] as num?)?.toDouble(),
+                    longitude: (r['pickup_longitude'] as num?)?.toDouble(),
+                    label: r['pickup_label']?.toString(),
+                  ),
+                  icon: const Icon(Icons.navigation_outlined),
+                  label: const Text('Navigate to pickup'),
+                ),
+              if (status == 'in_progress')
+                OutlinedButton.icon(
+                  onPressed: () => _openDirections(
+                    latitude: (r['destination_latitude'] as num?)?.toDouble(),
+                    longitude: (r['destination_longitude'] as num?)?.toDouble(),
+                    label: r['destination_label']?.toString(),
+                  ),
+                  icon: const Icon(Icons.navigation_outlined),
+                  label: const Text('Navigate to destination'),
+                ),
+              ...buttons,
+            ])),
           ])));
         }).toList());
       },
