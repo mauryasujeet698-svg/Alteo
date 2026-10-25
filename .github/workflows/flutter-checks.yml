@@ -68,6 +68,113 @@ jobs:
           if [ ! -d android ]; then
             flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
+      - name: Configure permanent Android release signing
+        env:
+          ALTEO_ANDROID_KEYSTORE_BASE64: ${{ secrets.ALTEO_ANDROID_KEYSTORE_BASE64 }}
+          ALTEO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEYSTORE_PASSWORD }}
+          ALTEO_ANDROID_KEY_ALIAS: ${{ secrets.ALTEO_ANDROID_KEY_ALIAS }}
+          ALTEO_ANDROID_KEY_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          required = [
+              "ALTEO_ANDROID_KEYSTORE_BASE64",
+              "ALTEO_ANDROID_KEYSTORE_PASSWORD",
+              "ALTEO_ANDROID_KEY_ALIAS",
+              "ALTEO_ANDROID_KEY_PASSWORD",
+          ]
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit("Missing GitHub Actions secrets: " + ", ".join(missing))
+
+          android_dir = Path("android/app")
+          android_dir.mkdir(parents=True, exist_ok=True)
+          (android_dir / "alteo-release.jks").write_bytes(
+              base64.b64decode(os.environ["ALTEO_ANDROID_KEYSTORE_BASE64"], validate=True)
+          )
+
+          gradle = next(
+              (path for path in (android_dir / "build.gradle.kts", android_dir / "build.gradle") if path.exists()),
+              None,
+          )
+          if gradle is None:
+              raise SystemExit("Android app Gradle file was not generated")
+
+          source = gradle.read_text()
+          marker = "// ALTEO_PERMANENT_RELEASE_SIGNING"
+          if marker not in source:
+              if gradle.suffix == ".kts":
+                  config = '''
+              // ALTEO_PERMANENT_RELEASE_SIGNING
+              signingConfigs {
+                  create("alteoRelease") {
+                      keyAlias = System.getenv("ALTEO_ANDROID_KEY_ALIAS") ?: error("Missing ALTEO_ANDROID_KEY_ALIAS")
+                      keyPassword = System.getenv("ALTEO_ANDROID_KEY_PASSWORD") ?: error("Missing ALTEO_ANDROID_KEY_PASSWORD")
+                      storeFile = file("alteo-release.jks")
+                      storePassword = System.getenv("ALTEO_ANDROID_KEYSTORE_PASSWORD") ?: error("Missing ALTEO_ANDROID_KEYSTORE_PASSWORD")
+                  }
+              }
+          '''
+                  target = 'signingConfig = signingConfigs.getByName("debug")'
+                  replacement = 'signingConfig = signingConfigs.getByName("alteoRelease")'
+                  if target not in source:
+                      raise SystemExit("Could not locate the generated Kotlin release signing setting")
+                  source = source.replace(target, replacement, 1)
+              else:
+                  config = '''
+              // ALTEO_PERMANENT_RELEASE_SIGNING
+              signingConfigs {
+                  alteoRelease {
+                      keyAlias System.getenv("ALTEO_ANDROID_KEY_ALIAS")
+                      keyPassword System.getenv("ALTEO_ANDROID_KEY_PASSWORD")
+                      storeFile file("alteo-release.jks")
+                      storePassword System.getenv("ALTEO_ANDROID_KEYSTORE_PASSWORD")
+                  }
+              }
+          '''
+                  target = "signingConfig signingConfigs.debug"
+                  replacement = "signingConfig signingConfigs.alteoRelease"
+                  if target not in source:
+                      raise SystemExit("Could not locate the generated Groovy release signing setting")
+                  source = source.replace(target, replacement, 1)
+
+              start = source.find("android {")
+              if start < 0:
+                  raise SystemExit("Android Gradle block not found")
+              depth = 0
+              quote = None
+              escaped = False
+              end = None
+              for i in range(start + len("android"), len(source)):
+                  ch = source[i]
+                  if quote:
+                      if escaped:
+                          escaped = False
+                      elif ch == "\\\\":
+                          escaped = True
+                      elif ch == quote:
+                          quote = None
+                      continue
+                  if ch in ("'", '"'):
+                      quote = ch
+                  elif ch == "{":
+                      depth += 1
+                  elif ch == "}":
+                      depth -= 1
+                      if depth == 0:
+                          end = i
+                          break
+              if end is None:
+                  raise SystemExit("Could not locate the end of the Android Gradle block")
+              source = source[:end] + config + "\n    " + source[end:]
+              gradle.write_text(source)
+
+          print("Permanent release signing is configured; keystore material was not printed.")
+          PY
       - name: Configure Google OAuth deep links and microphone permission
         env:
           ALTEO_REDIRECT_SCHEME: ${{ matrix.scheme }}
