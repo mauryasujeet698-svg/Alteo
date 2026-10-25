@@ -619,18 +619,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     return Scaffold(
       appBar: _appBar(label),
       body: ListView(padding: const EdgeInsets.all(20), children: [
-        Container(
-          padding: const EdgeInsets.all(22),
-          decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const Text('ALTEO WORKSPACE', style: TextStyle(color: Colors.white70, letterSpacing: 1.2, fontSize: 10, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            Text(label, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6),
-            const Text('Your live operational dashboard remains available from Home.', style: TextStyle(color: Colors.white, height: 1.4)),
-          ]),
-        ),
-        const SizedBox(height: 18),
         for (var i = 0; i < descriptions.length; i++)
           Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: ListTile(
             leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9), child: Icon(i == 0 ? Icons.task_alt_rounded : Icons.insights_rounded, color: const Color(0xFF176B57))),
