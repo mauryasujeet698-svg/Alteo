@@ -10,8 +10,9 @@ import '../auth/customer_auth_page.dart';
 import '../cart/customer_cart_page.dart';
 
 class CustomerHomePage extends StatefulWidget {
- const CustomerHomePage({super.key, this.enableRealtimeBanners = true});
+ const CustomerHomePage({super.key, this.enableRealtimeBanners = true, this.enableBackendQueries = true});
  final bool enableRealtimeBanners;
+ final bool enableBackendQueries;
  @override State<CustomerHomePage> createState()=>_CustomerHomePageState();
 }
 class _CustomerHomePageState extends State<CustomerHomePage> {
@@ -23,7 +24,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  final PageController bannerController = PageController(viewportFraction: .91);
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
- @override void initState(){super.initState();content=CustomerContentService(Supabase.instance.client);refresh();if(widget.enableRealtimeBanners){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});}catch(_) {}}}
+ @override void initState(){super.initState();if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});}catch(_) {}}}
  @override void dispose(){bannerSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
