@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:alteo_notifications/alteo_notifications.dart';
 
 const appName = 'Alteo Admin';
 const requiredRole = 'admin';
@@ -25,6 +26,12 @@ Future<void> main() async {
     }
   } catch (_) {
     // Public exploration must work even when auth or backend configuration is unavailable.
+  }
+  if (backendReady) {
+    unawaited(AlteoPushNotifications.instance.initialize(
+      client: Supabase.instance.client,
+      appId: 'admin',
+    ));
   }
   runApp(AlteoRoleApp(backendReady: backendReady));
 }
