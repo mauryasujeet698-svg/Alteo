@@ -813,6 +813,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     upload.fields['api_key'] = signed['api_key'].toString();
     upload.fields['timestamp'] = signed['timestamp'].toString();
     upload.fields['folder'] = signed['folder'].toString();
+    upload.fields['type'] = signed['type'].toString();
     upload.fields['signature'] = signed['signature'].toString();
     upload.files.add(await http.MultipartFile.fromPath('file', file.path));
     final response = await upload.send().timeout(const Duration(seconds: 60));
