@@ -42,7 +42,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 100));
     expect(find.text('Book a ride'), findsOneWidget);
     expect(find.text('Use current location for pickup'), findsOneWidget);
-    expect(find.text('Where to?'), findsOneWidget);
+    expect(find.text('Search destination or landmark'), findsOneWidget);
     expect(find.text('Where are you going?'), findsNothing);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
