@@ -38,9 +38,11 @@ Only run this statement for the trusted platform owner. The Admin app checks use
 
 ## 4. Manage customer banners
 
-Open Admin → Home → Homepage banners. Add or edit a headline, subtitle, HTTPS image URL, tap action, priority and publish status. Active banners are read by the customer app from public.app_banners; the carousel is swipeable and updates from Supabase Realtime. Unpublish or delete a banner to remove it from the customer carousel.
+Open Admin → Banners. Add or edit a headline, subtitle, image (paste an HTTPS image URL or upload from your device to Cloudinary), tap action, priority and publish status. Active banners are read by the customer app from public.app_banners; the carousel is swipeable and updates from Supabase Realtime. Unpublish or delete a banner to remove it from the customer carousel.
 
 The table's existing RLS policies allow public users to read active banners only and allow write access only to users with the admin role. Keep those policies enabled.
+
+For Cloudinary uploads, add `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET` under Supabase → Edge Functions → Secrets. Never put the Cloudinary API Secret in an APK. See `THIRD_PARTY_SETUP.md` for the complete setup checklist.
 
 ## 5. Configure live services
 
