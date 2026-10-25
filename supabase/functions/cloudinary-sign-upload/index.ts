@@ -95,7 +95,7 @@ Deno.serve(async (request: Request) => {
     if (jobError || !job) {
       return json({ error: "Proof can only be uploaded for your own delivery that is currently in transit." }, 403);
     }
-    signedParams.public_id = "alteo/delivery-proof/" + deliveryJobId + "_" + crypto.randomUUID();
+    signedParams.public_id = deliveryJobId + "_" + crypto.randomUUID();
   }
 
   // Cloudinary requires alphabetically sorted upload parameters with the API secret appended.
