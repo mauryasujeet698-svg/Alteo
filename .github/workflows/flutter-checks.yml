@@ -133,7 +133,7 @@ jobs:
           app_text = app_gradle.read_text()
           if "com.google.gms.google-services" not in app_text:
               app_text = re.sub(
-                  r"(plugins\\s*\\{)",
+                  r"(plugins\s*\{)",
                   r'\1\n    id("com.google.gms.google-services")',
                   app_text,
                   count=1,
