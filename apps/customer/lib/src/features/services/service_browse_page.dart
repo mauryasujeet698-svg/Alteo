@@ -6,8 +6,9 @@ import 'food_discovery_page.dart';
 import 'ride_booking_page.dart';
 
 class ServiceBrowsePage extends StatelessWidget {
-  const ServiceBrowsePage({super.key, required this.service});
+  const ServiceBrowsePage({super.key, required this.service, this.enableBackendQueries = true});
   final String service;
+  final bool enableBackendQueries;
 
   static const Map<String, List<_Option>> _options = {
     'Food': [
@@ -44,8 +45,8 @@ class ServiceBrowsePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (service == 'Rides') return const RideBookingPage();
-    if (service == 'Food') return const FoodDiscoveryPage();
+    if (service == 'Rides') return RideBookingPage(enableBackendQueries: enableBackendQueries);
+    if (service == 'Food') return FoodDiscoveryPage(enableBackendQueries: enableBackendQueries);
     final options = _options[service] ?? _options['More']!;
     return Scaffold(
       appBar: AppBar(title: Text(service)),
