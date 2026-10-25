@@ -15,7 +15,7 @@ void main() {
   });
 
   testWidgets('home and persistent bottom navigation render', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false));
+    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false, enableBackendQueries: false));
     expect(find.text('DELIVERING TO'), findsOneWidget);
     expect(find.text('Explore services'), findsOneWidget);
     expect(find.text('Home'), findsOneWidget);
@@ -23,15 +23,36 @@ void main() {
     expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Ride')), findsOneWidget);
     expect(find.descendant(of: find.byType(NavigationBar), matching: find.text('Profile')), findsOneWidget);
     expect(find.text('Orders'), findsNothing);
+    expect(find.text('Where are you going?'), findsNothing);
+    expect(find.byType(NavigationBar), findsOneWidget);
+  });
+
+  testWidgets('Food and Ride tabs provide discovery and location booking', (tester) async {
+    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false, enableBackendQueries: false));
+
+    await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Food')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Food & restaurants'), findsOneWidget);
+    expect(find.text('Search dishes, restaurants and cuisines'), findsOneWidget);
+    expect(find.byType(NavigationBar), findsOneWidget);
+
+    await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Ride')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Book a ride'), findsOneWidget);
+    expect(find.text('Use current location for pickup'), findsOneWidget);
+    expect(find.text('Where to?'), findsOneWidget);
+    expect(find.text('Where are you going?'), findsNothing);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
 
   testWidgets('bottom navigation switches tabs without removing navigation', (tester) async {
-    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false));
+    await tester.pumpWidget(const AlteoCustomerApp(enableRealtimeBanners: false, enableBackendQueries: false));
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Food')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Explore the options below. Live availability, prices and bookings require the Alteo backend and participating local partners to be configured.'), findsOneWidget);
+    expect(find.text('Food & restaurants'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Profile')));
     await tester.pump();
@@ -40,4 +61,5 @@ void main() {
     expect(find.text('My orders'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
+
 }
