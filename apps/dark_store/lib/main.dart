@@ -565,6 +565,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _navigationPage() {
     final label = _navLabels[selectedTab];
+    if (requiredRole == 'dark_store' && label == 'Picking') return _darkStorePickingPage();
+    if (requiredRole == 'dark_store' && label == 'Inventory') return _darkStoreDashboard();
     if (label == 'Profile') {
       return Scaffold(
         appBar: _appBar('Profile'),
@@ -890,6 +892,90 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       }
     } finally { stock.dispose(); }
   }
+
+  Widget _darkStorePickingPage() => Scaffold(
+    appBar: _appBar('Picking & packing'),
+    body: FutureBuilder<Map<String, dynamic>?>(future: storeProfile, builder: (context, profile) {
+      if (profile.hasError) return _error('Dark-store profile unavailable.');
+      if (!profile.hasData) return const Center(child: CircularProgressIndicator());
+      final store = profile.data;
+      if (store == null) return _empty('Dark store not linked', 'Ask Admin to create and assign a dark store to your account.');
+      if (store['status'] != 'active') return _empty('Store not active', 'Admin activation is required before picking tasks are available.');
+      final storeId = store['id'] as String;
+      return StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('dark_store_tasks').stream(primaryKey: ['id']).eq('store_id', storeId).order('created_at', ascending: false),
+        builder: (context, tasks) {
+          if (tasks.hasError) return _error('Picking queue unavailable. Check dark-store task permissions.');
+          if (!tasks.hasData) return const Center(child: CircularProgressIndicator());
+          if (tasks.data!.isEmpty) return _empty('No picking tasks', 'Admin can assign a paid customer order to this active store from Admin → Orders.');
+          return ListView(padding: const EdgeInsets.all(16), children: tasks.data!.map((task) {
+            final status = task['status']?.toString() ?? 'assigned';
+            String? action;
+            String actionLabel = '';
+            if (status == 'assigned') { action = 'accept'; actionLabel = 'Accept task'; }
+            if (status == 'accepted') { action = 'start_picking'; actionLabel = 'Start picking'; }
+            if (status == 'picking') { action = 'packed'; actionLabel = 'Mark packed'; }
+            if (status == 'packed') { action = 'handed_over'; actionLabel = 'Hand over to delivery'; }
+            final orderId = task['order_id']?.toString() ?? '';
+            return Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE5EAE5))),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.inventory_2_rounded, color: Color(0xFF176B57)),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('Order ' + _short(orderId), style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                      decoration: BoxDecoration(color: const Color(0xFFE3F2E9), borderRadius: BorderRadius.circular(9)),
+                      child: Text(status.replaceAll('_', ' ').toUpperCase(), style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+                    ),
+                  ]),
+                  const SizedBox(height: 10),
+                  FutureBuilder<Map<String, dynamic>?>(
+                    future: client.from('orders').select('id,status,payment_status,total_minor,order_items(product_name_snapshot,quantity,unit_price_minor)')
+                      .eq('id', orderId).maybeSingle(),
+                    builder: (context, orderSnapshot) {
+                      if (orderSnapshot.hasError) return const Text('Order detail is restricted or temporarily unavailable.');
+                      if (!orderSnapshot.hasData) return const LinearProgressIndicator();
+                      final order = orderSnapshot.data;
+                      if (order == null) return const Text('Order details are no longer available.');
+                      final items = (order['order_items'] as List? ?? const []).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Order state: ' + (order['status']?.toString() ?? 'unknown') + ' · Payment: ' + (order['payment_status']?.toString() ?? 'unknown')),
+                        const SizedBox(height: 6),
+                        for (final item in items.take(12))
+                          Padding(padding: const EdgeInsets.only(bottom: 3), child: Text('• ' + (item['product_name_snapshot']?.toString() ?? 'Item') + ' × ' + (item['quantity']?.toString() ?? '1'))),
+                      ]);
+                    },
+                  ),
+                  if (action != null) ...[
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: () => rpc('dark_store_update_task', {'p_task_id': task['id'], 'p_action': action}, actionLabel + ' completed.'),
+                        icon: const Icon(Icons.check_circle_outline_rounded),
+                        label: Text(actionLabel),
+                      ),
+                    ),
+                  ] else if (status == 'handed_over')
+                    const Padding(padding: EdgeInsets.only(top: 10), child: Row(children: [
+                      Icon(Icons.check_circle_rounded, color: Colors.green),
+                      SizedBox(width: 7),
+                      Text('Handed over to dispatch', style: TextStyle(fontWeight: FontWeight.w800)),
+                    ])),
+                ]),
+              ),
+            );
+          }).toList());
+        },
+      );
+    }),
+  );
 
   Widget _darkStoreDashboard() => Scaffold(
     appBar: _appBar('Dark-store inventory'),
