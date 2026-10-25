@@ -1180,6 +1180,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ))).toList());
         },
       ),
+      const SizedBox(height: 24),
+      const AdminServiceConfigPanel(),
     ]),
   );
 
