@@ -138,7 +138,7 @@ class AlteoPushNotifications {
       }
       // Customer broadcast notifications are delivered through an FCM topic,
       // so they can reach all opted-in customer installs without token fan-out.
-      if (appId == 'customer') {
+      if (_appId == 'customer') {
         await messaging.subscribeToTopic('alteo_customers');
       }
       final token = await messaging.getToken();
