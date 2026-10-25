@@ -72,7 +72,9 @@ Deno.serve(async (request: Request) => {
 
   // Only fixed, type-specific folders are signed; clients cannot request arbitrary operations.
   const timestamp = Math.floor(Date.now() / 1000);
-  const canonicalParams = "folder=" + rule.folder + "&timestamp=" + timestamp;
+  // Delivery proof photos use Cloudinary's authenticated asset type; banner and catalogue images stay public-readable.
+  const mediaType = assetType === "delivery_proof" ? "authenticated" : "upload";
+  const canonicalParams = "folder=" + rule.folder + "&timestamp=" + timestamp + "&type=" + mediaType;
   const digest = await crypto.subtle.digest(
     "SHA-1",
     new TextEncoder().encode(canonicalParams + cloudApiSecret),
@@ -84,6 +86,7 @@ Deno.serve(async (request: Request) => {
     api_key: cloudApiKey,
     timestamp,
     folder: rule.folder,
+    type: mediaType,
     signature,
     asset_type: assetType,
   });
