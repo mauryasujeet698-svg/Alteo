@@ -807,42 +807,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
 
-  Widget _driverEarningsPage() => Scaffold(
-    appBar: _appBar('Trip earnings'),
-    body: StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('rides').stream(primaryKey: ['id']).eq('driver_id', user!.id).eq('status', 'completed').order('updated_at', ascending: false),
-      builder: (context, s) {
-        if (s.hasError) return _error('Completed trips unavailable.');
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        final trips = s.data!;
-        final total = trips.fold<int>(0, (sum, row) => sum + ((row['fare_minor'] as num?)?.toInt() ?? 0));
-        return ListView(padding: const EdgeInsets.all(18), children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(20)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('COMPLETED TRIP FARES', style: TextStyle(color: Colors.white70, fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text('₹' + (total / 100).toStringAsFixed(0), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w900)),
-              Text(trips.length.toString() + ' completed trips', style: const TextStyle(color: Colors.white)),
-            ]),
-          ),
-          const SizedBox(height: 10),
-          const Text('This is the sum of completed trip fares, not a confirmed payout balance. Settlement records must be enabled separately.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-          const SizedBox(height: 18),
-          for (final trip in trips)
-            Card(elevation: 0, child: ListTile(
-              leading: const Icon(Icons.route_rounded, color: Color(0xFF176B57)),
-              title: Text((trip['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (trip['destination_label']?.toString() ?? 'Destination')),
-              subtitle: Text('Completed · ' + (trip['updated_at']?.toString() ?? '')),
-              trailing: Text('₹' + ((((trip['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)), style: const TextStyle(fontWeight: FontWeight.w900)),
-            )),
-          if (trips.isEmpty) _empty('No completed trips yet', 'Completed trips and their fare totals will appear here.'),
-        ]);
-      },
-    ),
-  );
-
   Widget _deliveryEarningsPage() => Scaffold(
     appBar: _appBar('Delivery earnings'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
