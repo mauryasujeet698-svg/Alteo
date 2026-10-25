@@ -27,44 +27,32 @@ jobs:
             name: customer
             project: alteo_customer
             android_package: com.alteo.alteo_customer
-            firebase_secret: FIREBASE_CUSTOMER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.customer
-            firebase_secret: FIREBASE_CUSTOMER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/admin
             name: admin
             project: alteo_admin
             android_package: com.alteo.alteo_admin
-            firebase_secret: FIREBASE_ADMIN_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.admin
-            firebase_secret: FIREBASE_ADMIN_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/seller
             name: seller
             project: alteo_seller
             android_package: com.alteo.alteo_seller
-            firebase_secret: FIREBASE_SELLER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.seller
-            firebase_secret: FIREBASE_SELLER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/driver_partner
             name: driver-partner
             project: alteo_driver_partner
             android_package: com.alteo.alteo_driver_partner
-            firebase_secret: FIREBASE_DRIVER_PARTNER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.driverpartner
-            firebase_secret: FIREBASE_DRIVER_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/delivery_partner
             name: delivery-partner
             project: alteo_delivery_partner
             android_package: com.alteo.alteo_delivery_partner
-            firebase_secret: FIREBASE_DELIVERY_PARTNER_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.deliverypartner
-            firebase_secret: FIREBASE_DELIVERY_PARTNER_GOOGLE_SERVICES_JSON_BASE64
           - app: apps/dark_store
             name: dark-store
             project: alteo_dark_store
             android_package: com.alteo.alteo_dark_store
-            firebase_secret: FIREBASE_DARK_STORE_GOOGLE_SERVICES_JSON_BASE64
             scheme: com.alteo.darkstore
-            firebase_secret: FIREBASE_DARK_STORE_GOOGLE_SERVICES_JSON_BASE64
     defaults:
       run:
         working-directory: ${{ matrix.app }}
@@ -88,7 +76,7 @@ jobs:
           fi
       - name: Configure Firebase for this Android app when credentials are available
         env:
-          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets[matrix.firebase_secret] }}
+          FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON_BASE64 }}
           ALTEO_ANDROID_PACKAGE: ${{ matrix.android_package }}
         shell: bash
         run: |
