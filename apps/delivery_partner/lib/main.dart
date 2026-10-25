@@ -960,7 +960,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       notice('Uploading proof photo securely…');
       final signingResponse = await Supabase.instance.client.functions.invoke(
         'cloudinary-sign-upload',
-        body: <String, dynamic>{'asset_type': 'delivery_proof'},
+        body: <String, dynamic>{'asset_type': 'delivery_proof', 'delivery_job_id': job['id']},
       );
       if (signingResponse.status < 200 || signingResponse.status >= 300) {
         final data = signingResponse.data;
@@ -974,6 +974,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       upload.fields['timestamp'] = signed['timestamp'].toString();
       upload.fields['folder'] = signed['folder'].toString();
       upload.fields['type'] = signed['type'].toString();
+      if (signed['public_id'] is String) upload.fields['public_id'] = signed['public_id'] as String;
       upload.fields['signature'] = signed['signature'].toString();
       upload.files.add(await http.MultipartFile.fromPath('file', file.path));
       final response = await upload.send().timeout(const Duration(seconds: 60));
