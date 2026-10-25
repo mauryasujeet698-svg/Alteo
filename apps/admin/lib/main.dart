@@ -972,6 +972,270 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ]),
   );
 
+
+  Widget _adminOrdersPage() => Scaffold(
+    appBar: _appBar('Orders & dispatch'),
+    body: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Customer orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('orders').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Orders unavailable. Check the admin RLS policy.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No orders yet', 'Orders appear when a customer checks out.');
+          return Column(children: s.data!.take(30).map((o) => Card(elevation: 0, child: ListTile(
+            title: Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+          ))).toList());
+        },
+      ),
+      const SizedBox(height: 22),
+      const Text('Ride requests', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('rides').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Ride requests unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No ride requests', 'New ride requests will appear here.');
+          return Column(children: s.data!.take(25).map((r) => Card(elevation: 0, child: ListTile(
+            title: Text((r['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (r['destination_label']?.toString() ?? 'Destination')),
+            subtitle: Text('Status: ' + (r['status']?.toString() ?? 'unknown') + ' · Type: ' + (r['vehicle_type']?.toString() ?? 'bike')),
+            trailing: IconButton(tooltip: 'Assign driver', icon: const Icon(Icons.person_add_alt_1_rounded), onPressed: () => assignRide(r)),
+          ))).toList());
+        },
+      ),
+      const SizedBox(height: 22),
+      const Text('Delivery assignments', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('delivery_jobs').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Delivery jobs unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No delivery jobs', 'Jobs appear when an order or parcel needs delivery.');
+          return Column(children: s.data!.take(25).map((j) => Card(elevation: 0, child: ListTile(
+            title: Text((j['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(j['id'])),
+            subtitle: Text('Status: ' + (j['status']?.toString() ?? 'unknown')),
+            trailing: IconButton(tooltip: 'Assign delivery partner', icon: const Icon(Icons.local_shipping_rounded), onPressed: () => assignDelivery(j)),
+          ))).toList());
+        },
+      ),
+    ]),
+  );
+
+  Widget _adminPartnersPage() => Scaffold(
+    appBar: _appBar('Partners & approvals'),
+    body: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Grant an app role', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      TextField(controller: roleUserId, decoration: const InputDecoration(labelText: 'Existing user UUID', border: OutlineInputBorder())),
+      const SizedBox(height: 8),
+      DropdownButtonFormField<String>(
+        value: grantRole,
+        decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
+        items: const [
+          DropdownMenuItem(value: 'customer', child: Text('Customer')),
+          DropdownMenuItem(value: 'driver_partner', child: Text('Driver Partner')),
+          DropdownMenuItem(value: 'delivery_partner', child: Text('Delivery Partner')),
+          DropdownMenuItem(value: 'seller', child: Text('Seller')),
+          DropdownMenuItem(value: 'dark_store', child: Text('Dark Store')),
+          DropdownMenuItem(value: 'admin', child: Text('Admin')),
+        ],
+        onChanged: (v) { if (v != null) setState(() => grantRole = v); },
+      ),
+      const SizedBox(height: 8),
+      FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
+      const SizedBox(height: 24),
+      const Text('Seller approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('sellers').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Seller records unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No seller applications', 'Seller applications will appear here.');
+          return Column(children: s.data!.map((seller) => Card(elevation: 0, child: ListTile(
+            title: Text(seller['display_name']?.toString() ?? 'Seller'),
+            subtitle: Text('Status: ' + (seller['status']?.toString() ?? 'pending')),
+            trailing: Wrap(children: [
+              IconButton(tooltip: 'Approve seller', onPressed: () => setSellerStatus(seller, 'approved'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+              IconButton(tooltip: 'Suspend seller', onPressed: () => setSellerStatus(seller, 'suspended'), icon: const Icon(Icons.block_outlined)),
+            ]),
+          ))).toList());
+        },
+      ),
+      const SizedBox(height: 24),
+      const Text('Catalogue approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Product catalogue unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No products submitted', 'Seller drafts appear here for review.');
+          return Column(children: s.data!.take(30).map((product) => Card(elevation: 0, child: ListTile(
+            title: Text(product['name']?.toString() ?? 'Product'),
+            subtitle: Text('Status: ' + (product['status']?.toString() ?? 'draft') + ' · ₹' + (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+            trailing: Wrap(children: [
+              IconButton(tooltip: 'Activate product', onPressed: () => setProductStatus(product, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+              IconButton(tooltip: 'Pause product', onPressed: () => setProductStatus(product, 'paused'), icon: const Icon(Icons.pause_circle_outline)),
+              IconButton(tooltip: 'Reject product', onPressed: () => setProductStatus(product, 'rejected'), icon: const Icon(Icons.block_outlined)),
+            ]),
+          ))).toList());
+        },
+      ),
+      const SizedBox(height: 24),
+      Row(children: [
+        const Expanded(child: Text('Dark stores', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
+        FilledButton.icon(onPressed: createDarkStore, icon: const Icon(Icons.add_business_rounded), label: const Text('Create')),
+      ]),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('dark_stores').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Dark stores unavailable.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No dark stores', 'Create and approve dark stores from these tools.');
+          return Column(children: s.data!.map((store) => Card(elevation: 0, child: ListTile(
+            title: Text(store['name']?.toString() ?? 'Dark store'),
+            subtitle: Text('Status: ' + (store['status']?.toString() ?? 'pending')),
+            trailing: Wrap(children: [
+              IconButton(tooltip: 'Activate', onPressed: () => setStoreStatus(store, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+              IconButton(tooltip: 'Suspend', onPressed: () => setStoreStatus(store, 'suspended'), icon: const Icon(Icons.block_outlined)),
+            ]),
+          ))).toList());
+        },
+      ),
+    ]),
+  );
+
+  Widget _sellerProductsPage() => Scaffold(
+    appBar: _appBar('Products & inventory'),
+    body: FutureBuilder<Map<String, dynamic>?>(future: sellerProfile, builder: (context, profile) {
+      if (profile.hasError) return _error('Seller profile unavailable.');
+      if (!profile.hasData) return const Center(child: CircularProgressIndicator());
+      final seller = profile.data;
+      if (seller == null) return _empty('Seller profile not linked', 'Ask Alteo Admin to link your seller account.');
+      final sellerId = seller['id'] as String;
+      if (seller['status'] != 'approved') return _empty('Approval pending', 'Product creation unlocks after Admin approves the seller profile.');
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        Row(children: [
+          const Expanded(child: Text('Your catalogue', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
+          FilledButton.icon(onPressed: () => _editSellerProduct(sellerId), icon: const Icon(Icons.add_rounded), label: const Text('Add product')),
+        ]),
+        const SizedBox(height: 8),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).order('created_at', ascending: false),
+          builder: (context, s) {
+            if (s.hasError) return _error('Catalogue unavailable. Check seller permissions.');
+            if (!s.hasData) return const LinearProgressIndicator();
+            if (s.data!.isEmpty) return _empty('No products yet', 'Add products as drafts; Admin must approve them before they appear to customers.');
+            return Column(children: s.data!.map((p) => Card(elevation: 0, child: ListTile(
+              leading: (p['image_url']?.toString().startsWith('https://') ?? false)
+                ? ClipRRect(borderRadius: BorderRadius.circular(9), child: Image.network(p['image_url'].toString(), width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined)))
+                : const Icon(Icons.inventory_2_outlined),
+              title: Text(p['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text('Status: ' + (p['status']?.toString() ?? 'draft') + ' · ₹' + (((p['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+              trailing: IconButton(tooltip: 'Edit product', onPressed: () => _editSellerProduct(sellerId, p), icon: const Icon(Icons.edit_outlined)),
+            ))).toList());
+          },
+        ),
+        const SizedBox(height: 24),
+        const Text('Inventory update', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+        const Text('Use the stock edit action on each product, or update stock from this section.', style: TextStyle(color: Color(0xFF68736D))),
+      ]);
+    }),
+  );
+
+  Future<void> _editSellerProduct(String sellerId, [Map<String, dynamic>? existing]) async {
+    final name = TextEditingController(text: existing?['name']?.toString() ?? '');
+    final description = TextEditingController(text: existing?['description']?.toString() ?? '');
+    final price = TextEditingController(text: existing == null ? '' : (((existing['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2));
+    final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
+    var kind = existing?['kind']?.toString() ?? 'shopping';
+    try {
+      final saved = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+        title: Text(existing == null ? 'New product draft' : 'Edit product'),
+        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: name, maxLength: 140, decoration: const InputDecoration(labelText: 'Product name *', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          DropdownButtonFormField<String>(value: kind, decoration: const InputDecoration(labelText: 'Category'), items: const [
+            DropdownMenuItem(value: 'shopping', child: Text('Shopping')),
+            DropdownMenuItem(value: 'quick', child: Text('Quick commerce')),
+            DropdownMenuItem(value: 'food', child: Text('Food')),
+          ], onChanged: (v) { if (v != null) setDialogState(() => kind = v); }),
+          const SizedBox(height: 10),
+          TextField(controller: description, maxLines: 3, decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder())),
+          const SizedBox(height: 10),
+          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image HTTPS URL (Cloudinary)', border: OutlineInputBorder())),
+        ])),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Save draft')),
+        ],
+      )));
+      if (saved != true) return;
+      final parsedPrice = double.tryParse(price.text.trim());
+      final productName = name.text.trim();
+      if (productName.length < 2 || parsedPrice == null || parsedPrice <= 0) {
+        notice('Enter a product name and a valid price greater than zero.');
+        return;
+      }
+      final payload = <String, dynamic>{
+        'name': productName,
+        'kind': kind,
+        'description': description.text.trim().isEmpty ? null : description.text.trim(),
+        'price_minor': (parsedPrice * 100).round(),
+        'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing == null) {
+        payload['seller_id'] = sellerId;
+        payload['status'] = 'draft';
+        payload['currency'] = 'INR';
+        await client.from('seller_products').insert(payload);
+      } else {
+        await client.from('seller_products').update(payload).eq('id', existing['id']).eq('seller_id', sellerId);
+      }
+      notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated.');
+    } catch (e) {
+      notice('Could not save product: ' + e.toString());
+    } finally {
+      name.dispose(); description.dispose(); price.dispose(); image.dispose();
+    }
+  }
+
+  Widget _sellerOrdersPage() => Scaffold(
+    appBar: _appBar('Orders to fulfil'),
+    body: FutureBuilder<Map<String, dynamic>?>(future: sellerProfile, builder: (context, profile) {
+      if (profile.hasError) return _error('Seller profile unavailable.');
+      if (!profile.hasData) return const Center(child: CircularProgressIndicator());
+      final seller = profile.data;
+      if (seller == null || seller['status'] != 'approved') return _empty('Seller approval pending', 'Order processing unlocks after Admin approves the seller profile.');
+      final sellerId = seller['id'] as String;
+      return StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('orders').stream(primaryKey: ['id']).eq('seller_id', sellerId).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Seller orders unavailable.');
+          if (!s.hasData) return const Center(child: CircularProgressIndicator());
+          if (s.data!.isEmpty) return _empty('No orders yet', 'Orders routed to this seller appear here after checkout is enabled.');
+          return ListView(padding: const EdgeInsets.all(16), children: s.data!.map((o) {
+            final status = o['status']?.toString() ?? 'pending_payment';
+            final payment = o['payment_status']?.toString() ?? 'pending';
+            final buttons = <Widget>[];
+            if (payment == 'paid' && status == 'paid') buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'accept'}, 'Order accepted.'), child: const Text('Accept')));
+            if (payment == 'paid' && status == 'accepted') buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'prepare'}, 'Order preparation started.'), child: const Text('Prepare')));
+            if (payment == 'paid' && status == 'preparing') buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'ready'}, 'Order ready for pickup.'), child: const Text('Ready for pickup')));
+            return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 5),
+              Text('Status: ' + status + ' · Payment: ' + payment + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+              if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, children: buttons)),
+            ])));
+          }).toList());
+        },
+      );
+    }),
+  );
+
   Widget _driverDashboard() => Scaffold(
     appBar: _partnerAppBar('My rides'),
     body: StreamBuilder<List<Map<String, dynamic>>>(
