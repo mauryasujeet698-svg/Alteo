@@ -829,8 +829,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     }
     final bytes = await file.readAsBytes();
     if (bytes.isEmpty) throw StateError('The selected image is empty.');
-    if (bytes.length > 10 * 1024 * 1024) {
-      throw StateError('Image must be 10 MB or smaller.');
+    if (bytes.length > 5 * 1024 * 1024) {
+      throw StateError('Image must be 5 MB or smaller.');
     }
     final contentType = switch (extension) {
       'png' => 'image/png',
