@@ -557,6 +557,69 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     roleUserId.clear();
   }
 
+  Future<void> reviewRoleRequest(Map<String, dynamic> request, {required bool approve}) async {
+    final requestId = request['id']?.toString();
+    final userId = request['user_id']?.toString();
+    final requestedRole = request['requested_role']?.toString();
+    if (requestId == null || userId == null || requestedRole == null) {
+      notice('This approval request is missing required details.');
+      return;
+    }
+    try {
+      if (approve) {
+        await client.rpc('admin_grant_user_role', params: {
+          'p_user_id': userId,
+          'p_role': requestedRole,
+        });
+      }
+      await client.from('role_requests').update({
+        'status': approve ? 'approved' : 'rejected',
+        'reviewed_at': DateTime.now().toUtc().toIso8601String(),
+        'reviewed_by': user?.id,
+      }).eq('id', requestId);
+      notice(approve ? 'Role approved. The user can sign in again to access the app.' : 'Role request rejected.');
+    } catch (e) {
+      notice('Could not review role request: $e');
+    }
+  }
+
+  Widget _roleRequestsSection() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text('Role approval requests', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('role_requests').stream(primaryKey: ['id'])
+          .eq('status', 'pending').order('requested_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Approval requests unavailable. Check role_requests permissions.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No pending requests', 'Seller, driver, delivery partner and dark-store access requests will appear here.');
+          return Column(children: s.data!.map((request) {
+            final role = request['requested_role']?.toString() ?? 'unknown';
+            final name = request['display_name']?.toString().trim();
+            final email = request['email']?.toString().trim();
+            final identity = (name != null && name.isNotEmpty) ? name : ((email != null && email.isNotEmpty) ? email : _short(request['user_id']?.toString() ?? ''));
+            return Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: const CircleAvatar(child: Icon(Icons.person_add_alt_1_rounded)),
+                title: Text(identity, style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text('${role.replaceAll('_', ' ')} · ${email ?? _short(request['user_id']?.toString() ?? '')}'),
+                trailing: Wrap(spacing: 0, children: [
+                  IconButton(tooltip: 'Approve request', onPressed: () => reviewRoleRequest(request, approve: true), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
+                  IconButton(tooltip: 'Reject request', onPressed: () => reviewRoleRequest(request, approve: false), icon: const Icon(Icons.cancel_outlined, color: Colors.red)),
+                ]),
+              ),
+            );
+          }).toList());
+        },
+      ),
+      const SizedBox(height: 20),
+    ],
+  );
+
   Future<void> assignRide(Map<String, dynamic> ride) async {
     final id = TextEditingController();
     try {
@@ -1162,6 +1225,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
       const SizedBox(height: 24),
+      _roleRequestsSection(),
       const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('orders').stream(primaryKey: ['id']).order('created_at', ascending: false),
@@ -1344,6 +1408,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
       const SizedBox(height: 24),
+      _roleRequestsSection(),
       const Text('Seller approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('sellers').stream(primaryKey: ['id']).order('created_at', ascending: false),
