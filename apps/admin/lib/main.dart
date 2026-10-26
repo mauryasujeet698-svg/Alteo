@@ -276,7 +276,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   IconData _publicNavIcon(String label, bool selected) => switch (label) {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
-    'Banners' => selected ? Icons.view_carousel_rounded : Icons.view_carousel_outlined,
+    'Catalogue' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
     'Deliveries' => selected ? Icons.local_shipping_rounded : Icons.local_shipping_outlined,
@@ -471,6 +471,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   late Future<dynamic> metrics;
   late Future<Map<String, dynamic>?> sellerProfile;
   late Future<Map<String, dynamic>?> storeProfile;
+  Future<String>? _adminCatalogSellerFuture;
   final roleUserId = TextEditingController();
   String grantRole = 'delivery_partner';
   bool partnerOnline = false;
@@ -759,7 +760,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   List<String> get _navLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Banners', 'Notifications', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Catalogue', 'Notifications', 'Partners', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -784,6 +785,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _navigationPage() {
     final label = _navLabels[selectedTab];
+    if (requiredRole == 'admin' && label == 'Catalogue') return _adminCataloguePage();
     if (requiredRole == 'admin' && label == 'Notifications') {
       return _adminNotificationsPage();
     }
@@ -883,8 +885,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   ]);
 
 
-  Future<String> _uploadBannerImage(XFile file) async {
-    // Images are stored in Supabase Storage; no third-party media credentials are needed.
+
+  Future<String> _uploadAppMediaImage(XFile file, {required String folder}) async {
+    if (folder != 'banners' && folder != 'items') {
+      throw StateError('Unsupported media folder.');
+    }
     final extension = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
     const allowedExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif'};
     if (!allowedExtensions.contains(extension)) {
@@ -902,7 +907,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       _ => 'image/jpeg',
     };
     final safeExtension = extension == 'jpeg' ? 'jpg' : extension;
-    final objectPath = 'banners/${DateTime.now().toUtc().microsecondsSinceEpoch}.$safeExtension';
+    final objectPath = folder + '/' + DateTime.now().toUtc().microsecondsSinceEpoch.toString() + '.' + safeExtension;
     try {
       await client.storage.from('app-media').uploadBinary(
         objectPath,
@@ -911,9 +916,15 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       );
       return client.storage.from('app-media').getPublicUrl(objectPath);
     } on StorageException catch (e) {
-      throw StateError('Supabase Storage upload failed: ${e.message}. Check that the public app-media bucket exists and authenticated admins have upload permission.');
+      throw StateError('Supabase Storage upload failed: ' + e.message + '. Check the app-media bucket and admin upload permissions.');
     }
   }
+
+  Future<String> _uploadBannerImage(XFile file) =>
+      _uploadAppMediaImage(file, folder: 'banners');
+
+  Future<String> _uploadCatalogImage(XFile file) =>
+      _uploadAppMediaImage(file, folder: 'items');
 
   Widget _bannerManagement() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Row(children: [
@@ -1330,6 +1341,365 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ]),
   );
 
+
+
+  Future<String> _ensureAdminCatalogSellerId() async {
+    final result = await client.rpc('admin_ensure_platform_seller');
+    final id = result?.toString() ?? '';
+    if (id.isEmpty) throw StateError('Could not prepare the Alteo Official Store catalogue.');
+    return id;
+  }
+
+  Widget _adminCataloguePage() => DefaultTabController(
+    length: 2,
+    child: Scaffold(
+      appBar: AppBar(
+        title: const Text('Catalogue management'),
+        actions: [
+          IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+        ],
+        bottom: const TabBar(
+          tabs: [
+            Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Items'),
+            Tab(icon: Icon(Icons.view_carousel_outlined), text: 'Banners'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        children: [
+          _adminItemsBody(),
+          ListView(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+            children: [
+              const Text('Customer homepage banners', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              const Text(
+                'Upload banner images to Supabase Storage, then create, edit, reorder, publish or remove banners. Published changes are read live by the Customer app.',
+                style: TextStyle(color: Color(0xFF68736D), height: 1.45),
+              ),
+              const SizedBox(height: 18),
+              _bannerManagement(),
+            ],
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _adminItemsBody() => FutureBuilder<String>(
+    future: _adminCatalogSellerFuture ??= _ensureAdminCatalogSellerId(),
+    builder: (context, sellerSnapshot) {
+      if (sellerSnapshot.hasError) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.cloud_off_outlined, size: 42),
+                const SizedBox(height: 12),
+                const Text('Could not open the catalogue', style: TextStyle(fontWeight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(sellerSnapshot.error.toString(), textAlign: TextAlign.center),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => setState(() => _adminCatalogSellerFuture = null),
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Try again'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
+      if (!sellerSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+      final platformSellerId = sellerSnapshot.data!;
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Customer items', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+                    SizedBox(height: 4),
+                    Text('Add and maintain products served from Supabase.', style: TextStyle(color: Color(0xFF68736D))),
+                  ],
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: () => _editAdminProduct(platformSellerId),
+                icon: const Icon(Icons.add_rounded),
+                label: const Text('Add item'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Items marked Active appear in the Customer catalogue. Images are uploaded to Supabase Storage (app-media/items); keep each image at 5 MB or less.',
+            style: TextStyle(color: Color(0xFF68736D), height: 1.45),
+          ),
+          const SizedBox(height: 14),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
+            builder: (context, s) {
+              if (s.hasError) return _error('Items unavailable. Check the admin catalogue permissions.');
+              if (!s.hasData) return const LinearProgressIndicator();
+              if (s.data!.isEmpty) {
+                return _empty('No items yet', 'Tap Add item to create your first Customer catalogue listing.');
+              }
+              return Column(
+                children: s.data!.map((product) {
+                  final status = product['status']?.toString() ?? 'draft';
+                  final kind = product['kind']?.toString() ?? 'shopping';
+                  final price = ((product['price_minor'] as num?)?.toInt() ?? 0) / 100;
+                  final imageUrl = product['image_url']?.toString() ?? '';
+                  return Card(
+                    elevation: 0,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: imageUrl.startsWith('https://')
+                            ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined))
+                            : const Icon(Icons.inventory_2_outlined),
+                        ),
+                      ),
+                      title: Text(product['name']?.toString() ?? 'Item', style: const TextStyle(fontWeight: FontWeight.w800)),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text('₹' + price.toStringAsFixed(2) + ' · ' + kind.toUpperCase() + ' · ' + status.toUpperCase()),
+                      ),
+                      trailing: Wrap(
+                        spacing: 0,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [
+                          PopupMenuButton<String>(
+                            tooltip: 'Change listing status',
+                            icon: const Icon(Icons.visibility_outlined),
+                            onSelected: (value) => _setAdminProductStatus(product, value),
+                            itemBuilder: (context) => [
+                              for (final state in const ['draft', 'active', 'paused', 'rejected'])
+                                PopupMenuItem<String>(
+                                  value: state,
+                                  child: Row(
+                                    children: [
+                                      if (state == status) const Icon(Icons.check_rounded, size: 18),
+                                      if (state == status) const SizedBox(width: 6),
+                                      Text(state[0].toUpperCase() + state.substring(1)),
+                                    ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                          IconButton(
+                            tooltip: 'Edit item',
+                            onPressed: () => _editAdminProduct(platformSellerId, product),
+                            icon: const Icon(Icons.edit_outlined),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
+      );
+    },
+  );
+
+  Future<void> _setAdminProductStatus(Map<String, dynamic> product, String status) async {
+    try {
+      await client.rpc('admin_set_product_status', params: {
+        'p_product_id': product['id'],
+        'p_status': status,
+      });
+      notice(status == 'active' ? 'Item published to the Customer catalogue.' : 'Item status changed to ' + status + '.');
+    } catch (e) {
+      notice('Could not change item status: ' + e.toString());
+    }
+  }
+
+  Future<void> _editAdminProduct(String platformSellerId, [Map<String, dynamic>? existing]) async {
+    final name = TextEditingController(text: existing?['name']?.toString() ?? '');
+    final description = TextEditingController(text: existing?['description']?.toString() ?? '');
+    final price = TextEditingController(
+      text: existing == null ? '' : (((existing['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2),
+    );
+    final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
+    var kind = existing?['kind']?.toString() ?? 'shopping';
+    var status = existing?['status']?.toString() ?? 'active';
+    var uploading = false;
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dc) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(existing == null ? 'Add catalogue item' : 'Edit catalogue item'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: name,
+                      maxLength: 180,
+                      decoration: const InputDecoration(labelText: 'Item name *', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: kind,
+                      decoration: const InputDecoration(labelText: 'Catalogue section', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'shopping', child: Text('Shopping')),
+                        DropdownMenuItem(value: 'food', child: Text('Food')),
+                        DropdownMenuItem(value: 'quick', child: Text('Quick commerce')),
+                      ],
+                      onChanged: (value) { if (value != null) setDialogState(() => kind = value); },
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: description,
+                      maxLength: 4000,
+                      maxLines: 3,
+                      decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: price,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: image,
+                      keyboardType: TextInputType.url,
+                      decoration: const InputDecoration(labelText: 'Item image URL (optional)', border: OutlineInputBorder()),
+                    ),
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: OutlinedButton.icon(
+                        onPressed: uploading ? null : () async {
+                          try {
+                            final selected = await ImagePicker().pickImage(
+                              source: ImageSource.gallery,
+                              imageQuality: 86,
+                              maxWidth: 1800,
+                            );
+                            if (selected == null) return;
+                            setDialogState(() => uploading = true);
+                            final url = await _uploadCatalogImage(selected);
+                            setDialogState(() => image.text = url);
+                            notice('Item image uploaded to Supabase Storage.');
+                          } catch (e) {
+                            notice('Item image upload failed: ' + e.toString());
+                          } finally {
+                            setDialogState(() => uploading = false);
+                          }
+                        },
+                        icon: uploading
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.cloud_upload_outlined),
+                        label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Supabase'),
+                      ),
+                    ),
+                    if (image.text.startsWith('https://')) ...[
+                      const SizedBox(height: 10),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.network(
+                          image.text,
+                          height: 120,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const SizedBox(height: 60, child: Center(child: Text('Image preview unavailable'))),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: status,
+                      decoration: const InputDecoration(labelText: 'Listing status', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: 'active', child: Text('Active — show to customers')),
+                        DropdownMenuItem(value: 'draft', child: Text('Draft')),
+                        DropdownMenuItem(value: 'paused', child: Text('Paused')),
+                        DropdownMenuItem(value: 'rejected', child: Text('Rejected')),
+                      ],
+                      onChanged: (value) { if (value != null) setDialogState(() => status = value); },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: uploading ? null : () => Navigator.pop(dc, true),
+                child: Text(existing == null ? 'Add item' : 'Save changes'),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (saved != true) return;
+
+      final itemName = name.text.trim();
+      final amount = double.tryParse(price.text.trim());
+      final imageUrl = image.text.trim();
+      if (itemName.length < 2 || amount == null || amount <= 0) {
+        notice('Enter an item name and a price greater than zero.');
+        return;
+      }
+      if (imageUrl.isNotEmpty && !imageUrl.startsWith('https://')) {
+        notice('Use an HTTPS image URL or upload the image to Supabase Storage.');
+        return;
+      }
+
+      final payload = <String, dynamic>{
+        'name': itemName,
+        'kind': kind,
+        'description': description.text.trim().isEmpty ? null : description.text.trim(),
+        'price_minor': (amount * 100).round(),
+        'image_url': imageUrl.isEmpty ? null : imageUrl,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing == null) {
+        payload['seller_id'] = platformSellerId;
+        payload['status'] = status;
+        payload['currency'] = 'INR';
+        await client.from('seller_products').insert(payload);
+        notice(status == 'active' ? 'Item added and published to the Customer catalogue.' : 'Item saved as a draft.');
+      } else {
+        await client.from('seller_products').update(payload).eq('id', existing['id']);
+        final originalStatus = existing['status']?.toString() ?? 'draft';
+        if (status != originalStatus) {
+          await client.rpc('admin_set_product_status', params: {
+            'p_product_id': existing['id'],
+            'p_status': status,
+          });
+        }
+        notice('Item updated.');
+      }
+    } catch (e) {
+      notice('Could not save item: ' + e.toString());
+    } finally {
+      name.dispose();
+      description.dispose();
+      price.dispose();
+      image.dispose();
+    }
+  }
 
   Widget _adminOrdersPage() => Scaffold(
     appBar: _appBar('Orders & dispatch'),
