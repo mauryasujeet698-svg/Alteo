@@ -115,14 +115,30 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
         setState(() { authorized = true; message = 'Access verified.'; });
         if (authSheetOpen && mounted) Navigator.of(context).maybePop();
       } else {
-        setState(() {
-          authorized = false;
-          message = 'Google sign-in succeeded. This account is signed in, but it has not been granted the $requiredRole role yet. Protected operations stay locked until an administrator approves the role.';
-        });
-        if (authSheetOpen && mounted) Navigator.of(context).maybePop();
+        final existingRequest = await client.from('role_requests')
+            .select('status').eq('user_id', current.id).eq('requested_role', requiredRole).maybeSingle();
+        if (existingRequest == null) {
+          await client.from('role_requests').insert({
+            'user_id': current.id,
+            'requested_role': requiredRole,
+            'status': 'pending',
+            'email': current.email,
+            'display_name': current.userMetadata?['full_name'] ?? current.userMetadata?['name'],
+          });
+        }
+        final status = (existingRequest?['status'] ?? 'pending').toString();
+        final requestMessage = status == 'approved'
+            ? 'Your request was approved. Refresh access to continue.'
+            : status == 'rejected'
+                ? 'Your access request was not approved. Please contact Alteo support if you think this is a mistake.'
+                : 'Approval request sent to Alteo Admin. You can use protected features after your request is approved.';
+        if (mounted) {
+          setState(() { authorized = false; message = requestMessage; });
+          if (authSheetOpen && mounted) Navigator.of(context).maybePop();
+        }
       }
     } catch (_) {
-      if (mounted) setState(() => message = 'Could not verify your app role. Check the user_roles policy and try again.');
+      if (mounted) setState(() => message = 'Could not submit or verify your approval request. Please check your connection and try again.');
     }
   }
 
