@@ -821,34 +821,35 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
 
   Future<String> _uploadBannerImage(XFile file) async {
-    final signatureResponse = await client.functions.invoke('cloudinary-sign-upload', body: <String, dynamic>{'asset_type': 'banner'});
-    if (signatureResponse.status < 200 || signatureResponse.status >= 300) {
-      final data = signatureResponse.data;
-      final message = data is Map ? data['error']?.toString() : null;
-      throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signatureResponse.status.toString());
+    // Images are stored in Supabase Storage; no third-party media credentials are needed.
+    final extension = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
+    const allowedExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif'};
+    if (!allowedExtensions.contains(extension)) {
+      throw StateError('Choose a JPG, PNG, WEBP, or GIF image.');
     }
-    final signed = Map<String, dynamic>.from(signatureResponse.data as Map);
-    final uri = Uri.https(
-      'api.cloudinary.com',
-      '/v1_1/' + signed['cloud_name'].toString() + '/image/upload',
-    );
-    final upload = http.MultipartRequest('POST', uri);
-    upload.fields['api_key'] = signed['api_key'].toString();
-    upload.fields['timestamp'] = signed['timestamp'].toString();
-    upload.fields['folder'] = signed['folder'].toString();
-    upload.fields['type'] = signed['type'].toString();
-    upload.fields['signature'] = signed['signature'].toString();
-    upload.files.add(await http.MultipartFile.fromPath('file', file.path));
-    final response = await upload.send().timeout(const Duration(seconds: 60));
-    final responseBody = await response.stream.bytesToString();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) throw StateError('The selected image is empty.');
+    if (bytes.length > 10 * 1024 * 1024) {
+      throw StateError('Image must be 10 MB or smaller.');
     }
-    final payload = jsonDecode(responseBody);
-    if (payload is! Map || payload['secure_url'] is! String) {
-      throw StateError('Cloudinary did not return a secure image URL.');
+    final contentType = switch (extension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      _ => 'image/jpeg',
+    };
+    final safeExtension = extension == 'jpeg' ? 'jpg' : extension;
+    final objectPath = 'banners/${DateTime.now().toUtc().microsecondsSinceEpoch}.$safeExtension';
+    try {
+      await client.storage.from('app-media').uploadBinary(
+        objectPath,
+        bytes,
+        fileOptions: FileOptions(contentType: contentType, upsert: false),
+      );
+      return client.storage.from('app-media').getPublicUrl(objectPath);
+    } on StorageException catch (e) {
+      throw StateError('Supabase Storage upload failed: ${e.message}. Check that the public app-media bucket exists and authenticated admins have upload permission.');
     }
-    return payload['secure_url'] as String;
   }
 
   Widget _bannerManagement() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -908,7 +909,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 setDialogState(() => uploading = true);
                 final uploadedUrl = await _uploadBannerImage(selectedFile);
                 setDialogState(() => image.text = uploadedUrl);
-                notice('Banner image uploaded to Cloudinary.');
+                notice('Banner image uploaded to Supabase Storage.');
               } catch (e) {
                 notice('Image upload failed: ' + e.toString());
               } finally {
@@ -916,7 +917,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               }
             },
             icon: uploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_upload_outlined),
-            label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Cloudinary'),
+            label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Supabase'),
           )),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(value: action, decoration: const InputDecoration(labelText: 'Tap action', border: OutlineInputBorder()), items: const [
@@ -1465,7 +1466,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           const SizedBox(height: 10),
           TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder())),
           const SizedBox(height: 10),
-          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image HTTPS URL (Cloudinary)', border: OutlineInputBorder())),
+          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image HTTPS URL', border: OutlineInputBorder())),
         ])),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
