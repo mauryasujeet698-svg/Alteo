@@ -22,63 +22,135 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(binary).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function pemToDer(pem: string): ArrayBuffer {
-  const normalized = pem.replace(/\\n/g, "\n");
-  const base64 = normalized.replace(/-----BEGIN PRIVATE KEY-----/g, "")
-    .replace(/-----END PRIVATE KEY-----/g, "")
-    .replace(/\s/g, "");
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes.buffer;
+const GCP_PROJECT_ID = "alteo-512709";
+const GCP_PROJECT_NUMBER = "718705771727";
+const WIF_POOL_ID = "alteo-supabase-pool";
+const WIF_PROVIDER_ID = "supabase-edge-oidc";
+const SERVICE_ACCOUNT_EMAIL = "alteo-fcm-sender@alteo-512709.iam.gserviceaccount.com";
+const WIF_ISSUER =
+  "https://nkerkoptbrcadlpxffkn.supabase.co/functions/v1/send-push-notification";
+const WIF_SUBJECT = "alteo-supabase-edge-fcm";
+const WIF_PROVIDER_RESOURCE =
+  "//iam.googleapis.com/projects/" + GCP_PROJECT_NUMBER +
+  "/locations/global/workloadIdentityPools/" + WIF_POOL_ID +
+  "/providers/" + WIF_PROVIDER_ID;
+
+const encoder = new TextEncoder();
+let cachedFcmAccessToken: { token: string; expiresAt: number } | null = null;
+
+function makeJwtPart(value: Record<string, unknown>): string {
+  return base64Url(encoder.encode(JSON.stringify(value)));
 }
 
-async function getGoogleAccessToken(serviceAccount: Record<string, unknown>): Promise<string> {
-  const clientEmail = String(serviceAccount.client_email ?? "");
-  const projectId = String(serviceAccount.project_id ?? "");
-  const privateKey = String(serviceAccount.private_key ?? "");
-  const tokenUri = String(serviceAccount.token_uri ?? "https://oauth2.googleapis.com/token");
-  if (!clientEmail || !projectId || !privateKey) {
-    throw new Error("Firebase service-account JSON is missing required fields.");
+async function signWorkloadAssertion(privateJwkJson: string): Promise<string> {
+  let jwk: JsonWebKey & { kid?: string; alg?: string };
+  try {
+    jwk = JSON.parse(privateJwkJson) as JsonWebKey & { kid?: string; alg?: string };
+  } catch {
+    throw new Error("GCP_WIF_PRIVATE_JWK is not valid JSON.");
+  }
+
+  if (jwk.kty !== "RSA" || !jwk.d || !jwk.n || !jwk.e || !jwk.kid) {
+    throw new Error("GCP_WIF_PRIVATE_JWK must be the private RSA JWK with its matching kid.");
   }
 
   const now = Math.floor(Date.now() / 1000);
-  const header = base64Url(new TextEncoder().encode(JSON.stringify({ alg: "RS256", typ: "JWT" })));
-  const claims = base64Url(new TextEncoder().encode(JSON.stringify({
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: tokenUri,
+  const unsigned = makeJwtPart({
+    alg: "RS256",
+    typ: "JWT",
+    kid: jwk.kid,
+  }) + "." + makeJwtPart({
+    iss: WIF_ISSUER,
+    sub: WIF_SUBJECT,
+    aud: WIF_PROVIDER_RESOURCE,
     iat: now,
-    exp: now + 3600,
-  })));
-  const unsigned = header + "." + claims;
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    pemToDer(privateKey),
+    exp: now + 300,
+  });
+
+  const signingKey = await crypto.subtle.importKey(
+    "jwk",
+    jwk,
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"],
   );
   const signature = new Uint8Array(await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(unsigned),
+    signingKey,
+    encoder.encode(unsigned),
   ));
-  const assertion = unsigned + "." + base64Url(signature);
+  return unsigned + "." + base64Url(signature);
+}
 
-  const response = await fetch(tokenUri, {
+async function getGoogleFcmAccessToken(): Promise<string> {
+  const nowMs = Date.now();
+  if (cachedFcmAccessToken && cachedFcmAccessToken.expiresAt > nowMs + 60_000) {
+    return cachedFcmAccessToken.token;
+  }
+
+  const privateJwkJson = Deno.env.get("GCP_WIF_PRIVATE_JWK");
+  if (!privateJwkJson) {
+    throw new Error("Missing GCP_WIF_PRIVATE_JWK Edge Function secret.");
+  }
+
+  const assertion = await signWorkloadAssertion(privateJwkJson);
+  const stsResponse = await fetch("https://sts.googleapis.com/v1/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion,
+      grant_type: "urn:ietf:params:oauth:grant-type:token-exchange",
+      audience: WIF_PROVIDER_RESOURCE,
+      scope: "https://www.googleapis.com/auth/cloud-platform",
+      requested_token_type: "urn:ietf:params:oauth:token-type:access_token",
+      subject_token_type: "urn:ietf:params:oauth:token-type:jwt",
+      subject_token: assertion,
     }),
   });
-  const tokenData = await response.json();
-  if (!response.ok || typeof tokenData.access_token !== "string") {
-    throw new Error("Could not obtain a Firebase messaging access token.");
+
+  const stsData = await stsResponse.json().catch(() => ({}));
+  if (!stsResponse.ok || typeof stsData.access_token !== "string") {
+    console.error("Google STS token exchange failed", {
+      status: stsResponse.status,
+      error: typeof stsData.error === "string" ? stsData.error : "unknown_error",
+    });
+    throw new Error("Google STS token exchange failed.");
   }
-  return tokenData.access_token;
+
+  const impersonationUrl =
+    "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/" +
+    encodeURIComponent(SERVICE_ACCOUNT_EMAIL) + ":generateAccessToken";
+  const impersonationResponse = await fetch(impersonationUrl, {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + stsData.access_token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      scope: ["https://www.googleapis.com/auth/firebase.messaging"],
+      lifetime: "3600s",
+    }),
+  });
+
+  const impersonationData = await impersonationResponse.json().catch(() => ({}));
+  if (
+    !impersonationResponse.ok ||
+    typeof impersonationData.accessToken !== "string"
+  ) {
+    console.error("Google service-account impersonation failed", {
+      status: impersonationResponse.status,
+      error: impersonationData.error?.status ?? "unknown_error",
+    });
+    throw new Error("Google service-account impersonation failed.");
+  }
+
+  const expiry = typeof impersonationData.expireTime === "string"
+    ? Date.parse(impersonationData.expireTime)
+    : nowMs + 50 * 60 * 1000;
+  cachedFcmAccessToken = {
+    token: impersonationData.accessToken,
+    expiresAt: Number.isFinite(expiry) ? expiry : nowMs + 50 * 60 * 1000,
+  };
+  return cachedFcmAccessToken.token;
 }
 
 Deno.serve(async (request: Request) => {
@@ -91,12 +163,8 @@ Deno.serve(async (request: Request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
   const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  const serviceAccountJson = Deno.env.get("FIREBASE_SERVICE_ACCOUNT_JSON");
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return json({ error: "Supabase function environment is incomplete." }, 500);
-  }
-  if (!serviceAccountJson) {
-    return json({ error: "Firebase server credentials are not configured yet." }, 503);
   }
 
   const userClient = createClient(supabaseUrl, anonKey, {
@@ -168,17 +236,9 @@ Deno.serve(async (request: Request) => {
     }
   }
 
-  let account: Record<string, unknown>;
   try {
-    account = JSON.parse(serviceAccountJson);
-  } catch (_) {
-    return json({ error: "FIREBASE_SERVICE_ACCOUNT_JSON is not valid JSON." }, 503);
-  }
-
-  try {
-    const accessToken = await getGoogleAccessToken(account);
-    const projectId = String(account.project_id ?? "");
-    if (!projectId) throw new Error("Firebase project_id is missing.");
+    const accessToken = await getGoogleFcmAccessToken();
+    const projectId = GCP_PROJECT_ID;
     let sent = 0;
     const failures: string[] = [];
     // A notification payload is shown by Android's FCM SDK in the system tray
@@ -224,6 +284,6 @@ Deno.serve(async (request: Request) => {
     });
   } catch (error) {
     console.error("Push notification send failed:", error);
-    return json({ error: "Could not send push notification. Verify Firebase service-account permissions and project configuration." }, 502);
+    return json({ error: "Could not send push notification. Verify the Workload Identity provider, impersonation grant, and Firebase Messaging permissions." }, 502);
   }
 });
