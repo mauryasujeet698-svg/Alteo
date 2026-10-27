@@ -1,6 +1,6 @@
 -- Cash on delivery is the only checkout method enabled in this release.
 
--- COD orders remain unpaid until the delivery partner confirms cash collection.
+-- COD remains unpaid until the delivery partner confirms cash collection.
 
 alter table public.orders add column if not exists payment_method text;
 
@@ -131,8 +131,7 @@ exception when unique_violation then
   if v_order_id is not null then return v_order_id; end if;
   raise;
 end;
-$function$
-
+$function$;
 
 revoke all on function public.create_customer_order(jsonb,jsonb,text,bigint,text) from public;
 
@@ -225,8 +224,7 @@ begin
   end loop;
   return v_count;
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.admin_assign_delivery_partner(p_delivery_job_id uuid, p_partner_id uuid)
  RETURNS void
@@ -263,8 +261,7 @@ begin
     values((select auth.uid()),'delivery.partner_assigned','delivery_job',p_delivery_job_id,
       jsonb_build_object('partner_id',p_partner_id,'assigned_manually',true));
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.admin_assign_order_to_dark_store(p_order_id uuid, p_store_id uuid)
  RETURNS uuid
@@ -330,8 +327,7 @@ begin
     jsonb_build_object('order_id', p_order_id, 'store_id', p_store_id, 'fulfilment_kind', 'quick'));
   return v_task_id;
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.dark_store_update_task(p_task_id uuid, p_action text)
  RETURNS text
@@ -395,8 +391,7 @@ begin
     jsonb_build_object('order_id', v_task.order_id, 'store_id', v_task.store_id));
   return v_next;
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.seller_update_order_status(p_order_id uuid, p_action text)
  RETURNS void
@@ -449,8 +444,7 @@ begin
     values ((select auth.uid()), 'seller.order_' || p_action, 'order', p_order_id,
       jsonb_build_object('status_before', v_order.status, 'status_after', v_next_status));
 end;
-$function$
-
+$function$;
 
 CREATE OR REPLACE FUNCTION public.partner_update_delivery_status(p_delivery_job_id uuid, p_action text)
  RETURNS void
@@ -540,9 +534,8 @@ begin
         if p_action <> 'delivered_cod_collected' then
           raise exception 'Confirm cash collection before completing this COD delivery.' using errcode = '22023';
         end if;
-        update public.orders
-          set status = 'completed', payment_status = 'paid', updated_at = now()
-          where id = v_job.order_id and payment_status = 'cod_pending' and payment_method = 'cod';
+        update public.orders set status = 'completed', payment_status = 'paid', updated_at = now()
+        where id = v_job.order_id and payment_status = 'cod_pending' and payment_method = 'cod';
         if not found then raise exception 'COD payment could not be confirmed.' using errcode = '22023'; end if;
       elsif v_order_payment = 'paid' then
         update public.orders set status = 'completed', updated_at = now()
@@ -553,11 +546,8 @@ begin
     end if;
 
     update public.delivery_jobs set status = 'delivered', updated_at = now() where id = p_delivery_job_id;
-    update public.delivery_assignments
-      set status = 'completed', updated_at = now()
-      where delivery_job_id = p_delivery_job_id
-        and partner_id = (select auth.uid())
-        and status = 'accepted';
+    update public.delivery_assignments set status = 'completed', updated_at = now()
+    where delivery_job_id = p_delivery_job_id and partner_id = (select auth.uid()) and status = 'accepted';
   else
     raise exception 'invalid delivery action' using errcode = '22023';
   end if;
@@ -566,26 +556,16 @@ begin
   values ((select auth.uid()), 'delivery.' || p_action, 'delivery_job', p_delivery_job_id,
     jsonb_build_object('status_before', v_job.status, 'action', p_action));
 end;
-$function$
-
+$function$;
 
 create or replace function public.admin_set_support_ticket_status(p_ticket_id uuid, p_status text)
-returns void
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-begin
-  if (select auth.uid()) is null or not (select private.has_role('admin')) then
-    raise exception 'administrator role required' using errcode = '42501';
-  end if;
-  if p_status not in ('open','in_progress','resolved','closed') then
-    raise exception 'invalid support ticket status' using errcode = '22023';
-  end if;
+returns void language plpgsql security definer set search_path = ''
+as $function$ begin
+  if (select auth.uid()) is null or not (select private.has_role('admin')) then raise exception 'administrator role required' using errcode = '42501'; end if;
+  if p_status not in ('open','in_progress','resolved','closed') then raise exception 'invalid support ticket status' using errcode = '22023'; end if;
   update public.support_tickets set status = p_status, updated_at = now() where id = p_ticket_id;
   if not found then raise exception 'support ticket not found' using errcode = 'P0002'; end if;
-end;
-$function$;
+end; $function$;
 revoke all on function public.admin_set_support_ticket_status(uuid,text) from public;
 revoke all on function public.admin_set_support_ticket_status(uuid,text) from anon;
 grant execute on function public.admin_set_support_ticket_status(uuid,text) to authenticated;
