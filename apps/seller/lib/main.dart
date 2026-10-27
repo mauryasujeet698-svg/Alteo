@@ -216,15 +216,25 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                 const Icon(Icons.info_outline_rounded, color: Color(0xFF8A6414)),
                 const SizedBox(width: 10),
                 Expanded(child: Text(message!, style: const TextStyle(height: 1.45))),
-                if (widget.backendReady && Supabase.instance.client.auth.currentSession != null)
+                if (widget.backendReady && Supabase.instance.client.auth.currentSession != null) ...[
+                  IconButton(
+                    tooltip: 'Check approval status',
+                    onPressed: busy ? null : () async {
+                      setState(() { busy = true; });
+                      await _checkRole();
+                      if (mounted) setState(() { busy = false; });
+                    },
+                    icon: busy ? const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.refresh_rounded),
+                  ),
                   IconButton(
                     tooltip: 'Sign out',
                     onPressed: () async {
                       await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut();
-                      if (mounted) setState(() { authorized = false; message = null; });
+                      if (mounted) setState(() { authorized = false; onboardingRequired = false; onboardingRequest = null; message = null; });
                     },
                     icon: const Icon(Icons.logout_rounded),
                   ),
+                ],
               ],
             ),
           ),
