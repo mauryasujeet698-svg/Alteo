@@ -223,13 +223,13 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
       if (locationAvailable) {
         final tLat = nextStop == 'destination' ? destinationLat : pickupLat;
         final tLon = nextStop == 'destination' ? destinationLon : pickupLon;
-        if (tLat != null && tLon != null) fallbackLine.addAll([LatLng(partnerLat!, partnerLon!), LatLng(tLat, tLon)]);
+        if (tLat != null && tLon != null) fallbackLine.addAll([LatLng(partnerLat, partnerLon), LatLng(tLat, tLon)]);
       } else if (pickupLat != null && pickupLon != null && destinationLat != null && destinationLon != null) {
         fallbackLine.addAll([LatLng(pickupLat, pickupLon), LatLng(destinationLat, destinationLon)]);
       }
     }
     final focus = locationAvailable
-        ? LatLng(partnerLat!, partnerLon!)
+        ? LatLng(partnerLat, partnerLon)
         : pickupLat != null && pickupLon != null
           ? LatLng(pickupLat, pickupLon)
           : destinationLat != null && destinationLon != null
