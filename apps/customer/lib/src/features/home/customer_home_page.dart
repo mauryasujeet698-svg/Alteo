@@ -73,16 +73,11 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
        await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
        if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
       }
-      await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => const CustomerAddressesPage()));
-      if (!mounted) return;
-      try {
-       final rows = await Supabase.instance.client.from('addresses').select('label,address_line1,locality,city,is_default').eq('user_id', Supabase.instance.client.auth.currentUser!.id).order('is_default', ascending: false).order('created_at', ascending: false).limit(1);
-       if (rows.isNotEmpty) {
-        final row = Map<String,dynamic>.from(rows.first);
-        final location = [row['label'], row['locality'], row['city']].where((x) => x != null && x.toString().trim().isNotEmpty).join(' · ');
-        if (location.isNotEmpty) await setAlteoDeliveryLocation(location);
-       }
-      } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load your saved address. Please try again.'))); }
+      final selectedAddress = await Navigator.of(context).push<Map<String, dynamic>>(MaterialPageRoute(builder: (_) => const CustomerAddressesPage(selectForDelivery: true)));
+      if (!mounted || selectedAddress == null) return;
+      final location = [selectedAddress['label'], selectedAddress['locality'], selectedAddress['city']]
+        .where((x) => x != null && x.toString().trim().isNotEmpty).join(' · ');
+      if (location.isNotEmpty) await setAlteoDeliveryLocation(location);
      }),
     ]),
    )),
