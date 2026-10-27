@@ -92,19 +92,21 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
+  Widget build(BuildContext context) => ValueListenableBuilder<String>(
+    valueListenable: alteoPreferredLanguage,
+    builder: (context, language, _) => Scaffold(
     body: IndexedStack(index: selected, children: pages),
     bottomNavigationBar: NavigationBar(
       selectedIndex: selected,
       onDestinationSelected: (i) => setState(() => selected = i),
       destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: 'Home'),
-        NavigationDestination(icon: Icon(Icons.restaurant_outlined), selectedIcon: Icon(Icons.restaurant_rounded), label: 'Food'),
-        NavigationDestination(icon: Icon(Icons.directions_car_outlined), selectedIcon: Icon(Icons.directions_car_filled_rounded), label: 'Ride'),
-        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: 'Profile'),
+        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: alteoText('Home')),
+        NavigationDestination(icon: Icon(Icons.restaurant_outlined), selectedIcon: Icon(Icons.restaurant_rounded), label: alteoText('Food')),
+        NavigationDestination(icon: Icon(Icons.directions_car_outlined), selectedIcon: Icon(Icons.directions_car_filled_rounded), label: alteoText('Ride')),
+        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: alteoText('Profile')),
       ],
     ),
-  );
+  ));
 }
 
 class PublicServiceFallback extends StatelessWidget {
