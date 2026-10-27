@@ -1033,6 +1033,50 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
+  Future<void> _captureDeliveryProof(Map<String, dynamic> job, ImageSource source) async {
+    try {
+      final file = await ImagePicker().pickImage(source: source, imageQuality: 82, maxWidth: 1600);
+      if (file == null) return;
+      notice('Uploading proof photo securely…');
+      final signingResponse = await Supabase.instance.client.functions.invoke(
+        'cloudinary-sign-upload',
+        body: <String, dynamic>{'asset_type': 'delivery_proof', 'delivery_job_id': job['id']},
+      );
+      if (signingResponse.status < 200 || signingResponse.status >= 300) {
+        final data = signingResponse.data;
+        final message = data is Map ? data['error']?.toString() : null;
+        throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signingResponse.status.toString());
+      }
+      final signed = Map<String, dynamic>.from(signingResponse.data as Map);
+      final uri = Uri.https('api.cloudinary.com', '/v1_1/' + signed['cloud_name'].toString() + '/image/upload');
+      final upload = http.MultipartRequest('POST', uri);
+      upload.fields['api_key'] = signed['api_key'].toString();
+      upload.fields['timestamp'] = signed['timestamp'].toString();
+      upload.fields['folder'] = signed['folder'].toString();
+      upload.fields['type'] = signed['type'].toString();
+      if (signed['public_id'] is String) upload.fields['public_id'] = signed['public_id'] as String;
+      upload.fields['signature'] = signed['signature'].toString();
+      upload.files.add(await http.MultipartFile.fromPath('file', file.path));
+      final response = await upload.send().timeout(const Duration(seconds: 60));
+      final responseBody = await response.stream.bytesToString();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+      }
+      final result = jsonDecode(responseBody);
+      if (result is! Map || result['public_id'] is! String) {
+        throw StateError('Cloudinary did not return a proof media reference.');
+      }
+      await Supabase.instance.client.rpc('partner_record_delivery_proof', params: {
+        'p_delivery_job_id': job['id'],
+        'p_cloudinary_public_id': result['public_id'],
+      });
+      notice('Proof of delivery saved.');
+      if (mounted) setState(() {});
+    } catch (e) {
+      notice('Could not attach proof: ' + e.toString());
+    }
+  }
+
   Widget _sellerDashboard() => Scaffold(
     appBar: _appBar('Seller operations'),
     body: FutureBuilder<Map<String, dynamic>?>(future: sellerProfile, builder: (context, profile) {
