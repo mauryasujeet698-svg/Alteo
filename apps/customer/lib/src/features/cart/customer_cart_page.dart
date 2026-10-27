@@ -139,6 +139,13 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     ],
    )));
    if (confirmed != true || !mounted) return;
+   if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
+       addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
+       stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete all delivery details before continuing.')));
+    return;
+   }
+
    if (selectedLatitude == null || selectedLongitude == null) {
     final addressQuery = [addressLine.text.trim(), city.text.trim(), stateName.text.trim(), postalCode.text.trim()]
       .where((part) => part.isNotEmpty).join(', ');
@@ -148,13 +155,6 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
       selectedLatitude = coordinates[1];
     }
    }
-   if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
-       addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
-       stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete all delivery details before continuing.')));
-    return;
-   }
-
    final client = Supabase.instance.client;
    final user = client.auth.currentUser;
    if (user == null) {
@@ -172,6 +172,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
       'city': city.text.trim(),
       'state': stateName.text.trim(),
       'postal_code': postalCode.text.trim(),
+      'latitude': selectedLatitude,
+      'longitude': selectedLongitude,
       'is_default': false,
      });
     } catch (e) {
