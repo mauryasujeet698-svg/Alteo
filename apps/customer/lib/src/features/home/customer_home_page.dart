@@ -25,6 +25,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  late Future<List<CustomerProduct>> products;
  String kind='all';
  Map<String, int> cartQuantities = <String, int>{};
+ int get cartItemCount => cartQuantities.values.fold<int>(0, (sum, quantity) => sum + quantity);
  final Set<String> busyCartProductIds = <String>{};
  final stt.SpeechToText speech = stt.SpeechToText();
  final PageController bannerController = PageController(viewportFraction: .91);
@@ -41,7 +42,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
  }
  void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
- @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable:alteoPreferredLanguage,builder:(context,language,_)=>SafeArea(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
+ @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable:alteoPreferredLanguage,builder:(context,language,_)=>SafeArea(child: Stack(children:[Positioned.fill(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
   SliverToBoxAdapter(child:bannerList()),
   SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,8,18,22),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart)),decoration:InputDecoration(hintText:alteoText('Search items, food and essentials'),prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
@@ -58,8 +59,30 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    if(items.isEmpty)return empty('Your marketplace is getting ready','Active products will appear here automatically when sellers publish them.');
    return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
   })),
-  const SliverToBoxAdapter(child:SizedBox(height:20))
- ]))));
+  const SliverToBoxAdapter(child:SizedBox(height:76))
+ ]))), if (cartItemCount > 0) Positioned(
+   right: 12,
+   bottom: 12,
+   child: Material(
+     color: const Color(0xFF064E3B),
+     borderRadius: BorderRadius.circular(18),
+     elevation: 7,
+     child: InkWell(
+       borderRadius: BorderRadius.circular(18),
+       onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerCartPage())).then((_) => _reloadCartQuantities()),
+       child: Padding(
+         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+         child: Row(mainAxisSize: MainAxisSize.min, children: [
+           const Icon(Icons.shopping_bag_outlined, color: Colors.white, size: 20),
+           const SizedBox(width: 8),
+           Text('View cart · $cartItemCount', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900)),
+           const SizedBox(width: 8),
+           const Icon(Icons.arrow_forward_rounded, color: Colors.white, size: 18),
+         ]),
+       ),
+     ),
+   ),
+ )])));
  Future<void> _chooseLocation() async {
   await showModalBottomSheet<void>(
    context: context, showDragHandle: true,
@@ -154,9 +177,13 @@ Widget header() => Padding(
         ),
       ),
       IconButton(
-        tooltip: 'Cart',
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerCartPage())),
-        icon: const Icon(Icons.shopping_cart_outlined, size: 24),
+        tooltip: cartItemCount == 0 ? 'Cart' : 'Cart · $cartItemCount item(s)',
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerCartPage())).then((_) => _reloadCartQuantities()),
+        icon: Badge(
+          isLabelVisible: cartItemCount > 0,
+          label: Text(cartItemCount > 99 ? '99+' : '$cartItemCount'),
+          child: const Icon(Icons.shopping_cart_outlined, size: 24),
+        ),
       ),
       IconButton(
         tooltip: 'Notifications',
@@ -324,21 +351,31 @@ Future<void> _changeQuantity(CustomerProduct p, int delta) async {
     if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
     await _reloadCartQuantities();
   }
-  final next = ((cartQuantities[p.id] ?? 0) + delta).clamp(0, 1000000).toInt();
-  if (!mounted) return;
-  setState(() => busyCartProductIds.add(p.id));
+  final previous = cartQuantities[p.id] ?? 0;
+  final next = (previous + delta).clamp(0, 99).toInt();
+  if (!mounted || next == previous) return;
+  // Optimistic UI: the cart badge and floating cart chip react immediately.
+  setState(() {
+    busyCartProductIds.add(p.id);
+    if (next == 0) {
+      cartQuantities.remove(p.id);
+    } else {
+      cartQuantities[p.id] = next;
+    }
+  });
   try {
     await content!.setCartQuantity(p.id, next);
-    if (!mounted) return;
-    setState(() {
-      if (next == 0) {
-        cartQuantities.remove(p.id);
-      } else {
-        cartQuantities[p.id] = next;
-      }
-    });
-  } catch (e) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update quantity: $e')));
+  } catch (_) {
+    if (mounted) {
+      setState(() {
+        if (previous == 0) {
+          cartQuantities.remove(p.id);
+        } else {
+          cartQuantities[p.id] = previous;
+        }
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not update your cart. Please try again.')));
+    }
   } finally {
     if (mounted) setState(() => busyCartProductIds.remove(p.id));
   }
