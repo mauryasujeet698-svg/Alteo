@@ -97,7 +97,7 @@ class _CustomerAddressesPageState extends State<CustomerAddressesPage> {
         await _refresh();
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not save address: ${e.toString()}')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('We could not save that address. Check the details and try again.')));
     } finally {
       saving = false;
       label.dispose(); recipient.dispose(); phone.dispose(); line.dispose();
@@ -114,7 +114,7 @@ class _CustomerAddressesPageState extends State<CustomerAddressesPage> {
       await client.from('addresses').update({'is_default': true}).eq('id', address['id']).eq('user_id', user.id);
       await _refresh();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update default address: ${e.toString()}')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('We could not update your default address. Please try again.')));
     }
   }
 
@@ -132,7 +132,7 @@ class _CustomerAddressesPageState extends State<CustomerAddressesPage> {
       await client.from('addresses').delete().eq('id', address['id']).eq('user_id', client.auth.currentUser!.id);
       await _refresh();
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not delete address: ${e.toString()}')));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('We could not delete that address. Please try again.')));
     }
   }
 
