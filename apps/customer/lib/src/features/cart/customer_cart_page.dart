@@ -89,7 +89,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
         addressLine.text = place ?? 'Current location (address details below)';
         setDialogState(() {});
        } catch (e) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not get current location: $e')));
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Could not get your current location. Check location permission and try again.')));
        } finally { setDialogState(() => locating = false); }
       },
       icon: locating ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location),
@@ -179,7 +179,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     } catch (e) {
      if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-       SnackBar(content: Text('Address could not be saved. Your order was not submitted. Please check your connection and address permissions, then try again. $e')),
+       const SnackBar(content: Text('Address could not be saved. Your order was not submitted. Check your connection and try again.')),
       );
      }
      return;
