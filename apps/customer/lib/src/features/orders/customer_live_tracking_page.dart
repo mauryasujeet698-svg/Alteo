@@ -127,15 +127,26 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
         endLatitude: targetLat,
         profile: 'driving',
       );
-      if (!mounted || route == null) return;
+      if (!mounted) return;
+      _lastRouteKey = routeKey;
+      _lastRouteAt = now;
+      if (route == null) {
+        // Cache the failure briefly and discard stale route lines/ETAs. The map
+        // keeps its straight-line fallback and surfaces MapboxService.lastError.
+        setState(() {
+          _routePoints = <LatLng>[];
+          _routeDurationSeconds = null;
+          _routeDistanceMeters = null;
+          _routeIsPartnerToStop = hasLivePartnerLocation;
+        });
+        return;
+      }
       setState(() {
         _routePoints = route.coordinates.map((p) => LatLng(p[1], p[0])).toList();
         _routeDurationSeconds = route.durationSeconds;
         _routeDistanceMeters = route.distanceMeters;
         _routeIsPartnerToStop = hasLivePartnerLocation;
       });
-      _lastRouteKey = routeKey;
-      _lastRouteAt = now;
     } finally {
       _routeInFlight = false;
     }
