@@ -564,22 +564,70 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       notice('This approval request is missing required details.');
       return;
     }
+    String? rejectionReason;
+    if (!approve) {
+      final controller = TextEditingController();
+      try {
+        final confirmed = await showDialog<bool>(context: context, builder: (dc) => AlertDialog(
+          title: const Text('Reject onboarding'),
+          content: TextField(controller: controller, maxLines: 3, decoration: const InputDecoration(labelText: 'Reason for rejection', hintText: 'Tell the applicant what needs to be corrected', border: OutlineInputBorder())),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Reject application')),
+          ],
+        ));
+        if (confirmed != true) return;
+        rejectionReason = controller.text.trim().isEmpty ? 'Please review your details and contact Alteo support if you need help.' : controller.text.trim();
+      } finally { controller.dispose(); }
+    }
     try {
       if (approve) {
-        await client.rpc('admin_grant_user_role', params: {
-          'p_user_id': userId,
-          'p_role': requestedRole,
-        });
+        await client.rpc('admin_grant_user_role', params: {'p_user_id': userId, 'p_role': requestedRole});
       }
       await client.from('role_requests').update({
         'status': approve ? 'approved' : 'rejected',
         'reviewed_at': DateTime.now().toUtc().toIso8601String(),
         'reviewed_by': user?.id,
+        'rejection_reason': approve ? null : rejectionReason,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }).eq('id', requestId);
-      notice(approve ? 'Role approved. The user can sign in again to access the app.' : 'Role request rejected.');
+      notice(approve ? 'Role approved. This role is available only in its separate Alteo app.' : 'Onboarding rejected. The applicant can correct details and resubmit.');
     } catch (e) {
       notice('Could not review role request: $e');
     }
+  }
+
+  Future<void> showPartnerApplication(Map<String, dynamic> request) async {
+    final rawData = request['application_data'];
+    final data = rawData is Map ? Map<String, dynamic>.from(rawData) : <String, dynamic>{};
+    String? photoUrl;
+    final photoPath = request['profile_photo_path']?.toString();
+    if (photoPath != null && photoPath.isNotEmpty) {
+      try { photoUrl = await client.storage.from('partner-onboarding').createSignedUrl(photoPath, 300); } catch (_) {}
+    }
+    if (!mounted) return;
+    final details = <String>[
+      'Role: ${(request['requested_role'] ?? 'unknown').toString().replaceAll('_', ' ')}',
+      'Name: ${request['display_name'] ?? 'Not provided'}',
+      'Email: ${request['email'] ?? 'Not provided'}',
+      'Mobile: ${request['phone'] ?? 'Not provided'}',
+      ...data.entries.map((e) => '${e.key.replaceAll('_', ' ')}: ${e.value}'),
+    ].join('\n');
+    await showDialog<void>(context: context, builder: (dc) => AlertDialog(
+      title: const Text('Partner onboarding details'),
+      content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
+        mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          if (photoUrl != null) Center(child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(photoUrl!, height: 150, width: 150, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 80)))),
+          if (photoUrl != null) const SizedBox(height: 14),
+          SelectableText(details, style: const TextStyle(height: 1.6)),
+          if ((request['rejection_reason']?.toString().isNotEmpty ?? false)) ...[
+            const SizedBox(height: 12),
+            Text('Previous rejection reason: ${request['rejection_reason']}', style: const TextStyle(color: Colors.red)),
+          ],
+        ],
+      ))),
+      actions: [TextButton(onPressed: () => Navigator.pop(dc), child: const Text('Close'))],
+    ));
   }
 
   Widget _roleRequestsSection() => Column(
@@ -603,10 +651,12 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               elevation: 0,
               margin: const EdgeInsets.only(bottom: 8),
               child: ListTile(
+                onTap: () => showPartnerApplication(request),
                 leading: const CircleAvatar(child: Icon(Icons.person_add_alt_1_rounded)),
                 title: Text(identity, style: const TextStyle(fontWeight: FontWeight.w800)),
-                subtitle: Text('${role.replaceAll('_', ' ')} · ${email ?? _short(request['user_id']?.toString() ?? '')}'),
+                subtitle: Text('${role.replaceAll('_', ' ')} · ${request['phone'] ?? 'No mobile number'} · ${email ?? _short(request['user_id']?.toString() ?? '')}'),
                 trailing: Wrap(spacing: 0, children: [
+                  IconButton(tooltip: 'View application', onPressed: () => showPartnerApplication(request), icon: const Icon(Icons.visibility_outlined)),
                   IconButton(tooltip: 'Approve request', onPressed: () => reviewRoleRequest(request, approve: true), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
                   IconButton(tooltip: 'Reject request', onPressed: () => reviewRoleRequest(request, approve: false), icon: const Icon(Icons.cancel_outlined, color: Colors.red)),
                 ]),
