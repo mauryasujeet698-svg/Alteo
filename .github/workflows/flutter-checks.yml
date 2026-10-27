@@ -451,6 +451,25 @@ jobs:
               gradle.write_text(source)
           print("Enabled legacy JNI packaging in", gradle)
           PY
+      - name: Verify Mapbox public token configuration
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$MAPBOX_PUBLIC_TOKEN" ]; then
+            echo "::warning::MAPBOX_PUBLIC_TOKEN is not configured. Customer ride maps will use the fallback map, and address search/road ETAs will remain unavailable. Add a restricted public Mapbox pk. token in GitHub Actions secrets."
+            exit 0
+          fi
+          case "$MAPBOX_PUBLIC_TOKEN" in
+            pk.*) echo "Mapbox public token is present (value hidden)." ;;
+            *) echo "::warning::MAPBOX_PUBLIC_TOKEN does not look like a Mapbox public pk. token. Value hidden; check the Actions secret." ; exit 0 ;;
+          esac
+          STATUS=$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --get --data-urlencode "access_token=$MAPBOX_PUBLIC_TOKEN" "https://api.mapbox.com/styles/v1/mapbox/streets-v12" || true)
+          if [ "$STATUS" != "200" ]; then
+            echo "::warning::Mapbox token check returned HTTP $STATUS. Check token scopes (styles:read/styles:tiles, geocoding:read, directions:read) and account access. Token value is hidden."
+          else
+            echo "Mapbox Streets style endpoint is accessible with the configured public token."
+          fi
       - name: Resolve dependencies
         run: flutter pub get
       - name: Analyze Dart
