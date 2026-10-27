@@ -324,7 +324,7 @@ Future<void> _changeQuantity(CustomerProduct p, int delta) async {
     if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
     await _reloadCartQuantities();
   }
-  final next = ((cartQuantities[p.id] ?? 0) + delta).clamp(0, 1000000);
+  final next = ((cartQuantities[p.id] ?? 0) + delta).clamp(0, 1000000).toInt();
   if (!mounted) return;
   setState(() => busyCartProductIds.add(p.id));
   try {
