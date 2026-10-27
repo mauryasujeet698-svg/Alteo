@@ -66,7 +66,7 @@ class _CustomerAddressesPageState extends State<CustomerAddressesPage> {
               )),
             ],
           ))),
-        ),
+        )),
       );
       if (result != true || !mounted) return;
       setState(() => saving = true);
