@@ -26,6 +26,9 @@ class _RideBookingPageState extends State<RideBookingPage> {
   bool searchingDestination = false;
   bool requestingRide = false;
   Map<String, dynamic>? fareQuote;
+  MapboxRouteResult? routeResult;
+  List<LatLng> routeCoordinates = <LatLng>[];
+  bool calculatingRoute = false;
 
   @override
   void initState() {
@@ -67,12 +70,13 @@ class _RideBookingPageState extends State<RideBookingPage> {
       final address = await MapboxService.reverseGeocode(position.longitude, position.latitude);
       if (!mounted) return;
       setState(() {
+        currentCoordinates = [position.longitude, position.latitude];
         pickupCoordinates = [position.longitude, position.latitude];
         pickupController.text = address ?? 'Current location';
       });
       await _refreshQuote();
-      if (address == null && !MapboxService.isConfigured) {
-        _message('Current location is selected. Add a restricted Mapbox public token to show a readable address and search destinations.');
+      if (address == null && MapboxService.isConfigured && MapboxService.lastError != null && !silent) {
+        _message(MapboxService.lastError!);
       }
     } catch (_) {
       if (!silent) _message('Could not get your current location. Try again or enter a pickup address.');
@@ -132,12 +136,93 @@ class _RideBookingPageState extends State<RideBookingPage> {
       });
       if (!mounted) return;
       setState(() => fareQuote = Map<String, dynamic>.from(response as Map));
+      await _refreshRoute();
     } catch (_) {
       if (mounted) setState(() => fareQuote = {
         'enabled': false,
         'message': 'Fare estimate is unavailable. Check that ride pricing and service availability are configured in Admin.',
       });
+      await _refreshRoute();
     }
+  }
+
+  Future<void> _refreshRoute() async {
+    final pickup = pickupCoordinates;
+    final destination = destinationCoordinates;
+    if (pickup == null || destination == null) {
+      if (mounted) setState(() { routeResult = null; routeCoordinates = <LatLng>[]; calculatingRoute = false; });
+      return;
+    }
+    if (!MapboxService.isConfigured) {
+      if (mounted) setState(() { routeResult = null; routeCoordinates = <LatLng>[]; calculatingRoute = false; });
+      return;
+    }
+    if (mounted) setState(() => calculatingRoute = true);
+    final route = await MapboxService.directions(
+      startLongitude: pickup[0],
+      startLatitude: pickup[1],
+      endLongitude: destination[0],
+      endLatitude: destination[1],
+      profile: 'driving',
+    );
+    if (!mounted) return;
+    setState(() {
+      routeResult = route;
+      routeCoordinates = route?.coordinates.map((point) => LatLng(point[1], point[0])).toList() ?? <LatLng>[];
+      calculatingRoute = false;
+    });
+    if (route == null && MapboxService.lastError != null) {
+      _message(MapboxService.lastError!);
+    }
+  }
+
+  Widget _mapboxStatusMessage() {
+    final message = !MapboxService.isConfigured
+        ? MapboxService.configurationMessage
+        : MapboxService.lastError;
+    if (message == null || message.isEmpty) return const SizedBox.shrink();
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF4E5),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: const Color(0xFFF0D9B3)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.info_outline_rounded, color: Color(0xFF9A5C13)),
+        const SizedBox(width: 9),
+        Expanded(child: Text(message, style: const TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF75450D)))),
+      ]),
+    );
+  }
+
+  Widget _etaSummary() {
+    final pickup = pickupCoordinates;
+    final destination = destinationCoordinates;
+    if (pickup == null || destination == null) return const SizedBox.shrink();
+    final quoteDistance = (fareQuote?['estimated_distance_m'] as num?)?.toDouble();
+    final distanceMeters = routeResult?.distanceMeters ?? quoteDistance ??
+      MapboxService.straightLineDistanceMeters(pickup[1], pickup[0], destination[1], destination[0]);
+    final durationSeconds = routeResult?.durationSeconds ?? (distanceMeters / 5.5) + 180;
+    final minutes = (durationSeconds / 60).ceil();
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: const Color(0xFFE4F4EA), borderRadius: BorderRadius.circular(16)),
+      child: Row(children: [
+        const Icon(Icons.schedule_rounded, color: Color(0xFF176B57), size: 26),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(calculatingRoute ? 'Calculating road ETA…' : routeResult != null ? 'Estimated travel time' : 'Approximate travel time',
+            style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+          Text('About $minutes min · ${(distanceMeters / 1000).toStringAsFixed(1)} km',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+          if (routeResult == null)
+            const Text('This is a rough estimate, not a road-routed ETA.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D))),
+        ])),
+      ]),
+    );
   }
 
   Future<void> _requestRide() async {
@@ -196,6 +281,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         padding: const EdgeInsets.fromLTRB(18, 8, 18, 26),
         children: [
           _mapPreview(),
+          _mapboxStatusMessage(),
           const SizedBox(height: 14),
           Container(
             padding: const EdgeInsets.all(14),
@@ -226,13 +312,6 @@ class _RideBookingPageState extends State<RideBookingPage> {
               ]),
             ]),
           ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: locating ? null : _useCurrentLocation,
-            icon: locating ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.gps_fixed_rounded),
-            label: const Text('Use current location for pickup'),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), alignment: Alignment.centerLeft),
-          ),
           const SizedBox(height: 18),
           const Text('Choose your ride', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
@@ -245,6 +324,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
           ]),
           const SizedBox(height: 14),
           _fareCard(),
+          _etaSummary(),
           const SizedBox(height: 14),
           FilledButton(
             onPressed: requestingRide || locating || searchingPickup || searchingDestination || fareQuote?['enabled'] != true ? null : _requestRide,
@@ -372,12 +452,9 @@ class _RideBookingPageState extends State<RideBookingPage> {
             options: MapOptions(initialCenter: center, initialZoom: focus == null ? 4.3 : 14.5),
             children: [
               TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer'),
-              if (pickup != null && destination != null)
+              if (routeCoordinates.length >= 2)
                 PolylineLayer(polylines: [
-                  Polyline(
-                    points: [LatLng(pickup[1], pickup[0]), LatLng(destination[1], destination[0])],
-                    strokeWidth: 4, color: const Color(0xFF176B57),
-                  ),
+                  Polyline(points: routeCoordinates, strokeWidth: 4, color: const Color(0xFF176B57)),
                 ]),
               if (markers.isNotEmpty) MarkerLayer(markers: markers),
               RichAttributionWidget(attributions: [
@@ -415,7 +492,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(color: Colors.white.withValues(alpha: .92), borderRadius: BorderRadius.circular(8)),
-              child: Text(MapboxService.isConfigured ? 'Mapbox' : 'Map preview', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+              child: Text(!MapboxService.isConfigured ? 'Map preview · token missing' : routeResult != null ? 'Mapbox road route' : 'Mapbox enabled', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
             ),
           ),
         ]),
