@@ -2,9 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/customer_content_service.dart';
+import '../../services/customer_preferences.dart';
+import '../../services/mapbox_service.dart';
+import '../addresses/customer_addresses_page.dart';
 import '../services/service_browse_page.dart';
 import '../auth/customer_auth_page.dart';
 import '../cart/customer_cart_page.dart';
@@ -54,11 +58,68 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   })),
   const SliverToBoxAdapter(child:SizedBox(height:20))
  ])));
+ Future<void> _chooseLocation() async {
+  await showModalBottomSheet<void>(
+   context: context, showDragHandle: true,
+   builder: (sheetContext) => SafeArea(child: Padding(
+    padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+     const Align(alignment: Alignment.centerLeft, child: Text('Choose delivery location', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
+     const SizedBox(height: 12),
+     ListTile(leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)), title: const Text('Use current location'), subtitle: const Text('Detect your location with GPS'), onTap: () async { Navigator.pop(sheetContext); await _useCurrentLocation(); }),
+     ListTile(leading: const Icon(Icons.bookmark_border_rounded, color: Color(0xFF176B57)), title: const Text('Choose saved address'), subtitle: const Text('Select from your saved delivery addresses'), onTap: () async {
+      Navigator.pop(sheetContext);
+      if (Supabase.instance.client.auth.currentUser == null) {
+       await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
+       if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
+      }
+      await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) => const CustomerAddressesPage()));
+      if (!mounted) return;
+      try {
+       final rows = await Supabase.instance.client.from('addresses').select('label,address_line1,locality,city,is_default').eq('user_id', Supabase.instance.client.auth.currentUser!.id).order('is_default', ascending: false).order('created_at', ascending: false).limit(1);
+       if (rows.isNotEmpty) {
+        final row = Map<String,dynamic>.from(rows.first);
+        final location = [row['label'], row['locality'], row['city']].where((x) => x != null && x.toString().trim().isNotEmpty).join(' · ');
+        if (location.isNotEmpty) await setAlteoDeliveryLocation(location);
+       }
+      } catch (_) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not load your saved address. Please try again.'))); }
+     }),
+    ]),
+   )),
+  );
+ }
+
+ Future<void> _useCurrentLocation() async {
+  try {
+   final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+   if (!serviceEnabled) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Turn on device location services, then try again.')));
+    return;
+   }
+   var permission = await Geolocator.checkPermission();
+   if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+   if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(permission == LocationPermission.deniedForever ? 'Location permission is blocked. Enable it in app settings.' : 'Location permission is needed to detect your delivery location.')));
+    return;
+   }
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Detecting your location…')));
+   final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)));
+   final readable = await MapboxService.reverseGeocode(position.longitude, position.latitude);
+   final label = readable?.split(',').take(2).join(',').trim();
+   final fallback = 'Current location (' + position.latitude.toStringAsFixed(4) + ', ' + position.longitude.toStringAsFixed(4) + ')';
+   await setAlteoDeliveryLocation(label?.isNotEmpty == true ? label! : fallback);
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery location updated.')));
+  } catch (_) {
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not detect location. Check permission and try again.')));
+  }
+ }
+
  Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,8,18,14),child:Row(children:[
-  Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.explore_rounded,color:Colors.white,size:27)),
-  const SizedBox(width:11),const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('DELIVERING TO',style:TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),SizedBox(height:3),Text('Choose your location  ⌄',style:TextStyle(fontSize:14,fontWeight:FontWeight.w800))])),
+  Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Stack(alignment:Alignment.center,children:[Text('A',style:TextStyle(fontSize:31,fontWeight:FontWeight.w900,color:Colors.white)),Positioned(right:10,top:9,child:CircleAvatar(radius:3.5,backgroundColor:Color(0xFFFFA21A)))])),
+  const SizedBox(width:11),
+  Expanded(child: InkWell(onTap:_chooseLocation,borderRadius:BorderRadius.circular(12),child:Padding(padding:const EdgeInsets.symmetric(vertical:6),child:ValueListenableBuilder<String>(valueListenable:alteoDeliveryLocation,builder:(context,location,_)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('DELIVERING TO',style:TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),const SizedBox(height:3),Row(children:[Expanded(child:Text(location, maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:14,fontWeight:FontWeight.w800))),const Icon(Icons.keyboard_arrow_down_rounded,size:20)])])))),
   IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
-  IconButton(onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
+  IconButton(tooltip:'Notifications',onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
  ]));
  Widget bannerList() => FutureBuilder<List<CustomerBanner>>(
   future: banners,
