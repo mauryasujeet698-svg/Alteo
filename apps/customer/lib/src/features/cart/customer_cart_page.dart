@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
+import 'package:geolocator/geolocator.dart';
+import '../../services/mapbox_service.dart';
 
 class CustomerCartPage extends StatefulWidget {
  const CustomerCartPage({super.key});
@@ -27,22 +29,77 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   final city = TextEditingController();
   final stateName = TextEditingController();
   final postalCode = TextEditingController();
+  final label = TextEditingController(text: 'Home');
+  bool saveAddress = false;
+  bool locating = false;
+  List<Map<String, dynamic>> savedAddresses = [];
+  Map<String, dynamic>? selectedAddress;
   try {
-   final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
+   final userForAddresses = Supabase.instance.client.auth.currentUser;
+   if (userForAddresses != null) {
+    try {
+     final rows = await Supabase.instance.client.from('addresses').select('id,label,recipient_name,phone,address_line1,locality,city,state,postal_code,latitude,longitude,is_default').eq('user_id', userForAddresses.id).order('is_default', ascending: false);
+     savedAddresses = (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
+    } catch (_) { /* Manual entry remains available if saved addresses cannot load. */ }
+   }
+   final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) => AlertDialog(
     title: const Text('Delivery details'),
     content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+     if (savedAddresses.isNotEmpty) DropdownButtonFormField<String>(
+      value: selectedAddress?['id']?.toString(),
+      decoration: const InputDecoration(labelText: 'Use a saved address'),
+      items: savedAddresses.map((address) => DropdownMenuItem<String>(
+       value: address['id'].toString(),
+       child: Text('${address['label'] ?? 'Saved address'}', overflow: TextOverflow.ellipsis),
+      )).toList(),
+      onChanged: (id) {
+       final match = savedAddresses.where((address) => address['id'].toString() == id).firstOrNull;
+       if (match == null) return;
+       setDialogState(() {
+        selectedAddress = match;
+        recipient.text = (match['recipient_name'] ?? '').toString();
+        phone.text = (match['phone'] ?? '').toString();
+        addressLine.text = (match['address_line1'] ?? '').toString();
+        city.text = (match['city'] ?? '').toString();
+        stateName.text = (match['state'] ?? '').toString();
+        postalCode.text = (match['postal_code'] ?? '').toString();
+       });
+      },
+     ),
+     Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+      onPressed: locating ? null : () async {
+       setDialogState(() => locating = true);
+       try {
+        var permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+         throw StateError('Allow location access in Android settings to use your current location.');
+        }
+        final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)).timeout(const Duration(seconds: 15));
+        final place = await MapboxService.reverseGeocode(position.longitude, position.latitude);
+        addressLine.text = place ?? '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+        setDialogState(() {});
+       } catch (e) {
+        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not get current location: $e')));
+       } finally { setDialogState(() => locating = false); }
+      },
+      icon: locating ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location),
+      label: Text(locating ? 'Getting location…' : 'Use current location'),
+     )),
      TextField(controller: recipient, decoration: const InputDecoration(labelText: 'Recipient name')),
      TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number')),
      TextField(controller: addressLine, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'House and street')),
      TextField(controller: city, decoration: const InputDecoration(labelText: 'City')),
      TextField(controller: stateName, decoration: const InputDecoration(labelText: 'State')),
      TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN code')),
+     TextField(controller: label, decoration: const InputDecoration(labelText: 'Save address as (optional)')),
+     CheckboxListTile(contentPadding: EdgeInsets.zero, value: saveAddress, onChanged: (value) => setDialogState(() => saveAddress = value ?? false), title: const Text('Save these details for next time')),
     ])),
     actions: [
      TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
      FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create order')),
     ],
-   ));
+   )));
    if (confirmed != true || !mounted) return;
    if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
        addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
@@ -56,6 +113,23 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    if (user == null) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in is required to place an order. You can keep exploring without signing in.')));
     return;
+   }
+   if (saveAddress && selectedAddress == null) {
+    try {
+     await client.from('addresses').insert({
+      'user_id': user.id,
+      'label': label.text.trim().isEmpty ? 'Home' : label.text.trim(),
+      'recipient_name': recipient.text.trim(),
+      'phone': phone.text.trim(),
+      'address_line1': addressLine.text.trim(),
+      'city': city.text.trim(),
+      'state': stateName.text.trim(),
+      'postal_code': postalCode.text.trim(),
+      'is_default': false,
+     });
+    } catch (e) {
+     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Order can continue, but the address could not be saved: $e')));
+    }
    }
    final cart = await client.from('carts').select('id').eq('customer_id', user.id).eq('status', 'active').maybeSingle();
    if (cart == null) {
@@ -114,6 +188,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    city.dispose();
    stateName.dispose();
    postalCode.dispose();
+   label.dispose();
   }
  }
 
