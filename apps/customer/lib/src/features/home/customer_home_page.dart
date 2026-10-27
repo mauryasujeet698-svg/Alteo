@@ -24,11 +24,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  late Future<List<CustomerBanner>> banners;
  late Future<List<CustomerProduct>> products;
  String kind='all';
+ Map<String, int> cartQuantities = <String, int>{};
+ final Set<String> busyCartProductIds = <String>{};
  final stt.SpeechToText speech = stt.SpeechToText();
  final PageController bannerController = PageController(viewportFraction: .91);
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
- @override void initState(){super.initState();if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});}catch(_) {}}}
+ @override void initState(){super.initState();if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});}catch(_) {}}}
  @override void dispose(){bannerSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
@@ -292,32 +294,121 @@ Widget header() => Padding(
  Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(alteoText(n),style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
  Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(alteoText(label)),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
  Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
- Future<void> addToCart(CustomerProduct p) async {
-  if(Supabase.instance.client.auth.currentUser==null){await Navigator.of(context).push<bool>(MaterialPageRoute(builder:(_)=>const CustomerAuthPage()));if(!mounted||Supabase.instance.client.auth.currentUser==null)return;}
-  try{await content!.addToCart(p.id);if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('${p.name} added to your cart.')));}
-  catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not add item: $e')));}
- }
- Widget productCard(CustomerProduct p)=>Container(
-  decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE7EBE7))),
-  child:Material(
-   color:Colors.transparent,
-   borderRadius:BorderRadius.circular(18),
-   child:InkWell(
-    borderRadius:BorderRadius.circular(18),
-    onTap:()=>_openProductDetails(p),
-    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-     Expanded(child:ClipRRect(borderRadius:const BorderRadius.vertical(top:Radius.circular(17)),child:SizedBox(width:double.infinity,child:p.imageUrl.isEmpty?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))))))),
-     Padding(padding:const EdgeInsets.fromLTRB(11,10,11,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-      Text(p.name,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w800,height:1.25)),
-      const SizedBox(height:5),
-      Text(p.priceLabel,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),
-      const SizedBox(height:8),
-      SizedBox(width:double.infinity,child:OutlinedButton(onPressed:()=>addToCart(p),style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:8),minimumSize:Size.zero),child:const Text('Add to cart')))
-     ]))
-    ]),
-   ),
-  ),
- );
+ Future<void> _reloadCartQuantities() async {
+  final client = Supabase.instance.client;
+  if (client.auth.currentUser == null || content == null) {
+    if (mounted) setState(() => cartQuantities = <String, int>{});
+    return;
+  }
+  try {
+    final quantities = await content!.loadCartQuantities().timeout(const Duration(seconds: 12));
+    if (mounted) setState(() => cartQuantities = quantities);
+  } catch (_) {
+    // A cart read failure should not prevent catalogue browsing.
+  }
+}
+
+Future<void> addToCart(CustomerProduct p) async {
+  if (Supabase.instance.client.auth.currentUser == null) {
+    await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
+    if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
+    await _reloadCartQuantities();
+  }
+  await _changeQuantity(p, 1);
+}
+
+Future<void> _changeQuantity(CustomerProduct p, int delta) async {
+  if (busyCartProductIds.contains(p.id)) return;
+  if (Supabase.instance.client.auth.currentUser == null) {
+    await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
+    if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
+    await _reloadCartQuantities();
+  }
+  final next = ((cartQuantities[p.id] ?? 0) + delta).clamp(0, 1000000);
+  if (!mounted) return;
+  setState(() => busyCartProductIds.add(p.id));
+  try {
+    await content!.setCartQuantity(p.id, next);
+    if (!mounted) return;
+    setState(() {
+      if (next == 0) {
+        cartQuantities.remove(p.id);
+      } else {
+        cartQuantities[p.id] = next;
+      }
+    });
+  } catch (e) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not update quantity: $e')));
+  } finally {
+    if (mounted) setState(() => busyCartProductIds.remove(p.id));
+  }
+}
+
+Widget productCard(CustomerProduct p) {
+  final quantity = cartQuantities[p.id] ?? 0;
+  final busy = busyCartProductIds.contains(p.id);
+  return Container(
+    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFE7EBE7))),
+    child: Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: () => _openProductDetails(p),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(17)),
+              child: SizedBox(
+                width: double.infinity,
+                child: p.imageUrl.isEmpty
+                  ? Container(color: const Color(0xFFEAF2EC), child: const Icon(Icons.shopping_bag_outlined, size: 48, color: Color(0xFF176B57)))
+                  : Image.network(p.imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFFEAF2EC), child: const Icon(Icons.shopping_bag_outlined, size: 48, color: Color(0xFF176B57)))),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(11, 10, 11, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, height: 1.25)),
+              const SizedBox(height: 5),
+              Text(p.priceLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: quantity == 0
+                  ? IconButton.filledTonal(
+                      tooltip: 'Add one to cart',
+                      onPressed: busy ? null : () => _changeQuantity(p, 1),
+                      icon: busy ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_rounded),
+                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFD8F1E5), foregroundColor: const Color(0xFF176B57)),
+                    )
+                  : Container(
+                      decoration: BoxDecoration(color: const Color(0xFFE2F4EA), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFB8DDCB))),
+                      child: Row(mainAxisSize: MainAxisSize.min, children: [
+                        IconButton(
+                          tooltip: 'Remove one',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: busy ? null : () => _changeQuantity(p, -1),
+                          icon: const Icon(Icons.remove_rounded),
+                        ),
+                        SizedBox(width: 22, child: Center(child: Text('$quantity', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF176B57))))),
+                        IconButton(
+                          tooltip: 'Add one',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: busy ? null : () => _changeQuantity(p, 1),
+                          icon: const Icon(Icons.add_rounded),
+                        ),
+                      ]),
+                    ),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    ),
+  );
+}
  Future<void> _openProductDetails(CustomerProduct p) async {
   await Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>CustomerProductDetailsPage(product:p,onAddToCart:()=>addToCart(p))));
  }
