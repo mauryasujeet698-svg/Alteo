@@ -170,7 +170,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
           _item(context, Icons.receipt_long_rounded, 'My orders', 'Shopping, food and parcel orders', () {
             Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
           }),
-          _item(context, Icons.directions_car_filled_rounded, 'My rides', 'Ride history and trip details', () => _info(alteoText('My rides'), 'Your completed and active rides will appear here when ride history is available.')),
+          _item(context, Icons.directions_car_filled_rounded, 'My rides', 'Ride history and trip details', () { Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage())); }),
           _item(context, Icons.location_on_outlined, 'Saved addresses', 'Home, work and other locations', () async {
             if (client?.auth.currentUser == null) { await _signIn(); if (!mounted || client?.auth.currentUser == null) return; }
             await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
