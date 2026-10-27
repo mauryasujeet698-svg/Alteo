@@ -4,6 +4,7 @@ import 'package:alteo_notifications/alteo_notifications.dart';
 import '../../services/customer_preferences.dart';
 import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
+import '../addresses/customer_addresses_page.dart';
 
 class CustomerAccountPage extends StatefulWidget {
   const CustomerAccountPage({super.key});
@@ -99,14 +100,6 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
             label: const Text('Sign in / Sign up with Google'),
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFF176B57), minimumSize: const Size.fromHeight(52)),
           )
-        else
-          OutlinedButton.icon(
-            onPressed: busy ? null : () async {
-              setState(() => busy = true);
-              try { await AlteoPushNotifications.instance.unregisterCurrentDevice(); await client?.auth.signOut(); } finally { if (mounted) setState(() => busy = false); }
-            },
-            icon: const Icon(Icons.logout_rounded), label: Text(busy ? 'Signing out…' : 'Sign out'),
-          ),
         const SizedBox(height: 22),
         const Text('Your activity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
@@ -114,7 +107,11 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
           Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
         }),
         _item(context, Icons.directions_car_filled_rounded, 'My rides', 'Ride history and trip details', () => _info('My rides', 'Your completed and active rides will appear here when ride history is available.')),
-        _item(context, Icons.location_on_outlined, 'Saved addresses', 'Home, work and other locations', () => _info('Saved addresses', user == null ? 'Sign in with Google to save and manage addresses.' : 'Address management will be connected to your account profile.')),
+        _item(context, Icons.location_on_outlined, 'Saved addresses', 'Home, work and other locations', () async {
+          if (user == null) { await _signIn(); if (!mounted || client?.auth.currentUser == null) return; }
+          await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
+          if (mounted) setState(() {});
+        }),
         _item(context, Icons.favorite_border_rounded, 'Saved items', 'Your favourite products and services', () => _info('Saved items', 'Save products and services for quick access.')),
         const SizedBox(height: 20),
         const Text('Preferences', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
@@ -129,6 +126,23 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
         _item(context, Icons.support_agent_rounded, 'Help & support', 'Get help with Alteo services', () => _info('Help & support', 'Support contact details will be published before public launch.')),
         _item(context, Icons.privacy_tip_outlined, 'Privacy & terms', 'Privacy policy and terms of service', () => _info('Privacy & terms', 'The published privacy policy and terms will be available here.')),
         _item(context, Icons.delete_outline_rounded, 'Delete account', 'Request permanent account deletion', () => _info('Delete account', 'Account deletion will require identity verification and a secure backend workflow. Contact support until that workflow is enabled.')),
+        if (user != null) ...[
+          const SizedBox(height: 18),
+          OutlinedButton.icon(
+            onPressed: busy ? null : () async {
+              setState(() => busy = true);
+              try {
+                await AlteoPushNotifications.instance.unregisterCurrentDevice();
+                await client?.auth.signOut();
+              } catch (e) {
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not sign out cleanly: $e')));
+              } finally { if (mounted) setState(() => busy = false); }
+            },
+            icon: const Icon(Icons.logout_rounded),
+            label: Text(busy ? 'Signing out…' : 'Sign out'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50), foregroundColor: const Color(0xFFB3261E)),
+          ),
+        ],
       ]),
     );
   }
