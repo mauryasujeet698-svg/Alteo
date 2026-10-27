@@ -96,6 +96,7 @@ AS $function$
 $function$
 
 revoke all on function public.alteo_distance_m(double precision,double precision,double precision,double precision) from public;
+revoke all on function public.alteo_distance_m(double precision,double precision,double precision,double precision) from anon;
 grant execute on function public.alteo_distance_m(double precision,double precision,double precision,double precision) to authenticated;
 
 CREATE OR REPLACE FUNCTION public.partner_update_location(p_role text, p_latitude double precision, p_longitude double precision)
