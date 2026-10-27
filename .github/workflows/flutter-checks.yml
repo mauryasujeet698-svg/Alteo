@@ -92,6 +92,7 @@ jobs:
               "dark-store": ("#7637C8", "W", (255, 255, 255)),
           }
           name = os.environ["ALTEO_APP_NAME"]
+          display_names = {"customer":"Alteo", "admin":"Alteo Admin", "seller":"Alteo Seller", "delivery-partner":"Alteo Delivery", "driver-partner":"Alteo Driver", "dark-store":"Alteo Dark Store"}
           bg_hex, glyph, accent = profiles[name]
           bg = tuple(int(bg_hex[i:i+2], 16) for i in (1, 3, 5))
           font = {
@@ -151,6 +152,10 @@ jobs:
               source = re.sub(r'android:roundIcon="[^"]+"', 'android:roundIcon="@mipmap/ic_launcher_round"', source, count=1)
           else:
               source = source.replace('<application', '<application android:roundIcon="@mipmap/ic_launcher_round"', 1)
+          if re.search(r'android:label="[^"]+"', source):
+              source = re.sub(r'android:label="[^"]+"', 'android:label="' + display_names[name] + '"', source, count=1)
+          else:
+              source = source.replace('<application', '<application android:label="' + display_names[name] + '"', 1)
           manifest.write_text(source)
           print("Generated custom Alteo launcher branding for", name)
           PY
