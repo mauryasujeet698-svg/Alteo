@@ -263,7 +263,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
       if (!mounted) return;
       _message('Ride requested. Request ID: ' + requestId.toString().substring(0, 8) + '. Fare is recalculated by Alteo before the request is saved.');
     } catch (e) {
-      if (mounted) _message('Could not request this ride. Check service availability, pricing and driver coverage. ' + e.toString());
+      if (mounted) _message('Could not request this ride right now. Please try again or check whether rides are available in your area.');
     } finally {
       if (mounted) setState(() => requestingRide = false);
     }
