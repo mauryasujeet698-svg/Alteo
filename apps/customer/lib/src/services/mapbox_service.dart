@@ -59,10 +59,13 @@ class MapboxService {
       return null;
     }
 
-    final uri = Uri.https(
-      'api.mapbox.com',
-      '/geocoding/v5/mapbox.places/${Uri.encodeComponent(value)}.json',
-      {
+    // Let Uri encode the address as a single path segment. Pre-encoding it
+    // first would double-encode percent signs and break many searches.
+    final uri = Uri(
+      scheme: 'https',
+      host: 'api.mapbox.com',
+      pathSegments: ['geocoding', 'v5', 'mapbox.places', '$value.json'],
+      queryParameters: {
         'access_token': _publicToken,
         'limit': '1',
         'country': 'IN',
