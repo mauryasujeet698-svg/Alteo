@@ -487,10 +487,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     super.initState();
     metrics = requiredRole == 'admin' ? client.rpc('admin_operations_summary') : Future.value(<String, dynamic>{});
     sellerProfile = requiredRole == 'seller' && user != null
-      ? client.from('sellers').select('id,status,display_name').eq('owner_id', user!.id).maybeSingle()
+      ? client.from('sellers').select('id,status,display_name').eq('owner_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15))
       : Future.value(null);
     storeProfile = requiredRole == 'dark_store' && user != null
-      ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle()
+      ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15))
       : Future.value(null);
     if ((requiredRole == 'driver_partner' || requiredRole == 'delivery_partner') && user != null) _loadAvailability();
   }
@@ -964,7 +964,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   Widget _darkStorePickingPage() => Scaffold(
     appBar: _appBar('Picking & packing'),
     body: FutureBuilder<Map<String, dynamic>?>(future: storeProfile, builder: (context, profile) {
-      if (profile.hasError) return _error('Dark-store profile unavailable.');
+      if (profile.hasError) return _loadFailure('Could not load your dark-store profile. Check the connection and retry.', () => setState(() { storeProfile = client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15)); }));
       if (!profile.hasData) return const Center(child: CircularProgressIndicator());
       final store = profile.data;
       if (store == null) return _empty('Dark store not linked', 'Ask Admin to create and assign a dark store to your account.');
@@ -1131,6 +1131,19 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     padding: const EdgeInsets.all(20), margin: const EdgeInsets.only(top: 8, bottom: 8),
     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
     child: Column(children: [const Icon(Icons.inbox_outlined, size: 36, color: Color(0xFF176B57)), const SizedBox(height: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 4), Text(detail, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF68736D), height: 1.4))]),
+  );
+
+  Widget _loadFailure(String text, VoidCallback retry) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.cloud_off_rounded, size: 42, color: Color(0xFF176B57)),
+        const SizedBox(height: 10),
+        Text(text, textAlign: TextAlign.center, style: const TextStyle(height: 1.45)),
+        const SizedBox(height: 14),
+        FilledButton.icon(onPressed: retry, icon: const Icon(Icons.refresh_rounded), label: const Text('Retry')),
+      ]),
+    ),
   );
 
   Widget _error(String text) => Padding(padding: const EdgeInsets.all(18), child: Text(text, style: const TextStyle(color: Colors.red, height: 1.4)));
