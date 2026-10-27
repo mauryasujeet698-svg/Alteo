@@ -129,7 +129,12 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
       'is_default': false,
      });
     } catch (e) {
-     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Order can continue, but the address could not be saved: $e')));
+     if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+       SnackBar(content: Text('Address could not be saved. Your order was not submitted. Please check your connection and address permissions, then try again. $e')),
+      );
+     }
+     return;
     }
    }
    final cart = await client.from('carts').select('id').eq('customer_id', user.id).eq('status', 'active').maybeSingle();
