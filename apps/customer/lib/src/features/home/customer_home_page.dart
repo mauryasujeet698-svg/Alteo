@@ -35,12 +35,12 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
  }
  void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
- @override Widget build(BuildContext context)=>RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
+ @override Widget build(BuildContext context)=>SafeArea(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
   SliverToBoxAdapter(child:bannerList()),
-  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,0,18,16),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart)),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
+  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,8,18,22),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart)),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
   SliverToBoxAdapter(child:section('Explore services','Shopping, food and everyday essentials')),
-  SliverToBoxAdapter(child:SizedBox(height:116,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[
+  SliverToBoxAdapter(child:SizedBox(height:132,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[
    service('Food',Icons.restaurant_rounded,const Color(0xFFFFE8D9),const Color(0xFFB94E18)),service('Quick',Icons.shopping_basket_rounded,const Color(0xFFE3F4D8),const Color(0xFF357A35)),service('Shop',Icons.shopping_bag_rounded,const Color(0xFFE5E9FF),const Color(0xFF4857B8)),service('Rides',Icons.directions_car_rounded,const Color(0xFFFFF0C7),const Color(0xFF8C6410)),service('Parcel',Icons.local_shipping_rounded,const Color(0xFFDDF3F1),const Color(0xFF187B73))
   ]))),
   SliverToBoxAdapter(child:section('Discover items','Listed by Alteo marketplace partners')),
@@ -53,8 +53,8 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
   })),
   const SliverToBoxAdapter(child:SizedBox(height:20))
- ]));
- Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,14,18,16),child:Row(children:[
+ ])));
+ Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,8,18,14),child:Row(children:[
   Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Icon(Icons.explore_rounded,color:Colors.white,size:27)),
   const SizedBox(width:11),const Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text('DELIVERING TO',style:TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),SizedBox(height:3),Text('Choose your location  ⌄',style:TextStyle(fontSize:14,fontWeight:FontWeight.w800))])),
   IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
@@ -69,11 +69,11 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     final items = snapshot.data ?? [];
     if (items.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 8),
+        padding: const EdgeInsets.fromLTRB(18, 2, 18, 12),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(23),
           child: Container(
-            height: 165,
+            height: 190,
             decoration: const BoxDecoration(
               gradient: LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF49A27D)]),
             ),
@@ -97,7 +97,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
     }
     return Column(children: [
       SizedBox(
-        height: 185,
+        height: 205,
         child: PageView.builder(
           itemCount: items.length,
           controller: bannerController,
@@ -183,8 +183,8 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   if(b.actionType=='offer'){ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text(b.subtitle.isEmpty?b.title:b.subtitle)));}
  }
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
- Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,16,18,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
- Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:78,child:Column(children:[Container(width:64,height:64,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
+ Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,22,18,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
+ Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
  Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(label),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
  Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
  Future<void> addToCart(CustomerProduct p) async {
