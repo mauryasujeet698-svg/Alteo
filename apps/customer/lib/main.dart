@@ -99,11 +99,11 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
     bottomNavigationBar: NavigationBar(
       selectedIndex: selected,
       onDestinationSelected: (i) => setState(() => selected = i),
-      destinations: const [
-        NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home_rounded), label: alteoText('Home')),
-        NavigationDestination(icon: Icon(Icons.restaurant_outlined), selectedIcon: Icon(Icons.restaurant_rounded), label: alteoText('Food')),
-        NavigationDestination(icon: Icon(Icons.directions_car_outlined), selectedIcon: Icon(Icons.directions_car_filled_rounded), label: alteoText('Ride')),
-        NavigationDestination(icon: Icon(Icons.person_outline_rounded), selectedIcon: Icon(Icons.person_rounded), label: alteoText('Profile')),
+      destinations: [
+        NavigationDestination(icon: const Icon(Icons.home_outlined), selectedIcon: const Icon(Icons.home_rounded), label: alteoText('Home')),
+        NavigationDestination(icon: const Icon(Icons.restaurant_outlined), selectedIcon: const Icon(Icons.restaurant_rounded), label: alteoText('Food')),
+        NavigationDestination(icon: const Icon(Icons.directions_car_outlined), selectedIcon: const Icon(Icons.directions_car_filled_rounded), label: alteoText('Ride')),
+        NavigationDestination(icon: const Icon(Icons.person_outline_rounded), selectedIcon: const Icon(Icons.person_rounded), label: alteoText('Profile')),
       ],
     ),
   ));
