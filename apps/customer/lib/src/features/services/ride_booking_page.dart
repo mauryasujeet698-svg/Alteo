@@ -452,7 +452,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             mapController: mapController,
             options: MapOptions(initialCenter: center, initialZoom: focus == null ? 4.3 : 14.5),
             children: [
-              TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer'),
+              TileLayer(urlTemplate: tileUrl, fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', userAgentPackageName: 'com.alteo.customer'),
               if (routeCoordinates.length >= 2)
                 PolylineLayer(polylines: [
                   Polyline(points: routeCoordinates, strokeWidth: 4, color: const Color(0xFF176B57)),
