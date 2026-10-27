@@ -617,7 +617,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       title: const Text('Partner onboarding details'),
       content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
         mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (photoUrl != null) Center(child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(photoUrl!, height: 150, width: 150, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 80)))),
+          if (photoUrl != null) Center(child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(photoUrl, height: 150, width: 150, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 80)))),
           if (photoUrl != null) const SizedBox(height: 14),
           SelectableText(details, style: const TextStyle(height: 1.6)),
           if ((request['rejection_reason']?.toString().isNotEmpty ?? false)) ...[
