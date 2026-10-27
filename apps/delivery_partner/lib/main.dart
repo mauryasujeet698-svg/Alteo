@@ -484,6 +484,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   final roleUserId = TextEditingController();
   String grantRole = 'delivery_partner';
   bool partnerOnline = false;
+  Timer? locationUpdateTimer;
+  bool locationUpdateInFlight = false;
   int selectedTab = 0;
 
   @override
@@ -501,6 +503,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   @override
   void dispose() {
+    locationUpdateTimer?.cancel();
     roleUserId.dispose();
     super.dispose();
   }
@@ -526,7 +529,14 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     try {
       final row = await client.from('partner_presence').select('is_online')
         .eq('user_id', user!.id).eq('role', requiredRole).maybeSingle();
-      if (mounted) setState(() => partnerOnline = row?['is_online'] as bool? ?? false);
+      if (!mounted) return;
+      setState(() => partnerOnline = row?['is_online'] as bool? ?? false);
+      if (partnerOnline) {
+        _startLocationUpdates();
+        unawaited(_shareCurrentLocation(showNotice: false));
+      } else {
+        _stopLocationUpdates();
+      }
     } catch (_) {}
   }
 
@@ -560,9 +570,57 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         'p_longitude': longitude,
       });
       if (mounted) setState(() => partnerOnline = next);
-      notice(next ? 'You are online. Location updated; dispatch can assign eligible deliveries.' : 'You are offline.');
+      if (next) {
+        _startLocationUpdates();
+        unawaited(_shareCurrentLocation(showNotice: false));
+      } else {
+        _stopLocationUpdates();
+      }
+      notice(next ? 'You are online. Live location sharing is active while this app is open.' : 'You are offline. Live location sharing has stopped.');
     } catch (e) {
       notice('Could not update availability: ' + e.toString());
+    }
+  }
+
+  void _startLocationUpdates() {
+    locationUpdateTimer?.cancel();
+    locationUpdateTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      unawaited(_shareCurrentLocation(showNotice: false));
+    });
+  }
+
+  void _stopLocationUpdates() {
+    locationUpdateTimer?.cancel();
+    locationUpdateTimer = null;
+  }
+
+  Future<void> _shareCurrentLocation({bool showNotice = true}) async {
+    if (locationUpdateInFlight || !partnerOnline || user == null) return;
+    locationUpdateInFlight = true;
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        if (showNotice) notice('Turn on Location services to update your position.');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        if (showNotice) notice('Allow location access in system settings to share live position.');
+        return;
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+      );
+      await client.rpc('partner_update_location', params: {
+        'p_role': requiredRole,
+        'p_latitude': position.latitude,
+        'p_longitude': position.longitude,
+      }).timeout(const Duration(seconds: 10));
+      if (showNotice) notice('Live location updated.');
+    } catch (e) {
+      if (showNotice) notice('Could not update your location: ' + e.toString());
+    } finally {
+      locationUpdateInFlight = false;
     }
   }
 
@@ -592,6 +650,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   PreferredSizeWidget _partnerAppBar(String title) => AppBar(title: Text(title), actions: [
+    IconButton(
+      tooltip: 'Update live location',
+      onPressed: partnerOnline ? () => _shareCurrentLocation() : null,
+      icon: const Icon(Icons.my_location_rounded),
+    ),
     TextButton.icon(
       onPressed: _setAvailability,
       icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
@@ -1004,7 +1067,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                   child: OutlinedButton.icon(
                     onPressed: () => _openDeliveryDirections(job, toPickup: status == 'accepted' || status == 'assigned'),
                     icon: const Icon(Icons.navigation_outlined),
-                    label: Text(status == 'accepted' || status == 'assigned' ? 'Navigate to pickup' : 'Navigate to drop-off'),
+                    label: const Text('Trace in Google Maps'),
                   ),
                 ),
               if (status == 'in_transit') ...[
