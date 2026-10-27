@@ -775,7 +775,76 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
 
   Future<void> setProductStatus(Map<String, dynamic> product, String status) async {
+    if (status == 'active') {
+      final imageUrl = product['image_url']?.toString() ?? '';
+      final description = product['description']?.toString().trim() ?? '';
+      if (!imageUrl.startsWith('https://') || description.length < 3) {
+        notice('This item needs an image and description before it can be published. Open Edit to review the details.');
+        return;
+      }
+    }
     await rpc('admin_set_product_status', {'p_product_id': product['id'], 'p_status': status}, 'Product status updated.');
+  }
+
+  Widget _productApprovalTile(Map<String, dynamic> product) {
+    final imageUrl = product['image_url']?.toString() ?? '';
+    final hasImage = imageUrl.startsWith('https://');
+    final name = product['name']?.toString() ?? 'Product';
+    final description = product['description']?.toString().trim() ?? '';
+    final status = product['status']?.toString() ?? 'draft';
+    final price = (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
+    final kind = (product['kind']?.toString() ?? 'shopping').toUpperCase();
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        leading: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SizedBox(
+            width: 68,
+            height: 76,
+            child: hasImage
+              ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, size: 30))
+              : Container(color: const Color(0xFFFFF4E5), child: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF9A5C13), size: 30)),
+          ),
+        ),
+        title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(description.isEmpty ? 'Description missing — review before publishing.' : description, maxLines: 3, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 4),
+              Text('₹$price · $kind · ${status.toUpperCase()}'),
+              const SizedBox(height: 3),
+              Text(hasImage ? 'Image attached' : 'Image required before publishing',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: hasImage ? const Color(0xFF176B57) : const Color(0xFFB3261E))),
+            ],
+          ),
+        ),
+        trailing: Wrap(
+          spacing: 0,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            IconButton(
+              tooltip: 'Activate product',
+              onPressed: hasImage && description.length >= 3 ? () => setProductStatus(product, 'active') : null,
+              icon: const Icon(Icons.check_circle_outline, color: Colors.green),
+            ),
+            IconButton(tooltip: 'Pause product', onPressed: () => setProductStatus(product, 'paused'), icon: const Icon(Icons.pause_circle_outline)),
+            IconButton(tooltip: 'Reject product', onPressed: () => setProductStatus(product, 'rejected'), icon: const Icon(Icons.block_outlined)),
+            IconButton(
+              tooltip: 'Review full listing',
+              onPressed: () => _editAdminProduct(product['seller_id']?.toString() ?? '', product),
+              icon: const Icon(Icons.edit_outlined),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<void> setStoreStatus(Map<String, dynamic> store, String status) async {
@@ -1355,15 +1424,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           if (s.hasError) return _error('Product catalogue unavailable.');
           if (!s.hasData) return const LinearProgressIndicator();
           if (s.data!.isEmpty) return _empty('No products submitted', 'Seller product drafts will appear here for review.');
-          return Column(children: s.data!.take(20).map((product) => Card(elevation: 0, child: ListTile(
-            title: Text(product['name']?.toString() ?? 'Product'),
-            subtitle: Text('Status: ' + (product['status']?.toString() ?? 'draft') + ' · ₹' + (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Activate product', onPressed: () => setProductStatus(product, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Pause product', onPressed: () => setProductStatus(product, 'paused'), icon: const Icon(Icons.pause_circle_outline)),
-              IconButton(tooltip: 'Reject product', onPressed: () => setProductStatus(product, 'rejected'), icon: const Icon(Icons.block_outlined)),
-            ]),
-          ))).toList());
+          return Column(children: s.data!.take(20).map(_productApprovalTile).toList());
         },
       ),
 
@@ -1875,15 +1936,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           if (s.hasError) return _error('Product catalogue unavailable.');
           if (!s.hasData) return const LinearProgressIndicator();
           if (s.data!.isEmpty) return _empty('No products submitted', 'Seller drafts appear here for review.');
-          return Column(children: s.data!.take(30).map((product) => Card(elevation: 0, child: ListTile(
-            title: Text(product['name']?.toString() ?? 'Product'),
-            subtitle: Text('Status: ' + (product['status']?.toString() ?? 'draft') + ' · ₹' + (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Activate product', onPressed: () => setProductStatus(product, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Pause product', onPressed: () => setProductStatus(product, 'paused'), icon: const Icon(Icons.pause_circle_outline)),
-              IconButton(tooltip: 'Reject product', onPressed: () => setProductStatus(product, 'rejected'), icon: const Icon(Icons.block_outlined)),
-            ]),
-          ))).toList());
+          return Column(children: s.data!.take(30).map(_productApprovalTile).toList());
         },
       ),
       const SizedBox(height: 24),
