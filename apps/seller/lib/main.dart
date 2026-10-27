@@ -876,35 +876,38 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
 
-  Future<String> _uploadProductImage(XFile file) async {
-    final signatureResponse = await client.functions.invoke(
-      'cloudinary-sign-upload',
-      body: <String, dynamic>{'asset_type': 'product_image'},
-    );
-    if (signatureResponse.status < 200 || signatureResponse.status >= 300) {
-      final data = signatureResponse.data;
-      final message = data is Map ? data['error']?.toString() : null;
-      throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signatureResponse.status.toString());
+  Future<Map<String, String>> _uploadProductImage(XFile file) async {
+    final owner = client.auth.currentUser;
+    if (owner == null) throw StateError('Sign in before uploading a product image.');
+    final extension = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
+    const allowedExtensions = {'jpg', 'jpeg', 'png', 'webp', 'gif'};
+    if (!allowedExtensions.contains(extension)) {
+      throw StateError('Choose a JPG, PNG, WEBP, or GIF image.');
     }
-    final signed = Map<String, dynamic>.from(signatureResponse.data as Map);
-    final uri = Uri.https('api.cloudinary.com', '/v1_1/' + signed['cloud_name'].toString() + '/image/upload');
-    final upload = http.MultipartRequest('POST', uri);
-    upload.fields['api_key'] = signed['api_key'].toString();
-    upload.fields['timestamp'] = signed['timestamp'].toString();
-    upload.fields['folder'] = signed['folder'].toString();
-    upload.fields['type'] = signed['type'].toString();
-    upload.fields['signature'] = signed['signature'].toString();
-    upload.files.add(await http.MultipartFile.fromPath('file', file.path));
-    final response = await upload.send().timeout(const Duration(seconds: 60));
-    final responseBody = await response.stream.bytesToString();
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty) throw StateError('The selected image is empty.');
+    if (bytes.length > 5 * 1024 * 1024) throw StateError('Image must be 5 MB or smaller.');
+    final contentType = switch (extension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      _ => 'image/jpeg',
+    };
+    final safeExtension = extension == 'jpeg' ? 'jpg' : extension;
+    final objectPath = 'items/' + owner.id + '/' + DateTime.now().toUtc().microsecondsSinceEpoch.toString() + '.' + safeExtension;
+    try {
+      await client.storage.from('app-media').uploadBinary(
+        objectPath,
+        bytes,
+        fileOptions: FileOptions(contentType: contentType, upsert: false),
+      );
+      return <String, String>{
+        'url': client.storage.from('app-media').getPublicUrl(objectPath),
+        'path': objectPath,
+      };
+    } on StorageException catch (e) {
+      throw StateError('Supabase Storage upload failed: ' + e.message + '. Check the seller image upload policy and app-media bucket.');
     }
-    final payload = jsonDecode(responseBody);
-    if (payload is! Map || payload['secure_url'] is! String) {
-      throw StateError('Cloudinary did not return a secure image URL.');
-    }
-    return payload['secure_url'] as String;
   }
 
   Future<void> _editSellerProduct(String sellerId, [Map<String, dynamic>? existing]) async {
@@ -912,63 +915,115 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final description = TextEditingController(text: existing?['description']?.toString() ?? '');
     final price = TextEditingController(text: existing == null ? '' : (((existing['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2));
     final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
+    String? imagePath = existing?['image_public_id']?.toString();
+    final oldImagePath = imagePath;
     var kind = existing?['kind']?.toString() ?? 'shopping';
     var uploadingImage = false;
     try {
-      final saved = await showDialog<bool>(context: context, builder: (dc) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-        title: Text(existing == null ? 'New product draft' : 'Edit product'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: name, maxLength: 140, decoration: const InputDecoration(labelText: 'Product name *', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(value: kind, decoration: const InputDecoration(labelText: 'Category'), items: const [
-            DropdownMenuItem(value: 'shopping', child: Text('Shopping')),
-            DropdownMenuItem(value: 'quick', child: Text('Quick commerce')),
-            DropdownMenuItem(value: 'food', child: Text('Food')),
-          ], onChanged: (v) { if (v != null) setDialogState(() => kind = v); }),
-          const SizedBox(height: 10),
-          TextField(controller: description, maxLines: 3, decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder())),
-          const SizedBox(height: 10),
-          TextField(controller: image, keyboardType: TextInputType.url, decoration: const InputDecoration(labelText: 'Image HTTPS URL (Cloudinary)', border: OutlineInputBorder())),
-          const SizedBox(height: 6),
-          Align(alignment: Alignment.centerLeft, child: OutlinedButton.icon(
-            onPressed: uploadingImage ? null : () async {
-              try {
-                final selectedFile = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 86, maxWidth: 1600);
-                if (selectedFile == null) return;
-                setDialogState(() => uploadingImage = true);
-                final uploadedUrl = await _uploadProductImage(selectedFile);
-                setDialogState(() => image.text = uploadedUrl);
-                notice('Product image uploaded to Cloudinary.');
-              } catch (e) {
-                notice('Product image upload failed: ' + e.toString());
-              } finally {
-                setDialogState(() => uploadingImage = false);
-              }
-            },
-            icon: uploadingImage ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_upload_outlined),
-            label: Text(uploadingImage ? 'Uploading image…' : 'Choose image and upload'),
-          )),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
-          FilledButton(onPressed: uploadingImage ? null : () => Navigator.pop(dc, true), child: const Text('Save draft')),
-        ],
-      )));
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(existing == null ? 'New product draft' : 'Edit product'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextField(controller: name, maxLength: 140, decoration: const InputDecoration(labelText: 'Product name *', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: kind,
+                    decoration: const InputDecoration(labelText: 'Category *', border: OutlineInputBorder()),
+                    items: const [
+                      DropdownMenuItem(value: 'shopping', child: Text('Shopping')),
+                      DropdownMenuItem(value: 'quick', child: Text('Quick commerce')),
+                      DropdownMenuItem(value: 'food', child: Text('Food')),
+                    ],
+                    onChanged: (value) { if (value != null) setDialogState(() => kind = value); },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(controller: description, maxLength: 4000, maxLines: 3, decoration: const InputDecoration(labelText: 'Description *', helperText: 'Explain the item, size/weight, key details and any important notes.', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Price in rupees *', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: uploadingImage ? null : () async {
+                        try {
+                          final selectedFile = await ImagePicker().pickImage(
+                            source: ImageSource.gallery, imageQuality: 86, maxWidth: 1800,
+                          );
+                          if (selectedFile == null) return;
+                          setDialogState(() => uploadingImage = true);
+                          final upload = await _uploadProductImage(selectedFile);
+                          setDialogState(() {
+                            image.text = upload['url']!;
+                            imagePath = upload['path'];
+                          });
+                          notice('Product image uploaded to Supabase Storage.');
+                        } catch (e) {
+                          notice('Product image upload failed: ' + e.toString());
+                        } finally {
+                          setDialogState(() => uploadingImage = false);
+                        }
+                      },
+                      icon: uploadingImage
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.cloud_upload_outlined),
+                      label: Text(uploadingImage ? 'Uploading image…' : image.text.startsWith('https://') ? 'Replace product image' : 'Upload product image *'),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Align(alignment: Alignment.centerLeft, child: Text(image.text.startsWith('https://') ? 'Image attached' : 'An image upload is required before saving this item.', style: TextStyle(color: image.text.startsWith('https://') ? const Color(0xFF176B57) : const Color(0xFFB3261E), fontSize: 12, fontWeight: FontWeight.w700))),
+                  if (image.text.startsWith('https://')) ...[
+                    const SizedBox(height: 10),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Image.network(
+                        image.text, height: 150, width: double.infinity, fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const SizedBox(height: 60, child: Center(child: Text('Image preview unavailable'))),
+                      ),
+                    ),
+                  ],
+                ]),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(
+                onPressed: uploadingImage ? null : () => Navigator.pop(dialogContext, true),
+                child: const Text('Save draft for Admin review'),
+              ),
+            ],
+          ),
+        ),
+      );
       if (saved != true) return;
       final parsedPrice = double.tryParse(price.text.trim());
       final productName = name.text.trim();
+      final itemDescription = description.text.trim();
+      final imageUrl = image.text.trim();
       if (productName.length < 2 || parsedPrice == null || parsedPrice <= 0) {
-        notice('Enter a product name and a valid price greater than zero.');
+        notice('Enter a product name and a price greater than ₹0.');
         return;
       }
+      if (itemDescription.length < 3) {
+        notice('A clear item description is required.');
+        return;
+      }
+      if (!imageUrl.startsWith('https://')) {
+        notice('Upload a product image before saving. Product images are required.');
+        return;
+      }
+
       final payload = <String, dynamic>{
         'name': productName,
         'kind': kind,
-        'description': description.text.trim().isEmpty ? null : description.text.trim(),
+        'description': itemDescription,
         'price_minor': (parsedPrice * 100).round(),
-        'image_url': image.text.trim().isEmpty ? null : image.text.trim(),
+        'image_url': imageUrl,
+        'image_public_id': imagePath,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       };
       if (existing == null) {
@@ -979,11 +1034,19 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       } else {
         await client.from('seller_products').update(payload).eq('id', existing['id']).eq('seller_id', sellerId);
       }
-      notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated.');
+
+      if (oldImagePath != null && oldImagePath != imagePath &&
+          oldImagePath.startsWith('items/' + (user?.id ?? '') + '/')) {
+        try { await client.storage.from('app-media').remove([oldImagePath]); } catch (_) {}
+      }
+      notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated and saved.');
     } catch (e) {
       notice('Could not save product: ' + e.toString());
     } finally {
-      name.dispose(); description.dispose(); price.dispose(); image.dispose();
+      name.dispose();
+      description.dispose();
+      price.dispose();
+      image.dispose();
     }
   }
 
@@ -1091,7 +1154,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       return ListView(padding: const EdgeInsets.all(16), children: [
         const Text('Your catalogue', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
-        Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: () => _createProduct(sellerId), icon: const Icon(Icons.add_rounded), label: const Text('Add product'))),
+        Align(alignment: Alignment.centerLeft, child: FilledButton.icon(onPressed: () => _editSellerProduct(sellerId), icon: const Icon(Icons.add_rounded), label: const Text('Add product'))),
         StreamBuilder<List<Map<String, dynamic>>>(
           stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).order('created_at', ascending: false),
           builder: (context, s) {
