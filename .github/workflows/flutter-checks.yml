@@ -74,6 +74,78 @@ jobs:
           if [ ! -d android ]; then
             flutter create --platforms=android --org com.alteo --project-name "${{ matrix.project }}" .
           fi
+      - name: Generate app-specific Android launcher icons
+        env:
+          ALTEO_APP_NAME: ${{ matrix.name }}
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os, struct, zlib
+          from pathlib import Path
+
+          profiles = {
+              "customer": ("#08765D", "A", (255, 164, 26)),
+              "admin": ("#155C4B", "M", (255, 255, 255)),
+              "seller": ("#E57C00", "S", (255, 255, 255)),
+              "delivery-partner": ("#D9364A", "D", (255, 255, 255)),
+              "driver-partner": ("#2463D4", "R", (255, 255, 255)),
+              "dark-store": ("#7637C8", "W", (255, 255, 255)),
+          }
+          name = os.environ["ALTEO_APP_NAME"]
+          bg_hex, glyph, accent = profiles[name]
+          bg = tuple(int(bg_hex[i:i+2], 16) for i in (1, 3, 5))
+          font = {
+              "A": ["01110","10001","10001","11111","10001","10001","10001"],
+              "M": ["10001","11011","10101","10101","10001","10001","10001"],
+              "S": ["01111","10000","10000","01110","00001","00001","11110"],
+              "D": ["11110","10001","10001","10001","10001","10001","11110"],
+              "R": ["11110","10001","10001","11110","10100","10010","10001"],
+              "W": ["10001","10001","10001","10101","10101","10101","01010"],
+          }[glyph]
+
+          def render(size):
+              pixels = [[(0,0,0,0) for _ in range(size)] for _ in range(size)]
+              margin = size // 12
+              radius = size // 5
+              for y in range(size):
+                  for x in range(size):
+                      cx = min(max(x, margin + radius), size - margin - radius - 1)
+                      cy = min(max(y, margin + radius), size - margin - radius - 1)
+                      if (x-cx)**2 + (y-cy)**2 <= radius**2 or (margin+radius <= x < size-margin-radius and margin <= y < size-margin) or (margin <= x < size-margin and margin+radius <= y < size-margin-radius):
+                          pixels[y][x] = (*bg,255)
+              scale = size // 11
+              gw, gh = 5*scale, 7*scale
+              ox, oy = (size-gw)//2, (size-gh)//2
+              for row, bits in enumerate(font):
+                  for col, bit in enumerate(bits):
+                      if bit == "1":
+                          for yy in range(oy+row*scale, oy+(row+1)*scale):
+                              for xx in range(ox+col*scale, ox+(col+1)*scale):
+                                  pixels[yy][xx] = (255,255,255,255)
+              dot = max(3, size//14)
+              dx, dy = size - margin - dot - 1, margin + 1
+              for y in range(max(0,dy-dot), min(size,dy+dot)):
+                  for x in range(max(0,dx-dot), min(size,dx+dot)):
+                      if (x-dx)**2+(y-dy)**2 <= dot**2:
+                          pixels[y][x] = (*accent,255)
+              raw = b"".join(b"\x00" + b"".join(bytes(px) for px in row) for row in pixels)
+              def chunk(kind, data):
+                  return struct.pack(">I",len(data))+kind+data+struct.pack(">I",zlib.crc32(kind+data)&0xffffffff)
+              return b"\x89PNG\r\n\x1a\n"+chunk(b"IHDR",struct.pack(">2I5B",size,size,8,6,0,0,0))+chunk(b"IDAT",zlib.compress(raw,9))+chunk(b"IEND",b"")
+
+          res = Path("android/app/src/main/res")
+          for density, size in [("mipmap-mdpi",48),("mipmap-hdpi",72),("mipmap-xhdpi",96),("mipmap-xxhdpi",144),("mipmap-xxxhdpi",192)]:
+              folder = res / density
+              folder.mkdir(parents=True, exist_ok=True)
+              png = render(size)
+              (folder/"ic_launcher.png").write_bytes(png)
+              (folder/"ic_launcher_round.png").write_bytes(png)
+          manifest = Path("android/app/src/main/AndroidManifest.xml")
+          source = manifest.read_text()
+          source = source.replace('<application', '<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"', 1)
+          manifest.write_text(source)
+          print("Generated custom Alteo launcher branding for", name)
+          PY
       - name: Configure Firebase for this Android app when credentials are available
         env:
           FIREBASE_ANDROID_CONFIG_BASE64: ${{ secrets.FIREBASE_GOOGLE_SERVICES_JSON_BASE64 }}
