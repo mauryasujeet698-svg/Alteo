@@ -53,8 +53,9 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        child: Text('${address['label'] ?? 'Saved address'}', overflow: TextOverflow.ellipsis),
       )).toList(),
       onChanged: (id) {
-       final match = savedAddresses.where((address) => address['id'].toString() == id).firstOrNull;
-       if (match == null) return;
+       final matches = savedAddresses.where((address) => address['id'].toString() == id).toList();
+       if (matches.isEmpty) return;
+       final match = matches.first;
        setDialogState(() {
         selectedAddress = match;
         recipient.text = (match['recipient_name'] ?? '').toString();
