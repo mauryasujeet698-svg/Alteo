@@ -30,6 +30,9 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
   bool _routeInFlight = false;
   DateTime? _lastRouteAt;
   String? _lastRouteKey;
+  double? _routeDurationSeconds;
+  double? _routeDistanceMeters;
+  bool _routeIsPartnerToStop = false;
   List<LatLng> _routePoints = <LatLng>[];
 
   SupabaseClient get _client => Supabase.instance.client;
@@ -93,13 +96,22 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
     if (pickupLat == null || pickupLon == null || destinationLat == null || destinationLon == null) return;
 
     final nextStop = data['next_stop']?.toString() ?? 'pickup';
-    final targetLat = nextStop == 'destination' ? destinationLat : pickupLat;
-    final targetLon = nextStop == 'destination' ? destinationLon : pickupLon;
-    final startLat = partnerLat ?? pickupLat;
-    final startLon = partnerLon ?? pickupLon;
+    final hasLivePartnerLocation = data['location_available'] == true && partnerLat != null && partnerLon != null;
+    // When no partner GPS is available, show the planned pickup-to-destination
+    // route and trip duration; once GPS arrives, switch to partner-to-next-stop ETA.
+    final startLat = hasLivePartnerLocation ? partnerLat : pickupLat;
+    final startLon = hasLivePartnerLocation ? partnerLon : pickupLon;
+    final targetLat = hasLivePartnerLocation
+        ? (nextStop == 'destination' ? destinationLat : pickupLat)
+        : destinationLat;
+    final targetLon = hasLivePartnerLocation
+        ? (nextStop == 'destination' ? destinationLon : pickupLon)
+        : destinationLon;
+    if (startLat == null || startLon == null || targetLat == null || targetLon == null) return;
     final routeKey = [
       startLat.toStringAsFixed(3), startLon.toStringAsFixed(3),
-      targetLat.toStringAsFixed(3), targetLon.toStringAsFixed(3), nextStop,
+      targetLat.toStringAsFixed(3), targetLon.toStringAsFixed(3),
+      hasLivePartnerLocation ? 'live-$nextStop' : 'trip',
     ].join(':');
     final now = DateTime.now();
     if (_lastRouteKey == routeKey && _lastRouteAt != null &&
@@ -119,6 +131,9 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
       if (!mounted || route == null) return;
       setState(() {
         _routePoints = route.coordinates.map((p) => LatLng(p[1], p[0])).toList();
+        _routeDurationSeconds = route.durationSeconds;
+        _routeDistanceMeters = route.distanceMeters;
+        _routeIsPartnerToStop = hasLivePartnerLocation;
       });
       _lastRouteKey = routeKey;
       _lastRouteAt = now;
@@ -173,9 +188,12 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
     final destinationLon = _number('destination_longitude');
     final locationAvailable = data['location_available'] == true && partnerLat != null && partnerLon != null;
     final trackingAvailable = data['tracking_available'] == true;
-    final etaSeconds = (data['eta_to_next_stop_s'] as num?)?.toInt();
-    final tripSeconds = (data['estimated_trip_duration_s'] as num?)?.toInt();
-    final distanceMeters = (data['estimated_distance_m'] as num?)?.toInt();
+    final rawEtaSeconds = (data['eta_to_next_stop_s'] as num?)?.toInt();
+    final etaSeconds = _routeIsPartnerToStop ? _routeDurationSeconds?.ceil() : rawEtaSeconds;
+    final rawTripSeconds = (data['estimated_trip_duration_s'] as num?)?.toInt();
+    final tripSeconds = !_routeIsPartnerToStop ? (_routeDurationSeconds?.ceil() ?? rawTripSeconds) : rawTripSeconds;
+    final rawDistanceMeters = (data['estimated_distance_m'] as num?)?.toInt();
+    final distanceMeters = !_routeIsPartnerToStop ? (_routeDistanceMeters?.round() ?? rawDistanceMeters) : rawDistanceMeters;
     final nextStop = data['next_stop']?.toString() ?? 'pickup';
 
     final markers = <Marker>[];
@@ -193,10 +211,10 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
     }
     if (locationAvailable) {
       markers.add(Marker(
-        point: LatLng(partnerLat, partnerLon), width: 46, height: 46,
+        point: LatLng(partnerLat!, partnerLon!), width: 46, height: 46,
         child: Container(
           decoration: BoxDecoration(color: const Color(0x332168C7), shape: BoxShape.circle, border: Border.all(color: const Color(0xFF2168C7), width: 2)),
-          child: const Icon(Icons.navigation_rounded, color: Color(0xFF2168C7), size: 26),
+          child: const Icon(Icons.my_location_rounded, color: Color(0xFF2168C7), size: 26),
         ),
       ));
     }
@@ -205,7 +223,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
       if (locationAvailable) {
         final tLat = nextStop == 'destination' ? destinationLat : pickupLat;
         final tLon = nextStop == 'destination' ? destinationLon : pickupLon;
-        if (tLat != null && tLon != null) fallbackLine.addAll([LatLng(partnerLat, partnerLon), LatLng(tLat, tLon)]);
+        if (tLat != null && tLon != null) fallbackLine.addAll([LatLng(partnerLat!, partnerLon!), LatLng(tLat, tLon)]);
       } else if (pickupLat != null && pickupLon != null && destinationLat != null && destinationLon != null) {
         fallbackLine.addAll([LatLng(pickupLat, pickupLon), LatLng(destinationLat, destinationLon)]);
       }
