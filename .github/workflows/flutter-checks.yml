@@ -453,7 +453,7 @@ jobs:
           PY
       - name: Verify Mapbox public token configuration
         env:
-          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN || secrets.MAPBOX_TOKEN || secrets.MAPBOX_ACCESS_TOKEN }}
         shell: bash
         run: |
           if [ -z "$MAPBOX_PUBLIC_TOKEN" ]; then
@@ -478,7 +478,7 @@ jobs:
         run: flutter test
       - name: Build arm64 release APK
         env:
-          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN || secrets.MAPBOX_TOKEN || secrets.MAPBOX_ACCESS_TOKEN }}
           GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
           ALTEO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEYSTORE_PASSWORD }}
           ALTEO_ANDROID_KEY_ALIAS: ${{ secrets.ALTEO_ANDROID_KEY_ALIAS }}
