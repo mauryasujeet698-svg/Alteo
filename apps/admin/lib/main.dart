@@ -1368,6 +1368,49 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         },
       ),
       const SizedBox(height: 22),
+      const SizedBox(height: 22),
+      const Text('Customer support requests', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('support_tickets').stream(primaryKey: ['id']).order('created_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Support requests are unavailable right now.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No support requests', 'Customer requests will appear here when submitted.');
+          return Column(children: s.data!.take(30).map((ticket) {
+            final status = ticket['status']?.toString() ?? 'open';
+            final created = DateTime.tryParse(ticket['created_at']?.toString() ?? '');
+            final date = created == null ? '' : created.day.toString().padLeft(2, '0') + '/' + created.month.toString().padLeft(2, '0') + '/' + created.year.toString();
+            return Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 9),
+              child: ListTile(
+                isThreeLine: true,
+                title: Text(ticket['subject']?.toString() ?? 'Support request', style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text((ticket['message']?.toString() ?? '') + '\n' + date + ' · ' + status.replaceAll('_', ' '), maxLines: 4, overflow: TextOverflow.ellipsis),
+                trailing: PopupMenuButton<String>(
+                  tooltip: 'Update request status',
+                  onSelected: (value) async {
+                    try {
+                      await client.rpc('admin_set_support_ticket_status', params: {'p_ticket_id': ticket['id'], 'p_status': value});
+                      notice('Support request marked ' + value.replaceAll('_', ' ') + '.');
+                    } catch (_) {
+                      notice('Could not update the support request. Please retry.');
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'open', child: Text('Open')),
+                    PopupMenuItem(value: 'in_progress', child: Text('In progress')),
+                    PopupMenuItem(value: 'resolved', child: Text('Resolved')),
+                    PopupMenuItem(value: 'closed', child: Text('Closed')),
+                  ],
+                  child: Chip(label: Text(status.replaceAll('_', ' '))),
+                ),
+              ),
+            );
+          }).toList());
+        },
+      ),
+      const SizedBox(height: 22),
       const Text('Ride requests', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('rides').stream(primaryKey: ['id']).order('created_at', ascending: false),
