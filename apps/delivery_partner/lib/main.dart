@@ -949,131 +949,86 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _deliveryDashboard() => Scaffold(
     appBar: _partnerAppBar('My deliveries'),
-    body: StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('delivery_jobs').stream(primaryKey: ['id']).eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
-      builder: (context, jobsSnapshot) {
-        if (jobsSnapshot.hasError) return _error('Deliveries unavailable. Check delivery-partner role and RLS.');
-        if (!jobsSnapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final jobs = jobsSnapshot.data!;
-        return StreamBuilder<List<Map<String, dynamic>>>(
-          stream: client.from('delivery_assignments').stream(primaryKey: ['id']).eq('partner_id', user!.id).order('created_at', ascending: false),
-          builder: (context, assignmentsSnapshot) {
-            if (assignmentsSnapshot.hasError) return _error('Delivery offers unavailable. Check assignment read permissions.');
-            if (!assignmentsSnapshot.hasData) return const Center(child: CircularProgressIndicator());
-            final assignments = <String, Map<String, dynamic>>{
-              for (final assignment in assignmentsSnapshot.data!)
-                if (assignment['status'] == 'offered' || assignment['status'] == 'accepted')
-                  assignment['delivery_job_id'] as String: assignment,
-            };
-            if (jobs.isEmpty) return _empty('No deliveries assigned', 'Assigned deliveries and parcels will appear here.');
-            return ListView(padding: const EdgeInsets.all(16), children: jobs.map((job) {
-              final status = job['status']?.toString() ?? 'pending';
-              final assignment = assignments[job['id']];
-              final assignmentStatus = assignment?['status']?.toString() ?? '';
-              final buttons = <Widget>[];
-              if (status == 'assigned' && assignmentStatus == 'offered') {
-                buttons.add(OutlinedButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'reject'}, 'Delivery declined.'), child: const Text('Decline')));
-                buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
-              }
-              if (status == 'accepted' || (status == 'assigned' && assignmentStatus == 'accepted')) {
-                buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
-              }
-              if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
-              if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'delivered'}, 'Delivery completed.'), child: const Text('Delivered')));
-              return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
-                const SizedBox(height: 6),
-                Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
-                if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
-                if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
-                if (status == 'accepted' || status == 'assigned' || status == 'picked_up' || status == 'in_transit')
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: OutlinedButton.icon(
-                      onPressed: () => _openDeliveryDirections(job, toPickup: status == 'accepted' || status == 'assigned'),
-                      icon: const Icon(Icons.navigation_outlined),
-                      label: Text(status == 'accepted' || status == 'assigned' ? 'Navigate to pickup' : 'Navigate to drop-off'),
-                    ),
+    body: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
+      future: (() async {
+        final results = await Future.wait<dynamic>([
+          client.from('delivery_jobs').select('*').eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
+          client.from('delivery_assignments').select('*').eq('partner_id', user!.id).order('created_at', ascending: false),
+        ]).timeout(const Duration(seconds: 15));
+        return <String, List<Map<String, dynamic>>>{
+          'jobs': List<Map<String, dynamic>>.from(results[0] as List),
+          'assignments': List<Map<String, dynamic>>.from(results[1] as List),
+        };
+      })(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _loadFailure('Deliveries could not load. Check your connection and approved delivery-partner access, then retry.', () => setState(() {}));
+        if (!snapshot.hasData) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(), SizedBox(height: 12), Text('Loading your deliveries…'),
+        ]));
+        final jobs = snapshot.data!['jobs']!;
+        final assignmentRows = snapshot.data!['assignments']!;
+        final assignments = <String, Map<String, dynamic>>{
+          for (final assignment in assignmentRows)
+            if (assignment['status'] == 'offered' || assignment['status'] == 'accepted')
+              assignment['delivery_job_id'] as String: assignment,
+        };
+        if (jobs.isEmpty) return _empty('No deliveries assigned', 'Assigned deliveries and parcels appear here.');
+        return RefreshIndicator(
+          onRefresh: () async { setState(() {}); },
+          child: ListView(padding: const EdgeInsets.all(16), children: jobs.map((job) {
+            final status = job['status']?.toString() ?? 'pending';
+            final assignment = assignments[job['id']];
+            final assignmentStatus = assignment?['status']?.toString() ?? '';
+            final buttons = <Widget>[];
+            if (status == 'assigned' && assignmentStatus == 'offered') {
+              buttons.add(OutlinedButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'reject'}, 'Delivery declined.'), child: const Text('Decline')));
+              buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
+            }
+            if (status == 'accepted' || (status == 'assigned' && assignmentStatus == 'accepted')) {
+              buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
+            }
+            if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
+            if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'delivered'}, 'Delivery completed.'), child: const Text('Delivered')));
+            return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6),
+              Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
+              if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
+              if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
+              if (status == 'accepted' || status == 'assigned' || status == 'picked_up' || status == 'in_transit')
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: () => _openDeliveryDirections(job, toPickup: status == 'accepted' || status == 'assigned'),
+                    icon: const Icon(Icons.navigation_outlined),
+                    label: Text(status == 'accepted' || status == 'assigned' ? 'Navigate to pickup' : 'Navigate to drop-off'),
                   ),
-                if (status == 'in_transit') ...[
-                  const SizedBox(height: 10),
-                  Row(children: [
-                    Icon((job['proof_media_public_id']?.toString().isNotEmpty ?? false) ? Icons.verified_rounded : Icons.photo_camera_back_outlined,
-                      color: const Color(0xFF176B57)),
-                    const SizedBox(width: 8),
-                    Expanded(child: Text(
-                      (job['proof_media_public_id']?.toString().isNotEmpty ?? false)
-                        ? 'Proof of delivery attached'
-                        : 'Optional: attach a proof photo before completing delivery',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
-                    )),
-                  ]),
-                  const SizedBox(height: 6),
-                  Wrap(spacing: 8, children: [
-                    OutlinedButton.icon(
-                      onPressed: () => _captureDeliveryProof(job, ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      label: const Text('Take photo'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => _captureDeliveryProof(job, ImageSource.gallery),
-                      icon: const Icon(Icons.photo_library_outlined),
-                      label: const Text('Choose photo'),
-                    ),
-                  ]),
-                ],
-                if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: buttons)),
-              ])));
-            }).toList());
-          },
+                ),
+              if (status == 'in_transit') ...[
+                const SizedBox(height: 10),
+                Row(children: [
+                  Icon((job['proof_media_public_id']?.toString().isNotEmpty ?? false) ? Icons.verified_rounded : Icons.photo_camera_back_outlined, color: const Color(0xFF176B57)),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(
+                    (job['proof_media_public_id']?.toString().isNotEmpty ?? false)
+                      ? 'Proof of delivery attached'
+                      : 'Optional: attach a proof photo before completing delivery',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
+                  )),
+                ]),
+                const SizedBox(height: 6),
+                Wrap(spacing: 8, children: [
+                  OutlinedButton.icon(onPressed: () => _captureDeliveryProof(job, ImageSource.camera), icon: const Icon(Icons.camera_alt_outlined), label: const Text('Take photo')),
+                  OutlinedButton.icon(onPressed: () => _captureDeliveryProof(job, ImageSource.gallery), icon: const Icon(Icons.photo_library_outlined), label: const Text('Choose photo')),
+                ]),
+              ],
+              if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: buttons)),
+            ])));
+          }).toList()),
         );
       },
     ),
   );
-
-
-  Future<void> _captureDeliveryProof(Map<String, dynamic> job, ImageSource source) async {
-    try {
-      final file = await ImagePicker().pickImage(source: source, imageQuality: 82, maxWidth: 1600);
-      if (file == null) return;
-      notice('Uploading proof photo securely…');
-      final signingResponse = await Supabase.instance.client.functions.invoke(
-        'cloudinary-sign-upload',
-        body: <String, dynamic>{'asset_type': 'delivery_proof', 'delivery_job_id': job['id']},
-      );
-      if (signingResponse.status < 200 || signingResponse.status >= 300) {
-        final data = signingResponse.data;
-        final message = data is Map ? data['error']?.toString() : null;
-        throw StateError(message ?? 'Cloudinary signing endpoint returned status ' + signingResponse.status.toString());
-      }
-      final signed = Map<String, dynamic>.from(signingResponse.data as Map);
-      final uri = Uri.https('api.cloudinary.com', '/v1_1/' + signed['cloud_name'].toString() + '/image/upload');
-      final upload = http.MultipartRequest('POST', uri);
-      upload.fields['api_key'] = signed['api_key'].toString();
-      upload.fields['timestamp'] = signed['timestamp'].toString();
-      upload.fields['folder'] = signed['folder'].toString();
-      upload.fields['type'] = signed['type'].toString();
-      if (signed['public_id'] is String) upload.fields['public_id'] = signed['public_id'] as String;
-      upload.fields['signature'] = signed['signature'].toString();
-      upload.files.add(await http.MultipartFile.fromPath('file', file.path));
-      final response = await upload.send().timeout(const Duration(seconds: 60));
-      final responseBody = await response.stream.bytesToString();
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
-      }
-      final result = jsonDecode(responseBody);
-      if (result is! Map || result['public_id'] is! String) {
-        throw StateError('Cloudinary did not return a proof media reference.');
-      }
-      await Supabase.instance.client.rpc('partner_record_delivery_proof', params: {
-        'p_delivery_job_id': job['id'],
-        'p_cloudinary_public_id': result['public_id'],
-      });
-      notice('Proof of delivery saved.');
-    } catch (e) {
-      notice('Could not attach proof: ' + e.toString());
-    }
-  }
 
   Widget _sellerDashboard() => Scaffold(
     appBar: _appBar('Seller operations'),
@@ -1207,6 +1162,19 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     padding: const EdgeInsets.all(20), margin: const EdgeInsets.only(top: 8, bottom: 8),
     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
     child: Column(children: [const Icon(Icons.inbox_outlined, size: 36, color: Color(0xFF176B57)), const SizedBox(height: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 4), Text(detail, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF68736D), height: 1.4))]),
+  );
+
+  Widget _loadFailure(String text, VoidCallback retry) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.cloud_off_rounded, size: 42, color: Color(0xFF176B57)),
+        const SizedBox(height: 10),
+        Text(text, textAlign: TextAlign.center, style: const TextStyle(height: 1.45)),
+        const SizedBox(height: 14),
+        FilledButton.icon(onPressed: retry, icon: const Icon(Icons.refresh_rounded), label: const Text('Retry')),
+      ]),
+    ),
   );
 
   Widget _error(String text) => Padding(padding: const EdgeInsets.all(18), child: Text(text, style: const TextStyle(color: Colors.red, height: 1.4)));
