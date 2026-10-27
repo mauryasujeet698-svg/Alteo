@@ -55,6 +55,20 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
   double? _number(String key) => (_snapshot?[key] as num?)?.toDouble();
   String _statusLabel(dynamic value) => (value?.toString() ?? 'pending').replaceAll('_', ' ');
 
+  String _fallbackDeliveryEta(Map<String, dynamic> data) {
+    final orderStatus = data['order_status']?.toString() ?? data['status']?.toString() ?? 'pending';
+    final jobStatus = data['status']?.toString() ?? 'pending';
+    if (const {'completed', 'delivered'}.contains(orderStatus) ||
+        const {'completed', 'delivered'}.contains(jobStatus)) return 'Delivered';
+    if (const {'cancelled', 'rejected', 'failed'}.contains(orderStatus) ||
+        const {'cancelled', 'rejected', 'failed'}.contains(jobStatus)) return 'No longer active';
+    if (const {'in_transit', 'picked_up', 'out_for_delivery'}.contains(jobStatus)) return 'About 5–25 min';
+    if (orderStatus == 'ready_for_pickup' || jobStatus == 'assigned' || jobStatus == 'accepted') return 'About 15–30 min';
+    if (orderStatus == 'preparing' || orderStatus == 'accepted') return 'About 20–45 min';
+    if (orderStatus == 'cod_pending' || orderStatus == 'pending_payment' || jobStatus == 'pending') return 'About 30–60 min after seller acceptance';
+    return 'Updated as your order progresses';
+  }
+
   Future<void> _loadSnapshot({bool silent = false}) async {
     if (_requestInFlight) return;
     _requestInFlight = true;
@@ -189,8 +203,13 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
 
   Widget _trackingBody() {
     final data = _snapshot ?? <String, dynamic>{};
-    final status = _statusLabel(data['status']);
-    final isTerminal = const {'completed', 'delivered', 'cancelled', 'rejected'}.contains(data['status']?.toString());
+    final trackingStatus = widget.entityType == 'order'
+        ? (data['order_status'] ?? data['status'])
+        : data['status'];
+    final status = _statusLabel(trackingStatus);
+    final isTerminal = const {'completed', 'delivered', 'cancelled', 'rejected', 'failed'}.contains(data['status']?.toString()) ||
+        const {'completed', 'cancelled', 'refunded'}.contains(data['order_status']?.toString());
+    final isDeliveryEntity = widget.entityType == 'order' || widget.entityType == 'parcel';
     final partnerLat = _number('partner_latitude');
     final partnerLon = _number('partner_longitude');
     final pickupLat = _number('pickup_latitude');
@@ -309,7 +328,12 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
           Row(children: [
             Expanded(child: _metric('ESTIMATED DISTANCE', distanceMeters == null ? '—' : '${(distanceMeters / 1000).toStringAsFixed(1)} km')),
             const SizedBox(width: 9),
-            Expanded(child: _metric('ESTIMATED TRIP TIME', tripSeconds == null ? '—' : _formatDuration(tripSeconds))),
+            Expanded(child: _metric(
+              isDeliveryEntity ? 'ESTIMATED DELIVERY' : 'ESTIMATED TRIP TIME',
+              tripSeconds == null
+                  ? (isDeliveryEntity ? _fallbackDeliveryEta(data) : 'Estimate unavailable')
+                  : _formatDuration(tripSeconds),
+            )),
           ]),
           const SizedBox(height: 9),
           Row(children: [
@@ -330,7 +354,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
           ],
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: const TextStyle(color: Colors.red))),
           const SizedBox(height: 8),
-          const Text('Estimated times are approximate. Road-based route guidance appears when it is available.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D), height: 1.4)),
+          const Text('Delivery times shown without live routing are broad estimates and may change with seller preparation, dispatch and local conditions. Road-based route guidance appears when available.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D), height: 1.4)),
         ],
       ),
     );
