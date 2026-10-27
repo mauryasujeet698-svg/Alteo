@@ -513,6 +513,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     try {
       await client.rpc(name, params: params);
       notice(success);
+      if (mounted && (name == 'driver_update_ride_status' || name == 'partner_update_delivery_status')) {
+        setState(() {});
+      }
     } catch (e) {
       notice('Action failed: ' + e.toString());
     }
