@@ -28,7 +28,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  int get cartItemCount => cartQuantities.values.fold<int>(0, (sum, quantity) => sum + quantity);
  final Set<String> busyCartProductIds = <String>{};
  final stt.SpeechToText speech = stt.SpeechToText();
- final PageController bannerController = PageController(viewportFraction: .91);
+ final PageController bannerController = PageController(viewportFraction: .96);
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
  StreamSubscription<List<Map<String, dynamic>>>? productSubscription;
