@@ -1291,7 +1291,7 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
         final ext = const {'jpg','jpeg','png','webp'}.contains(ext0) ? ext0 : 'jpg';
         final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
         photoPath = '${widget.user.id}/${widget.role}/profile_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
-        await client.storage.from('partner-onboarding').uploadBinary(photoPath!, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
+        await client.storage.from('partner-onboarding').uploadBinary(photoPath, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
       }
       final data = <String,dynamic>{'address': _address.text.trim()};
       for (final f in _fields) { final v = _extra[f.key]!.text.trim(); if (v.isNotEmpty) data[f.key] = v; }
