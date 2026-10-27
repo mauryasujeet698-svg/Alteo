@@ -47,16 +47,23 @@ class CustomerOrdersPage extends StatelessWidget {
   Widget _orders(SupabaseClient client, String userId) => StreamBuilder<List<Map<String, dynamic>>>(
     stream: client.from('orders').stream(primaryKey: ['id']).eq('customer_id', userId).order('created_at', ascending: false),
     builder: (context, snapshot) {
-      if (snapshot.hasError) return _error('Could not load orders. Confirm the customer order policies are active.');
+      if (snapshot.hasError) return _error('Your orders could not load. Check your connection and try again.');
       if (!snapshot.hasData) return const LinearProgressIndicator();
       final orders = snapshot.data!;
       if (orders.isEmpty) return _empty('No orders yet', 'Orders will appear here after checkout.');
       return Column(children: orders.map((order) {
         final total = (((order['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0);
+        final rawStatus = order['status']?.toString() ?? 'unknown';
+        final status = rawStatus == 'cod_pending' ? 'Placed · awaiting seller acceptance' : rawStatus.replaceAll('_', ' ');
+        final method = order['payment_method']?.toString() ?? '';
+        final paymentStatus = order['payment_status']?.toString() ?? 'pending';
+        final payment = method == 'cod'
+            ? (paymentStatus == 'paid' ? 'Cash on delivery · collected' : 'Cash on delivery · pay when it arrives')
+            : paymentStatus.replaceAll('_', ' ');
         return Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
           leading: const CircleAvatar(backgroundColor: Color(0xFFE3F2E9), child: Icon(Icons.receipt_long_rounded, color: Color(0xFF176B57))),
           title: Text('Order ' + _shortId(order['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: Text('Status: ' + (order['status']?.toString() ?? 'unknown').replaceAll('_', ' ') + '\nPayment: ' + (order['payment_status']?.toString() ?? 'pending') + ' · Total ₹' + total),
+          subtitle: Text('Status: ' + status + '\nPayment: ' + payment + ' · Total ₹' + total),
           isThreeLine: true,
           trailing: TextButton.icon(
             onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'order', entityId: order['id'].toString()))),
