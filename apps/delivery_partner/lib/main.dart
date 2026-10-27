@@ -74,6 +74,8 @@ class RoleExplorePage extends StatefulWidget {
 class _RoleExplorePageState extends State<RoleExplorePage> {
   bool busy = false;
   bool authorized = false;
+  bool onboardingRequired = false;
+  Map<String, dynamic>? onboardingRequest;
   int selectedTab = 0;
   bool authSheetOpen = false;
   String? message;
@@ -108,37 +110,27 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     final current = client.auth.currentUser;
     if (current == null) return;
     try {
-      final row = await client.from('user_roles')
-          .select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
+      final row = await client.from('user_roles').select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
       if (!mounted) return;
       if (row != null) {
-        setState(() { authorized = true; message = 'Access verified.'; });
+        setState(() { authorized = true; onboardingRequired = false; onboardingRequest = null; message = 'Access verified.'; });
         if (authSheetOpen && mounted) Navigator.of(context).maybePop();
-      } else {
-        final existingRequest = await client.from('role_requests')
-            .select('status').eq('user_id', current.id).eq('requested_role', requiredRole).maybeSingle();
-        if (existingRequest == null) {
-          await client.from('role_requests').insert({
-            'user_id': current.id,
-            'requested_role': requiredRole,
-            'status': 'pending',
-            'email': current.email,
-            'display_name': current.userMetadata?['full_name'] ?? current.userMetadata?['name'],
-          });
-        }
-        final status = (existingRequest?['status'] ?? 'pending').toString();
-        final requestMessage = status == 'approved'
-            ? 'Your request was approved. Refresh access to continue.'
-            : status == 'rejected'
-                ? 'Your access request was not approved. Please contact Alteo support if you think this is a mistake.'
-                : 'Approval request sent to Alteo Admin. You can use protected features after your request is approved.';
-        if (mounted) {
-          setState(() { authorized = false; message = requestMessage; });
-          if (authSheetOpen && mounted) Navigator.of(context).maybePop();
-        }
+        return;
       }
+      final request = await client.from('role_requests').select('*').eq('user_id', current.id).eq('requested_role', requiredRole).maybeSingle();
+      if (!mounted) return;
+      if (request == null || request['status'] == 'rejected') {
+        setState(() { authorized = false; onboardingRequired = true; onboardingRequest = request == null ? null : Map<String,dynamic>.from(request); message = null; });
+        if (authSheetOpen && mounted) Navigator.of(context).maybePop();
+        return;
+      }
+      final requestMessage = request['status'] == 'approved'
+          ? 'Your request was approved. Refresh access to continue.'
+          : 'Your onboarding request is pending Admin review. Protected features unlock after approval.';
+      setState(() { authorized = false; onboardingRequired = false; onboardingRequest = Map<String,dynamic>.from(request); message = requestMessage; });
+      if (authSheetOpen && mounted) Navigator.of(context).maybePop();
     } catch (_) {
-      if (mounted) setState(() => message = 'Could not submit or verify your approval request. Please check your connection and try again.');
+      if (mounted) setState(() => message = 'Could not verify your onboarding status. Please check your connection and try again.');
     }
   }
 
@@ -185,6 +177,9 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   @override
   Widget build(BuildContext context) {
+    if (onboardingRequired && widget.backendReady && Supabase.instance.client.auth.currentUser != null) {
+      return PartnerOnboardingPage(role: requiredRole, user: Supabase.instance.client.auth.currentUser!, existingRequest: onboardingRequest, onSubmitted: () { _checkRole(); });
+    }
     if (authorized) return RoleOperationsPage(onSignOut: () async { await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut(); if (mounted) setState(() => authorized = false); });
     return Scaffold(
     appBar: AppBar(
@@ -1312,5 +1307,121 @@ class RolePublicFeaturePage extends StatelessWidget {
         label: label,
       )).toList(),
     ),
+  );
+}
+
+class PartnerOnboardingPage extends StatefulWidget {
+  const PartnerOnboardingPage({super.key, required this.role, required this.user, required this.existingRequest, required this.onSubmitted});
+  final String role;
+  final User user;
+  final Map<String, dynamic>? existingRequest;
+  final VoidCallback onSubmitted;
+  @override
+  State<PartnerOnboardingPage> createState() => _PartnerOnboardingPageState();
+}
+
+class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
+  final _key = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _address = TextEditingController();
+  final Map<String, TextEditingController> _extra = {};
+  XFile? _photo;
+  bool _saving = false;
+  String? _error;
+
+  List<MapEntry<String, String>> get _fields => switch (widget.role) {
+    'seller' => const [MapEntry('shop_name','Shop / business name *'), MapEntry('business_category','Business category *'), MapEntry('gstin','GSTIN (if applicable)')],
+    'dark_store' => const [MapEntry('store_name','Dark store name *'), MapEntry('operating_hours','Operating hours *'), MapEntry('facility_details','Facility details (optional)')],
+    'driver_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('driving_licence_number','Driving licence number *'), MapEntry('service_area','Preferred service area *')],
+    'delivery_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('service_area','Preferred service area *')],
+    _ => const [],
+  };
+
+  @override
+  void initState() {
+    super.initState();
+    final r = widget.existingRequest ?? {};
+    final d = r['application_data'] is Map ? Map<String,dynamic>.from(r['application_data'] as Map) : <String,dynamic>{};
+    _name.text = (r['display_name'] ?? widget.user.userMetadata?['full_name'] ?? widget.user.userMetadata?['name'] ?? '').toString();
+    _phone.text = (r['phone'] ?? '').toString();
+    _address.text = (d['address'] ?? '').toString();
+    for (final f in _fields) { _extra[f.key] = TextEditingController(text: (d[f.key] ?? '').toString()); }
+  }
+  @override
+  void dispose() { _name.dispose(); _phone.dispose(); _address.dispose(); for (final c in _extra.values) { c.dispose(); } super.dispose(); }
+
+  Future<void> _choosePhoto() async {
+    try {
+      final p = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 85, maxWidth: 1600);
+      if (p != null && mounted) setState(() { _photo = p; _error = null; });
+    } catch (e) { if (mounted) setState(() => _error = 'Could not open photo gallery: $e'); }
+  }
+
+  Future<void> _submit() async {
+    if (!_key.currentState!.validate()) return;
+    final existing = widget.existingRequest;
+    final oldPath = existing?['profile_photo_path']?.toString();
+    if (_photo == null && (oldPath == null || oldPath.isEmpty)) { setState(() => _error = 'Please upload a profile photo.'); return; }
+    setState(() { _saving = true; _error = null; });
+    try {
+      final client = Supabase.instance.client;
+      var photoPath = oldPath;
+      if (_photo != null) {
+        final ext0 = _photo!.name.contains('.') ? _photo!.name.split('.').last.toLowerCase() : 'jpg';
+        final ext = const {'jpg','jpeg','png','webp'}.contains(ext0) ? ext0 : 'jpg';
+        final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
+        photoPath = '\${widget.user.id}/\${widget.role}/profile_\${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
+        await client.storage.from('partner-onboarding').uploadBinary(photoPath!, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
+      }
+      final data = <String,dynamic>{'address': _address.text.trim()};
+      for (final f in _fields) { final v = _extra[f.key]!.text.trim(); if (v.isNotEmpty) data[f.key] = v; }
+      final payload = <String,dynamic>{
+        'user_id': widget.user.id, 'requested_role': widget.role, 'status': 'pending',
+        'email': widget.user.email, 'display_name': _name.text.trim(), 'phone': _phone.text.trim(),
+        'profile_photo_path': photoPath, 'application_data': data,
+        'document_paths': existing?['document_paths'] ?? <dynamic>[], 'rejection_reason': null,
+        'reviewed_at': null, 'reviewed_by': null, 'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing != null && existing['status'] == 'rejected') {
+        await client.from('role_requests').update(payload).eq('id', existing['id']);
+      } else {
+        await client.from('role_requests').insert(payload);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Onboarding request submitted. Please wait for Admin approval.')));
+      widget.onSubmitted();
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Could not submit onboarding. Please try again. $e');
+    } finally { if (mounted) setState(() => _saving = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text('\${widget.role.replaceAll('_',' ')} onboarding'), automaticallyImplyLeading: false),
+    body: SafeArea(child: Form(key: _key, child: ListView(padding: const EdgeInsets.all(20), children: [
+      const Icon(Icons.verified_user_outlined, size: 42),
+      const SizedBox(height: 10),
+      Text('Complete your details', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      Text('This application is only for \${widget.role.replaceAll('_',' ')} access. You may use the same Google account in other Alteo partner apps and submit separate applications there.', style: const TextStyle(height: 1.45)),
+      const SizedBox(height: 18),
+      TextFormField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter your full name' : null),
+      const SizedBox(height: 12),
+      TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Mobile number *', border: OutlineInputBorder()), validator: (v) { final n = (v ?? '').replaceAll(RegExp(r'[^0-9]'), '').length; return n < 7 || n > 15 ? 'Enter a valid phone number' : null; }),
+      const SizedBox(height: 12),
+      TextFormField(controller: _address, maxLines: 2, decoration: const InputDecoration(labelText: 'Address *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 5) ? 'Enter your complete address' : null),
+      const SizedBox(height: 12),
+      for (final f in _fields) ...[
+        TextFormField(controller: _extra[f.key], decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder()), validator: (v) => f.value.endsWith('*') && (v == null || v.trim().isEmpty) ? 'This field is required' : null),
+        const SizedBox(height: 12),
+      ],
+      OutlinedButton.icon(onPressed: _saving ? null : _choosePhoto, icon: Icon(_photo == null ? Icons.add_a_photo_outlined : Icons.check_circle_outline), label: Text(_photo == null ? (widget.existingRequest?['profile_photo_path'] == null ? 'Upload profile photo *' : 'Replace profile photo') : 'Profile photo selected')),
+      if (_error != null) ...[const SizedBox(height: 10), Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))],
+      const SizedBox(height: 18),
+      FilledButton(onPressed: _saving ? null : _submit, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)), child: _saving ? const CircularProgressIndicator() : const Text('Submit onboarding request')),
+      const SizedBox(height: 10),
+      const Text('Your details are stored securely for Admin review. Protected features stay locked until approval.', textAlign: TextAlign.center, style: TextStyle(height: 1.4)),
+    ]))),
   );
 }
