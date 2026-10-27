@@ -180,6 +180,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
   Widget _trackingBody() {
     final data = _snapshot ?? <String, dynamic>{};
     final status = _statusLabel(data['status']);
+    final isTerminal = const {'completed', 'delivered', 'cancelled', 'rejected'}.contains(data['status']?.toString());
     final partnerLat = _number('partner_latitude');
     final partnerLon = _number('partner_longitude');
     final pickupLat = _number('pickup_latitude');
@@ -229,7 +230,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
       }
     }
     final focus = locationAvailable
-        ? LatLng(partnerLat, partnerLon)
+        ? LatLng(partnerLat!, partnerLon!)
         : pickupLat != null && pickupLon != null
           ? LatLng(pickupLat, pickupLon)
           : destinationLat != null && destinationLon != null
@@ -268,7 +269,12 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
               child: FlutterMap(
                 options: MapOptions(initialCenter: focus, initialZoom: locationAvailable ? 14 : pickupLat == null ? 4.4 : 12.5),
                 children: [
-                  TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer', maxZoom: 19),
+                  TileLayer(
+                    urlTemplate: tileUrl,
+                    fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    userAgentPackageName: 'com.alteo.customer',
+                    maxZoom: 19,
+                  ),
                   if (_routePoints.length >= 2)
                     PolylineLayer(polylines: [Polyline(points: _routePoints, strokeWidth: 4, color: const Color(0xFF176B57))])
                   else if (fallbackLine.length >= 2)
@@ -297,7 +303,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
           ]),
           const SizedBox(height: 9),
           Row(children: [
-            Expanded(child: _metric('ETA TO ${nextStop == 'destination' ? 'DESTINATION' : 'PICKUP'}', etaSeconds == null ? 'Waiting for location' : _formatDuration(etaSeconds))),
+            Expanded(child: _metric('ETA TO ${nextStop == 'destination' ? 'DESTINATION' : 'PICKUP'}', isTerminal ? 'Trip complete' : etaSeconds == null ? (trackingAvailable ? 'Waiting for location' : 'Awaiting assignment') : _formatDuration(etaSeconds))),
             const SizedBox(width: 9),
             Expanded(child: _metric('LOCATION STATUS', locationAvailable ? 'Live' : 'Waiting')),
           ]),
