@@ -491,10 +491,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     super.initState();
     metrics = requiredRole == 'admin' ? client.rpc('admin_operations_summary') : Future.value(<String, dynamic>{});
     sellerProfile = requiredRole == 'seller' && user != null
-      ? client.from('sellers').select('id,status,display_name').eq('owner_id', user!.id).maybeSingle()
+      ? client.from('sellers').select('id,status,display_name').eq('owner_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15))
       : Future.value(null);
     storeProfile = requiredRole == 'dark_store' && user != null
-      ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle()
+      ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15))
       : Future.value(null);
     if ((requiredRole == 'driver_partner' || requiredRole == 'delivery_partner') && user != null) _loadAvailability();
   }
