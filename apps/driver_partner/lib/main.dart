@@ -182,8 +182,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     return Scaffold(
     appBar: AppBar(
       title: Row(children: [
-        Container(width: 36, height: 36, decoration: BoxDecoration(color: const Color(0xFF176B57), borderRadius: BorderRadius.circular(12)),
-          child: const Icon(Icons.explore_rounded, color: Colors.white, size: 22)),
+        Container(width: 36, height: 36, decoration: BoxDecoration(color: const Color(0xFF2463D4), borderRadius: BorderRadius.circular(12)),
+          child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 22)),
         const SizedBox(width: 10),
         const Expanded(child: Text(appName, style: TextStyle(fontWeight: FontWeight.w800))),
       ]),
