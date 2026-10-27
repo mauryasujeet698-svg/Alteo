@@ -92,7 +92,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
     setState(() => searchingPickup = true);
     try {
       final coords = await MapboxService.geocode(value);
-      if (coords == null) { _message('Pickup not found. Try a fuller address or nearby landmark.'); return; }
+      if (coords == null) { _message(MapboxService.lastError ?? 'Pickup not found. Try a fuller address or nearby landmark.'); return; }
       if (!mounted) return;
       setState(() => pickupCoordinates = coords);
       try { mapController.move(LatLng(coords[1], coords[0]), 14.5); } catch (_) {}
@@ -109,7 +109,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
     setState(() => searchingDestination = true);
     try {
       final coords = await MapboxService.geocode(value);
-      if (coords == null) { _message('Destination not found. Try a fuller address or nearby landmark.'); return; }
+      if (coords == null) { _message(MapboxService.lastError ?? 'Destination not found. Try a fuller address or nearby landmark.'); return; }
       if (!mounted) return;
       setState(() => destinationCoordinates = coords);
       try { mapController.move(LatLng((pickupCoordinates ?? coords)[1], (pickupCoordinates ?? coords)[0]), 14.5); } catch (_) {}
@@ -123,6 +123,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
     if (!widget.enableBackendQueries) { if (mounted) setState(() => fareQuote = {'enabled': false, 'message': 'Preview mode: live ride prices load when backend access is enabled.'}); return; }
     if (pickupCoordinates == null || destinationCoordinates == null) {
       if (mounted) setState(() => fareQuote = null);
+      await _refreshRoute();
       return;
     }
     try {
@@ -292,7 +293,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
                 const SizedBox(width: 10),
                 Expanded(child: TextField(
                   controller: pickupController,
-                  onChanged: (_) => setState(() { pickupCoordinates = null; fareQuote = null; }),
+                  onChanged: (_) => setState(() { pickupCoordinates = null; fareQuote = null; routeResult = null; routeCoordinates = <LatLng>[]; }),
                   onSubmitted: (_) => _searchPickup(),
                   decoration: const InputDecoration(labelText: 'Pickup location', hintText: 'Enter pickup or use current location', border: InputBorder.none),
                 )),
@@ -304,7 +305,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
                 const SizedBox(width: 10),
                 Expanded(child: TextField(
                   controller: destinationController,
-                  onChanged: (_) => setState(() { destinationCoordinates = null; fareQuote = null; }),
+                  onChanged: (_) => setState(() { destinationCoordinates = null; fareQuote = null; routeResult = null; routeCoordinates = <LatLng>[]; }),
                   onSubmitted: (_) => _searchDestination(),
                   decoration: const InputDecoration(labelText: 'Where to?', hintText: 'Search destination or landmark', border: InputBorder.none),
                 )),
@@ -455,6 +456,10 @@ class _RideBookingPageState extends State<RideBookingPage> {
               if (routeCoordinates.length >= 2)
                 PolylineLayer(polylines: [
                   Polyline(points: routeCoordinates, strokeWidth: 4, color: const Color(0xFF176B57)),
+                ])
+              else if (pickup != null && destination != null)
+                PolylineLayer(polylines: [
+                  Polyline(points: [LatLng(pickup[1], pickup[0]), LatLng(destination[1], destination[0])], strokeWidth: 3, color: const Color(0xFF7CA89A)),
                 ]),
               if (markers.isNotEmpty) MarkerLayer(markers: markers),
               RichAttributionWidget(attributions: [
