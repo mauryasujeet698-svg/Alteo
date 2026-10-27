@@ -333,7 +333,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             child: Text(requestingRide ? 'Requesting ride…' : 'Confirm ' + _vehicleLabel(vehicleType)),
           ),
           const SizedBox(height: 9),
-          const Text('Location is used only after permission is granted. Ride creation and fare calculation are validated by the Alteo backend.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Color(0xFF68736D), height: 1.45)),
+          const Text('Location is used only after you grant permission. Your fare is confirmed before a ride is created.', textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: Color(0xFF68736D), height: 1.45)),
         ],
       ),
     );
@@ -497,7 +497,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(color: Colors.white.withValues(alpha: .92), borderRadius: BorderRadius.circular(8)),
-              child: Text(!MapboxService.isConfigured ? 'Map preview · token missing' : routeResult != null ? 'Mapbox road route' : 'Mapbox enabled', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+              child: Text(!MapboxService.isConfigured ? 'Map preview' : routeResult != null ? 'Road route' : 'Map preview', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
             ),
           ),
         ]),
