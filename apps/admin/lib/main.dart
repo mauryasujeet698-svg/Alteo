@@ -1512,17 +1512,35 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                       leading: ClipRRect(
                         borderRadius: BorderRadius.circular(10),
                         child: SizedBox(
-                          width: 56,
-                          height: 56,
+                          width: 72,
+                          height: 76,
                           child: imageUrl.startsWith('https://')
-                            ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined))
-                            : const Icon(Icons.inventory_2_outlined),
+                            ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, size: 30))
+                            : Container(
+                                color: const Color(0xFFFFF4E5),
+                                child: const Icon(Icons.add_photo_alternate_outlined, size: 30, color: Color(0xFF9A5C13)),
+                              ),
                         ),
                       ),
                       title: Text(product['name']?.toString() ?? 'Item', style: const TextStyle(fontWeight: FontWeight.w800)),
                       subtitle: Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: Text('₹' + price.toStringAsFixed(2) + ' · ' + kind.toUpperCase() + ' · ' + status.toUpperCase()),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text((product['description']?.toString().trim().isNotEmpty ?? false)
+                              ? product['description'].toString()
+                              : 'Description missing — add before publishing.',
+                              maxLines: 3, overflow: TextOverflow.ellipsis),
+                            const SizedBox(height: 4),
+                            Text('₹' + price.toStringAsFixed(2) + ' · ' + kind.toUpperCase() + ' · ' + status.toUpperCase()),
+                            const SizedBox(height: 3),
+                            Text(imageUrl.startsWith('https://') ? 'Image attached' : 'Image required before publishing',
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800,
+                                color: imageUrl.startsWith('https://') ? const Color(0xFF176B57) : const Color(0xFFB3261E))),
+                          ],
+                        ),
                       ),
                       trailing: Wrap(
                         spacing: 0,
@@ -1536,6 +1554,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                               for (final state in const ['draft', 'active', 'paused', 'rejected'])
                                 PopupMenuItem<String>(
                                   value: state,
+                                  enabled: state != 'active' || imageUrl.startsWith('https://'),
                                   child: Row(
                                     children: [
                                       if (state == status) const Icon(Icons.check_rounded, size: 18),
@@ -1619,7 +1638,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                       controller: description,
                       maxLength: 4000,
                       maxLines: 3,
-                      decoration: const InputDecoration(labelText: 'Description', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(labelText: 'Description *', border: OutlineInputBorder()),
                     ),
                     const SizedBox(height: 10),
                     TextField(
@@ -1631,7 +1650,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                     TextField(
                       controller: image,
                       keyboardType: TextInputType.url,
-                      decoration: const InputDecoration(labelText: 'Item image URL (optional)', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(labelText: 'Item image URL * (upload an image below)', border: OutlineInputBorder()),
                     ),
                     const SizedBox(height: 6),
                     Align(
@@ -1709,8 +1728,12 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         notice('Enter an item name and a price greater than zero.');
         return;
       }
-      if (imageUrl.isNotEmpty && !imageUrl.startsWith('https://')) {
-        notice('Use an HTTPS image URL or upload the image to Supabase Storage.');
+      if (description.text.trim().length < 3) {
+        notice('A clear item description is required.');
+        return;
+      }
+      if (!imageUrl.startsWith('https://')) {
+        notice('A product image is mandatory. Upload or select an image before saving.');
         return;
       }
 
