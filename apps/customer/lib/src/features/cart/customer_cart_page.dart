@@ -32,6 +32,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   final label = TextEditingController(text: 'Home');
   bool saveAddress = false;
   bool locating = false;
+  double? selectedLatitude;
+  double? selectedLongitude;
   String selectedPaymentMethod = 'cod';
   List<Map<String, dynamic>> savedAddresses = [];
   Map<String, dynamic>? selectedAddress;
@@ -59,6 +61,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        final match = matches.first;
        setDialogState(() {
         selectedAddress = match;
+        selectedLatitude = (match['latitude'] as num?)?.toDouble();
+        selectedLongitude = (match['longitude'] as num?)?.toDouble();
         recipient.text = (match['recipient_name'] ?? '').toString();
         phone.text = (match['phone'] ?? '').toString();
         addressLine.text = (match['address_line1'] ?? '').toString();
@@ -78,8 +82,11 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
          throw StateError('Allow location access in Android settings to use your current location.');
         }
         final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)).timeout(const Duration(seconds: 15));
+        selectedLatitude = position.latitude;
+        selectedLongitude = position.longitude;
+        selectedAddress = null;
         final place = await MapboxService.reverseGeocode(position.longitude, position.latitude);
-        addressLine.text = place ?? '${position.latitude.toStringAsFixed(6)}, ${position.longitude.toStringAsFixed(6)}';
+        addressLine.text = place ?? 'Current location (address details below)';
         setDialogState(() {});
        } catch (e) {
         if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not get current location: $e')));
@@ -90,10 +97,10 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      )),
      TextField(controller: recipient, decoration: const InputDecoration(labelText: 'Recipient name')),
      TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number')),
-     TextField(controller: addressLine, minLines: 1, maxLines: 2, decoration: const InputDecoration(labelText: 'House and street')),
-     TextField(controller: city, decoration: const InputDecoration(labelText: 'City')),
-     TextField(controller: stateName, decoration: const InputDecoration(labelText: 'State')),
-     TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN code')),
+     TextField(controller: addressLine, minLines: 1, maxLines: 2, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'House and street')),
+     TextField(controller: city, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'City')),
+     TextField(controller: stateName, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'State')),
+     TextField(controller: postalCode, keyboardType: TextInputType.number, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'PIN code')),
      TextField(controller: label, decoration: const InputDecoration(labelText: 'Save address as (optional)')),
      CheckboxListTile(contentPadding: EdgeInsets.zero, value: saveAddress, onChanged: (value) => setDialogState(() => saveAddress = value ?? false), title: const Text('Save these details for next time')),
      const SizedBox(height: 12),
@@ -132,6 +139,15 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     ],
    )));
    if (confirmed != true || !mounted) return;
+   if (selectedLatitude == null || selectedLongitude == null) {
+    final addressQuery = [addressLine.text.trim(), city.text.trim(), stateName.text.trim(), postalCode.text.trim()]
+      .where((part) => part.isNotEmpty).join(', ');
+    final coordinates = await MapboxService.geocode(addressQuery);
+    if (coordinates != null && coordinates.length >= 2) {
+      selectedLongitude = coordinates[0];
+      selectedLatitude = coordinates[1];
+    }
+   }
    if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
        addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
        stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
@@ -201,6 +217,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        'city': city.text.trim(),
        'state': stateName.text.trim(),
        'postal_code': postalCode.text.trim(),
+       'latitude': selectedLatitude,
+       'longitude': selectedLongitude,
        'area_code': 'DEFAULT',
       },
       'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
