@@ -121,7 +121,7 @@ Widget header() => Padding(
           alignment: Alignment.center,
           children: [
             Text('A', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, color: Colors.white)),
-            Positioned(right: 10, top: 9, child: CircleAvatar(radius: 3.5, backgroundColor: Color(0xFFFFA21A)),
+            Positioned(right: 10, top: 9, child: CircleAvatar(radius: 3.5, backgroundColor: Color(0xFFFFA21A))),
           ],
         ),
       ),
