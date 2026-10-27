@@ -142,7 +142,15 @@ jobs:
               (folder/"ic_launcher_round.png").write_bytes(png)
           manifest = Path("android/app/src/main/AndroidManifest.xml")
           source = manifest.read_text()
-          source = source.replace('<application', '<application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"', 1)
+          import re
+          if re.search(r'android:icon="[^"]+"', source):
+              source = re.sub(r'android:icon="[^"]+"', 'android:icon="@mipmap/ic_launcher"', source, count=1)
+          else:
+              source = source.replace('<application', '<application android:icon="@mipmap/ic_launcher"', 1)
+          if 'android:roundIcon=' in source:
+              source = re.sub(r'android:roundIcon="[^"]+"', 'android:roundIcon="@mipmap/ic_launcher_round"', source, count=1)
+          else:
+              source = source.replace('<application', '<application android:roundIcon="@mipmap/ic_launcher_round"', 1)
           manifest.write_text(source)
           print("Generated custom Alteo launcher branding for", name)
           PY
