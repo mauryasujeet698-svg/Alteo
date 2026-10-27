@@ -109,13 +109,62 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   }
  }
 
- Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,8,18,14),child:Row(children:[
-  Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Stack(alignment:Alignment.center,children:[Text('A',style:TextStyle(fontSize:31,fontWeight:FontWeight.w900,color:Colors.white)),Positioned(right:10,top:9,child:CircleAvatar(radius:3.5,backgroundColor:Color(0xFFFFA21A)))])),
-  const SizedBox(width:11),
-  Expanded(child: InkWell(onTap:_chooseLocation,borderRadius:BorderRadius.circular(12),child:Padding(padding:const EdgeInsets.symmetric(vertical:6),child:ValueListenableBuilder<String>(valueListenable:alteoDeliveryLocation,builder:(context,location,_)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(alteoText('DELIVERING TO'),style:const TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),const SizedBox(height:3),Row(children:[Expanded(child:Text(location, maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:14,fontWeight:FontWeight.w800))),const Icon(Icons.keyboard_arrow_down_rounded,size:20)])])))),
-  IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
-  IconButton(tooltip:'Notifications',onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
- ]));
+Widget header() => Padding(
+  padding: const EdgeInsets.fromLTRB(18, 8, 18, 14),
+  child: Row(
+    children: [
+      Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(color: const Color(0xFF176B57), borderRadius: BorderRadius.circular(15)),
+        child: const Stack(
+          alignment: Alignment.center,
+          children: [
+            Text('A', style: TextStyle(fontSize: 31, fontWeight: FontWeight.w900, color: Colors.white)),
+            Positioned(right: 10, top: 9, child: CircleAvatar(radius: 3.5, backgroundColor: Color(0xFFFFA21A)),
+          ],
+        ),
+      ),
+      const SizedBox(width: 11),
+      Expanded(
+        child: InkWell(
+          onTap: _chooseLocation,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: ValueListenableBuilder<String>(
+              valueListenable: alteoDeliveryLocation,
+              builder: (context, location, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(alteoText('DELIVERING TO'), style: const TextStyle(fontSize: 10, letterSpacing: 1.2, fontWeight: FontWeight.w800, color: Color(0xFF737B76))),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Expanded(child: Text(location, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800))),
+                      const Icon(Icons.keyboard_arrow_down_rounded, size: 20),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+      IconButton(
+        tooltip: 'Cart',
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerCartPage())),
+        icon: const Icon(Icons.shopping_cart_outlined, size: 24),
+      ),
+      IconButton(
+        tooltip: 'Notifications',
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications will appear here when enabled.'))),
+        icon: const Icon(Icons.notifications_none_rounded, size: 27),
+      ),
+    ],
+  ),
+);
+
  Widget bannerList() => FutureBuilder<List<CustomerBanner>>(
   future: banners,
   builder: (context, snapshot) {
