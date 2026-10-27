@@ -1478,7 +1478,7 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
         final ext0 = _photo!.name.contains('.') ? _photo!.name.split('.').last.toLowerCase() : 'jpg';
         final ext = const {'jpg','jpeg','png','webp'}.contains(ext0) ? ext0 : 'jpg';
         final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
-        photoPath = '\${widget.user.id}/\${widget.role}/profile_\${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
+        photoPath = '${widget.user.id}/${widget.role}/profile_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
         await client.storage.from('partner-onboarding').uploadBinary(photoPath!, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
       }
       final data = <String,dynamic>{'address': _address.text.trim()};
@@ -1505,13 +1505,13 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: Text('\${widget.role.replaceAll('_',' ')} onboarding'), automaticallyImplyLeading: false),
+    appBar: AppBar(title: Text('${widget.role.replaceAll('_',' ')} onboarding'), automaticallyImplyLeading: false),
     body: SafeArea(child: Form(key: _key, child: ListView(padding: const EdgeInsets.all(20), children: [
       const Icon(Icons.verified_user_outlined, size: 42),
       const SizedBox(height: 10),
       Text('Complete your details', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 8),
-      Text('This application is only for \${widget.role.replaceAll('_',' ')} access. You may use the same Google account in other Alteo partner apps and submit separate applications there.', style: const TextStyle(height: 1.45)),
+      Text('This application is only for ${widget.role.replaceAll('_',' ')} access. You may use the same Google account in other Alteo partner apps and submit separate applications there.', style: const TextStyle(height: 1.45)),
       const SizedBox(height: 18),
       TextFormField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter your full name' : null),
       const SizedBox(height: 12),
