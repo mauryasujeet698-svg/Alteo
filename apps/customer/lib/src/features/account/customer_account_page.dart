@@ -99,7 +99,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
             onPressed: _signIn, icon: const Icon(Icons.login_rounded),
             label: const Text('Sign in / Sign up with Google'),
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFF176B57), minimumSize: const Size.fromHeight(52)),
-          )
+          ),
         const SizedBox(height: 22),
         const Text('Your activity', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
