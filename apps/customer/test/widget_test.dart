@@ -57,7 +57,7 @@ void main() {
     await tester.tap(find.descendant(of: find.byType(NavigationBar), matching: find.text('Profile')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
-    expect(find.text('Sign in / Sign up with Google'), findsOneWidget);
+    expect(find.text('Sign in with Google'), findsOneWidget);
     expect(find.text('My orders'), findsOneWidget);
     expect(find.byType(NavigationBar), findsOneWidget);
   });
