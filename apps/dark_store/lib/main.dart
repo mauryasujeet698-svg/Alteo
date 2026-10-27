@@ -109,6 +109,10 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       final row = await client.from('user_roles').select('role').eq('user_id', current.id).eq('role', requiredRole).maybeSingle();
       if (!mounted) return;
       if (row != null) {
+        // Ensure approved accounts have the role-specific workspace record before opening the dashboard.
+        await client.rpc('ensure_current_partner_profile', params: {'p_role': requiredRole})
+          .timeout(const Duration(seconds: 12));
+        if (!mounted) return;
         setState(() { authorized = true; onboardingRequired = false; onboardingRequest = null; message = 'Access verified.'; });
         if (authSheetOpen && mounted) Navigator.of(context).maybePop();
         return;
