@@ -1013,6 +1013,26 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
+  Future<void> _confirmDeliveryComplete(Map<String, dynamic> job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Complete delivery?'),
+        content: const Text('Confirm that the parcel or order has been handed to the customer. For cash-on-delivery orders, continue only after collecting the cash payment.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Not yet')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Confirm delivery')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await rpc(
+      'partner_update_delivery_status',
+      {'p_delivery_job_id': job['id'], 'p_action': 'delivered_cod_collected'},
+      'Delivery completed. Payment status updated where applicable.',
+    );
+  }
+
   Widget _deliveryDashboard() => Scaffold(
     appBar: _partnerAppBar('My deliveries'),
     body: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
@@ -1054,7 +1074,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
             }
             if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
-            if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'delivered'}, 'Delivery completed.'), child: const Text('Delivered')));
+            if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => _confirmDeliveryComplete(job), child: const Text('Delivered')));
             return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
