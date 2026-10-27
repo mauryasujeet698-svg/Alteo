@@ -26,7 +26,7 @@ class MapboxService {
     _publicToken = publicToken.trim();
     _lastError = null;
     if (_publicToken.isNotEmpty && !_publicToken.startsWith('pk.')) {
-      _lastError = 'Mapbox requires a public pk. token in the mobile app.';
+      _lastError = 'Map features are temporarily unavailable. You can enter an address manually.';
     }
   }
 
@@ -34,16 +34,13 @@ class MapboxService {
   static String? get lastError => _lastError;
   static String get publicToken => isConfigured ? _publicToken : '';
 
-  static String get configurationMessage => !isConfigured
-      ? 'Mapbox is not configured in this build. Add the MAPBOX_PUBLIC_TOKEN GitHub Actions secret and rebuild.'
-      : 'Mapbox token is present. If tiles still fail, check token scopes and account access.';
+  static String get configurationMessage => 'Map search is temporarily unavailable. You can still enter an address manually.';
 
   static void _setHttpError(String api, int status) {
     _lastError = switch (status) {
-      401 => '$api: Mapbox rejected the token (401). Check that it is a valid public pk. token.',
-      403 => '$api: Mapbox denied access (403). Check account status, API scopes and token restrictions.',
-      429 => '$api: rate limit reached. Retry shortly.',
-      _ => '$api request failed with HTTP $status.',
+      429 => 'Location search is busy right now. Please try again shortly.',
+      401 || 403 => 'Map search is temporarily unavailable. You can enter an address manually.',
+      _ => 'Could not load map details right now. Please try again shortly.',
     };
   }
 
@@ -87,13 +84,13 @@ class MapboxService {
       }
       final center = (features.first as Map<String, dynamic>)['center'] as List<dynamic>?;
       if (center == null || center.length < 2) {
-        _lastError = 'Mapbox did not return coordinates for that result.';
+        _lastError = 'We could not identify that location. Try a nearby landmark.';
         return null;
       }
       final longitude = (center[0] as num).toDouble();
       final latitude = (center[1] as num).toDouble();
       if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
-        _lastError = 'Mapbox returned invalid coordinates.';
+        _lastError = 'We could not identify that location. Try a nearby landmark.';
         return null;
       }
       _lastError = null;
@@ -128,7 +125,7 @@ class MapboxService {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
       if (features.isEmpty) {
-        _lastError = 'Mapbox could not resolve a readable address for these coordinates.';
+        _lastError = 'We found your location, but could not read its address yet.';
         return null;
       }
       final feature = features.first as Map<String, dynamic>;
@@ -136,7 +133,7 @@ class MapboxService {
       _lastError = null;
       return name?.trim().isNotEmpty == true ? name : null;
     } catch (_) {
-      _lastError = 'Mapbox reverse geocoding could not connect. Check your internet connection.';
+      _lastError = 'We found your location, but could not read its address yet.';
       return null;
     }
   }
@@ -155,7 +152,7 @@ class MapboxService {
     }
     const allowedProfiles = {'driving', 'driving-traffic', 'walking', 'cycling'};
     if (!allowedProfiles.contains(profile)) {
-      _lastError = 'Unsupported Mapbox routing profile.';
+      _lastError = 'That route option is not available right now.';
       return null;
     }
     final coordinates = '$startLongitude,$startLatitude;$endLongitude,$endLatitude';
@@ -178,7 +175,7 @@ class MapboxService {
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final routes = decoded['routes'] as List<dynamic>? ?? const [];
       if (routes.isEmpty) {
-        _lastError = 'Mapbox could not find a drivable route between those locations.';
+        _lastError = 'We could not find a road route between those locations. Check the addresses.';
         return null;
       }
       final route = routes.first as Map<String, dynamic>;
@@ -193,13 +190,13 @@ class MapboxService {
       final distance = (route['distance'] as num?)?.toDouble();
       final duration = (route['duration'] as num?)?.toDouble();
       if (distance == null || duration == null || points.length < 2) {
-        _lastError = 'Mapbox returned an incomplete route estimate.';
+        _lastError = 'A route estimate is temporarily unavailable.';
         return null;
       }
       _lastError = null;
       return MapboxRouteResult(distanceMeters: distance, durationSeconds: duration, coordinates: points);
     } catch (_) {
-      _lastError = 'Mapbox directions could not connect. Check your internet connection.';
+      _lastError = 'Route details could not load. Check your connection and try again.';
       return null;
     }
   }
