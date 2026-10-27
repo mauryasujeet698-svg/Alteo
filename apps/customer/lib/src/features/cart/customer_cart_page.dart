@@ -216,7 +216,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
    } catch (e) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not create all orders. Check service availability, pricing and payment setup. Retry is safe for orders already created. ' + e.toString())));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not place the order. Check your delivery details and service availability, then try again. Orders already placed will not be duplicated.')));
    }
   } finally {
    recipient.dispose();
