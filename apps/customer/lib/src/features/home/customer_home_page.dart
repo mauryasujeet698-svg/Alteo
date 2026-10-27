@@ -192,13 +192,31 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   try{await content!.addToCart(p.id);if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('${p.name} added to your cart.')));}
   catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Could not add item: $e')));}
  }
- Widget productCard(CustomerProduct p)=>Container(decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE7EBE7))),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-  Expanded(child:ClipRRect(borderRadius:const BorderRadius.vertical(top:Radius.circular(17)),child:SizedBox(width:double.infinity,child:p.imageUrl.isEmpty?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))))))),
-  Padding(padding:const EdgeInsets.fromLTRB(11,10,11,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-   Text(p.name,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w800,height:1.25)),const SizedBox(height:5),Text(p.priceLabel,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),const SizedBox(height:8),
-   SizedBox(width:double.infinity,child:OutlinedButton(onPressed:()=>addToCart(p),style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:8),minimumSize:Size.zero),child:const Text('Add to cart')))
-  ]))
- ]));
+ Widget productCard(CustomerProduct p)=>Container(
+  decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(18),border:Border.all(color:const Color(0xFFE7EBE7))),
+  child:Material(
+   color:Colors.transparent,
+   borderRadius:BorderRadius.circular(18),
+   child:InkWell(
+    borderRadius:BorderRadius.circular(18),
+    onTap:()=>_openProductDetails(p),
+    child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+     Expanded(child:ClipRRect(borderRadius:const BorderRadius.vertical(top:Radius.circular(17)),child:SizedBox(width:double.infinity,child:p.imageUrl.isEmpty?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:48,color:Color(0xFF176B57))))))),
+     Padding(padding:const EdgeInsets.fromLTRB(11,10,11,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+      Text(p.name,maxLines:2,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:13,fontWeight:FontWeight.w800,height:1.25)),
+      const SizedBox(height:5),
+      Text(p.priceLabel,style:const TextStyle(fontSize:15,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),
+      const SizedBox(height:8),
+      SizedBox(width:double.infinity,child:OutlinedButton(onPressed:()=>addToCart(p),style:OutlinedButton.styleFrom(padding:const EdgeInsets.symmetric(vertical:8),minimumSize:Size.zero),child:const Text('Add to cart')))
+     ]))
+    ]),
+   ),
+  ),
+ );
+ Future<void> _openProductDetails(CustomerProduct p) async {
+  await Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>CustomerProductDetailsPage(product:p,onAddToCart:()=>addToCart(p))));
+ }
+
 }
 class _ProductSearch extends SearchDelegate<String>{
  _ProductSearch({required this.onAdd});
@@ -223,9 +241,41 @@ class _ProductSearch extends SearchDelegate<String>{
       title:Text(p.name,style:const TextStyle(fontWeight:FontWeight.w800)),
       subtitle:Text(p.priceLabel),
       trailing:IconButton(tooltip:'Add to cart',onPressed:()=>onAdd(p),icon:const Icon(Icons.add_shopping_cart_rounded)),
+      onTap:()=>Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>CustomerProductDetailsPage(product:p,onAddToCart:()=>onAdd(p)))),
      );
     });
    },
   );
  }
+}
+class CustomerProductDetailsPage extends StatelessWidget {
+ const CustomerProductDetailsPage({super.key,required this.product,required this.onAddToCart});
+ final CustomerProduct product;
+ final Future<void> Function() onAddToCart;
+
+ @override
+ Widget build(BuildContext context)=>Scaffold(
+  appBar:AppBar(title:const Text('Item details')),
+  body:SafeArea(child:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
+   ClipRRect(borderRadius:BorderRadius.circular(22),child:AspectRatio(aspectRatio:1.05,child:product.imageUrl.isEmpty
+    ?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:84,color:Color(0xFF176B57)))
+    :Image.network(product.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:84,color:Color(0xFF176B57)))))),
+   const SizedBox(height:20),
+   Text(product.name,style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),
+   const SizedBox(height:8),
+   Text(product.priceLabel,style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),
+   const SizedBox(height:18),
+   const Text('Description',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
+   const SizedBox(height:7),
+   Text(product.description.trim().isEmpty?'No description has been added for this item yet.':product.description,style:const TextStyle(fontSize:15,height:1.55,color:Color(0xFF59635D))),
+   const SizedBox(height:16),
+   Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:const Color(0xFFEAF4EE),borderRadius:BorderRadius.circular(14)),child:Row(children:[
+    const Icon(Icons.local_shipping_outlined,color:Color(0xFF176B57)),
+    const SizedBox(width:10),
+    Expanded(child:Text('Delivery availability and final fulfilment details are confirmed for your location at checkout.',style:const TextStyle(height:1.4,color:Color(0xFF285E4E))))
+   ])),
+   const SizedBox(height:22),
+   FilledButton.icon(onPressed:()=>onAddToCart(),icon:const Icon(Icons.add_shopping_cart_rounded),label:const Text('Add to cart'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(52))),
+  ])),
+ );
 }
