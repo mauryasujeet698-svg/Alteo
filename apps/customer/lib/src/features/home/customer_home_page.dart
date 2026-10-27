@@ -55,7 +55,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   SliverToBoxAdapter(child:SizedBox(height:42,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[filter('All','all'),filter('Groceries','quick'),filter('Food','food'),filter('Shopping','shopping')]))),
   SliverToBoxAdapter(child:FutureBuilder<List<CustomerProduct>>(future:products,builder:(context,s){
    if(s.connectionState==ConnectionState.waiting)return const Padding(padding:EdgeInsets.all(28),child:Center(child:CircularProgressIndicator()));
-   if(s.hasError)return empty('Could not load items','Check Supabase public read policies, then pull down to retry.');
+   if(s.hasError)return empty('Could not load items','Check your connection and pull down to refresh.');
    final items=s.data??[];
    if(items.isEmpty)return empty('Your marketplace is getting ready','Active products will appear here automatically when sellers publish them.');
    return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
