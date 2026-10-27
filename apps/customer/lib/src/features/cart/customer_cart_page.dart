@@ -32,6 +32,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   final label = TextEditingController(text: 'Home');
   bool saveAddress = false;
   bool locating = false;
+  String selectedPaymentMethod = 'cod';
   List<Map<String, dynamic>> savedAddresses = [];
   Map<String, dynamic>? selectedAddress;
   try {
@@ -95,10 +96,39 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      TextField(controller: postalCode, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'PIN code')),
      TextField(controller: label, decoration: const InputDecoration(labelText: 'Save address as (optional)')),
      CheckboxListTile(contentPadding: EdgeInsets.zero, value: saveAddress, onChanged: (value) => setDialogState(() => saveAddress = value ?? false), title: const Text('Save these details for next time')),
+     const SizedBox(height: 12),
+     const Align(alignment: Alignment.centerLeft, child: Text('Payment method', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900))),
+     const SizedBox(height: 4),
+     RadioListTile<String>(
+      contentPadding: EdgeInsets.zero,
+      value: 'cod',
+      groupValue: selectedPaymentMethod,
+      onChanged: (value) => setDialogState(() => selectedPaymentMethod = value ?? 'cod'),
+      title: const Text('Cash on delivery'),
+      subtitle: const Text('Pay in cash when your order arrives'),
+      secondary: const Icon(Icons.payments_outlined, color: Color(0xFF176B57)),
+     ),
+     const Divider(height: 4),
+     const ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(Icons.account_balance_rounded, color: Color(0xFF9AA39D)),
+      title: Text('UPI', style: TextStyle(color: Color(0xFF7D8780))),
+      subtitle: Text('Coming soon'),
+      trailing: Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF9AA39D)),
+      dense: true,
+     ),
+     const ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: Icon(Icons.credit_card_rounded, color: Color(0xFF9AA39D)),
+      title: Text('Cards, wallets and net banking', style: TextStyle(color: Color(0xFF7D8780))),
+      subtitle: Text('Not available yet'),
+      trailing: Icon(Icons.lock_outline_rounded, size: 18, color: Color(0xFF9AA39D)),
+      dense: true,
+     ),
     ])),
     actions: [
      TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-     FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Create order')),
+     FilledButton(onPressed: selectedPaymentMethod == 'cod' ? () => Navigator.pop(dialogContext, true) : null, child: const Text('Place order')),
     ],
    )));
    if (confirmed != true || !mounted) return;
@@ -174,13 +204,14 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        'area_code': 'DEFAULT',
       },
       'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
+      'p_payment_method': selectedPaymentMethod,
      });
      createdCount++;
      groupIndex++;
     }
     await client.from('carts').delete().eq('id', cart['id']);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(createdCount.toString() + (createdCount == 1 ? ' order created. Payment is still required before fulfilment begins.' : ' seller/category orders created. Payment is still required before fulfilment begins.'))));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(createdCount.toString() + (createdCount == 1 ? ' order placed with Cash on Delivery. Please pay when it arrives.' : ' orders placed with Cash on Delivery. Please pay when they arrive.'))));
     setState(() => items = load());
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
    } catch (e) {
@@ -212,7 +243,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      final row=list[i],p=(row['seller_products'] as Map?)??{};
      return Card(elevation:0,color:Colors.white,child:ListTile(title:Text((p['name'] as String?)??'Item',style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text('Qty: ${row['quantity']}'),trailing:Text('₹${((((p['price_minor'] as num?)?.toInt()??0)*(row['quantity'] as int? ??1))/100).toStringAsFixed(0)}',style:const TextStyle(fontWeight:FontWeight.w900,color:Color(0xFF176B57)))));
     })),
-    SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('The backend validates your address, prices and service availability. Payment is required before fulfilment begins.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Create order · Payment required')))])))
+    SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('Cash on delivery is available now. UPI, cards, wallets and net banking are coming soon.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Checkout · Cash on delivery')))])))
    ]);
   }));
  }
