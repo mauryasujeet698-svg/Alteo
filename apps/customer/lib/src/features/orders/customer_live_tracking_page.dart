@@ -330,7 +330,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
           ],
           if (_error != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error!, style: const TextStyle(color: Colors.red))),
           const SizedBox(height: 8),
-          const Text('Estimated times are approximate. A road-based route/ETA is shown only when Mapbox Directions is configured and can resolve the route.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D), height: 1.4)),
+          const Text('Estimated times are approximate. Road-based route guidance appears when it is available.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D), height: 1.4)),
         ],
       ),
     );
