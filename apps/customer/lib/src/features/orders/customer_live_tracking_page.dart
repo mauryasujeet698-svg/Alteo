@@ -107,7 +107,6 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
     final targetLon = hasLivePartnerLocation
         ? (nextStop == 'destination' ? destinationLon : pickupLon)
         : destinationLon;
-    if (startLat == null || startLon == null || targetLat == null || targetLon == null) return;
     final routeKey = [
       startLat.toStringAsFixed(3), startLon.toStringAsFixed(3),
       targetLat.toStringAsFixed(3), targetLon.toStringAsFixed(3),
@@ -212,7 +211,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
     }
     if (locationAvailable) {
       markers.add(Marker(
-        point: LatLng(partnerLat!, partnerLon!), width: 46, height: 46,
+        point: LatLng(partnerLat, partnerLon), width: 46, height: 46,
         child: Container(
           decoration: BoxDecoration(color: const Color(0x332168C7), shape: BoxShape.circle, border: Border.all(color: const Color(0xFF2168C7), width: 2)),
           child: const Icon(Icons.my_location_rounded, color: Color(0xFF2168C7), size: 26),
