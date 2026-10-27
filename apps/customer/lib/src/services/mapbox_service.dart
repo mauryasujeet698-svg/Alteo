@@ -36,7 +36,7 @@ class MapboxService {
 
   static String get configurationMessage => 'Map search is temporarily unavailable. You can still enter an address manually.';
 
-  static void _setHttpError(String api, int status) {
+  static void _setHttpError(int status) {
     _lastError = switch (status) {
       429 => 'Location search is busy right now. Please try again shortly.',
       401 || 403 => 'Map search is temporarily unavailable. You can enter an address manually.',
@@ -73,7 +73,7 @@ class MapboxService {
     try {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
-        _setHttpError('Mapbox address search', response.statusCode);
+        _setHttpError(response.statusCode);
         return null;
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -119,7 +119,7 @@ class MapboxService {
     try {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
-        _setHttpError('Mapbox reverse geocoding', response.statusCode);
+        _setHttpError(response.statusCode);
         return null;
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
@@ -169,7 +169,7 @@ class MapboxService {
     try {
       final response = await http.get(uri).timeout(const Duration(seconds: 12));
       if (response.statusCode != 200) {
-        _setHttpError('Mapbox directions', response.statusCode);
+        _setHttpError(response.statusCode);
         return null;
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
