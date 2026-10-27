@@ -210,7 +210,7 @@ class MapboxService {
     final a = (mathSin(dLat / 2) * mathSin(dLat / 2)) +
         mathCos(radians(lat1)) * mathCos(radians(lat2)) *
         mathSin(dLon / 2) * mathSin(dLon / 2);
-    final clamped = a.clamp(0.0, 1.0);
+    final clamped = a.clamp(0.0, 1.0).toDouble();
     return 2 * earthRadius * mathAsin(mathSqrt(clamped));
   }
 }
