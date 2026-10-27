@@ -11,6 +11,7 @@ import 'src/services/customer_preferences.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadCustomerPreferences();
   final config = AppConfig.fromEnvironment();
   String? backendNotice;
   try {
