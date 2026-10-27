@@ -39,15 +39,15 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
  }
  void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
- @override Widget build(BuildContext context)=>SafeArea(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
+ @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable:alteoPreferredLanguage,builder:(context,language,_)=>SafeArea(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
   SliverToBoxAdapter(child:bannerList()),
-  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,8,18,22),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart)),decoration:InputDecoration(hintText:'Search items, food and essentials',prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
-  SliverToBoxAdapter(child:section('Explore services','Shopping, food and everyday essentials')),
+  SliverToBoxAdapter(child:Padding(padding:const EdgeInsets.fromLTRB(18,8,18,22),child:TextField(readOnly:true,onTap:()=>showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart)),decoration:InputDecoration(hintText:alteoText('Search items, food and essentials'),prefixIcon:const Icon(Icons.search_rounded),suffixIcon:IconButton(tooltip:'Voice search',onPressed:_voiceSearch,icon:const Icon(Icons.mic_none_rounded)),filled:true,fillColor:Colors.white,border:OutlineInputBorder(borderRadius:BorderRadius.circular(17),borderSide:const BorderSide(color:Color(0xFFE5EAE5))))))),
+  SliverToBoxAdapter(child:section(alteoText('Explore services'),alteoText('Shopping, food and everyday essentials'))),
   SliverToBoxAdapter(child:SizedBox(height:132,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[
    service('Food',Icons.restaurant_rounded,const Color(0xFFFFE8D9),const Color(0xFFB94E18)),service('Quick',Icons.shopping_basket_rounded,const Color(0xFFE3F4D8),const Color(0xFF357A35)),service('Shop',Icons.shopping_bag_rounded,const Color(0xFFE5E9FF),const Color(0xFF4857B8)),service('Rides',Icons.directions_car_rounded,const Color(0xFFFFF0C7),const Color(0xFF8C6410)),service('Parcel',Icons.local_shipping_rounded,const Color(0xFFDDF3F1),const Color(0xFF187B73))
   ]))),
-  SliverToBoxAdapter(child:section('Discover items','Listed by Alteo marketplace partners')),
+  SliverToBoxAdapter(child:section(alteoText('Discover items'),alteoText('Listed by Alteo marketplace partners'))),
   SliverToBoxAdapter(child:SizedBox(height:42,child:ListView(scrollDirection:Axis.horizontal,padding:const EdgeInsets.symmetric(horizontal:18),children:[filter('All','all'),filter('Groceries','quick'),filter('Food','food'),filter('Shopping','shopping')]))),
   SliverToBoxAdapter(child:FutureBuilder<List<CustomerProduct>>(future:products,builder:(context,s){
    if(s.connectionState==ConnectionState.waiting)return const Padding(padding:EdgeInsets.all(28),child:Center(child:CircularProgressIndicator()));
@@ -57,17 +57,17 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
   })),
   const SliverToBoxAdapter(child:SizedBox(height:20))
- ])));
+ ]))));
  Future<void> _chooseLocation() async {
   await showModalBottomSheet<void>(
    context: context, showDragHandle: true,
    builder: (sheetContext) => SafeArea(child: Padding(
     padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
     child: Column(mainAxisSize: MainAxisSize.min, children: [
-     const Align(alignment: Alignment.centerLeft, child: Text('Choose delivery location', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
+     const Align(alignment: Alignment.centerLeft, child: Text(alteoText('Choose delivery location'), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
      const SizedBox(height: 12),
-     ListTile(leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)), title: const Text('Use current location'), subtitle: const Text('Detect your location with GPS'), onTap: () async { Navigator.pop(sheetContext); await _useCurrentLocation(); }),
-     ListTile(leading: const Icon(Icons.bookmark_border_rounded, color: Color(0xFF176B57)), title: const Text('Choose saved address'), subtitle: const Text('Select from your saved delivery addresses'), onTap: () async {
+     ListTile(leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)), title: Text(alteoText('Use current location')), subtitle: Text(alteoText('Detect your location with GPS')), onTap: () async { Navigator.pop(sheetContext); await _useCurrentLocation(); }),
+     ListTile(leading: const Icon(Icons.bookmark_border_rounded, color: Color(0xFF176B57)), title: Text(alteoText('Choose saved address')), subtitle: Text(alteoText('Select from your saved delivery addresses')), onTap: () async {
       Navigator.pop(sheetContext);
       if (Supabase.instance.client.auth.currentUser == null) {
        await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
@@ -117,7 +117,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  Widget header()=>Padding(padding:const EdgeInsets.fromLTRB(18,8,18,14),child:Row(children:[
   Container(width:44,height:44,decoration:BoxDecoration(color:const Color(0xFF176B57),borderRadius:BorderRadius.circular(15)),child:const Stack(alignment:Alignment.center,children:[Text('A',style:TextStyle(fontSize:31,fontWeight:FontWeight.w900,color:Colors.white)),Positioned(right:10,top:9,child:CircleAvatar(radius:3.5,backgroundColor:Color(0xFFFFA21A)))])),
   const SizedBox(width:11),
-  Expanded(child: InkWell(onTap:_chooseLocation,borderRadius:BorderRadius.circular(12),child:Padding(padding:const EdgeInsets.symmetric(vertical:6),child:ValueListenableBuilder<String>(valueListenable:alteoDeliveryLocation,builder:(context,location,_)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[const Text('DELIVERING TO',style:TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),const SizedBox(height:3),Row(children:[Expanded(child:Text(location, maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:14,fontWeight:FontWeight.w800))),const Icon(Icons.keyboard_arrow_down_rounded,size:20)])])))),
+  Expanded(child: InkWell(onTap:_chooseLocation,borderRadius:BorderRadius.circular(12),child:Padding(padding:const EdgeInsets.symmetric(vertical:6),child:ValueListenableBuilder<String>(valueListenable:alteoDeliveryLocation,builder:(context,location,_)=>Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(alteoText('DELIVERING TO'),style:const TextStyle(fontSize:10,letterSpacing:1.2,fontWeight:FontWeight.w800,color:Color(0xFF737B76))),const SizedBox(height:3),Row(children:[Expanded(child:Text(location, maxLines:1,overflow:TextOverflow.ellipsis,style:const TextStyle(fontSize:14,fontWeight:FontWeight.w800))),const Icon(Icons.keyboard_arrow_down_rounded,size:20)])])))),
   IconButton(tooltip:'Cart',onPressed:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>const CustomerCartPage())),icon:const Icon(Icons.shopping_cart_outlined,size:24)),
   IconButton(tooltip:'Notifications',onPressed:()=>ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Notifications will appear here when enabled.'))),icon:const Icon(Icons.notifications_none_rounded,size:27))
  ]));
@@ -245,8 +245,8 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  }
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
  Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,22,18,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
- Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(n,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
- Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(label),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
+ Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(alteoText(n),style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
+ Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(alteoText(label)),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
  Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
  Future<void> addToCart(CustomerProduct p) async {
   if(Supabase.instance.client.auth.currentUser==null){await Navigator.of(context).push<bool>(MaterialPageRoute(builder:(_)=>const CustomerAuthPage()));if(!mounted||Supabase.instance.client.auth.currentUser==null)return;}
