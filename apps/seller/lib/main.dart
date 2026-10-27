@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
@@ -1211,60 +1209,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
 
-
-  Future<void> _createProduct(String sellerId) async {
-    final name = TextEditingController();
-    final description = TextEditingController();
-    final price = TextEditingController();
-    String kind = 'shopping';
-    try {
-      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
-        title: const Text('Add product'),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: name, decoration: const InputDecoration(labelText: 'Product name')),
-          TextField(controller: description, maxLines: 2, decoration: const InputDecoration(labelText: 'Description')),
-          TextField(controller: price, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Price (₹, whole rupees)')),
-          const SizedBox(height: 10),
-          DropdownButtonFormField<String>(
-            value: kind,
-            decoration: const InputDecoration(labelText: 'Category'),
-            items: const [
-              DropdownMenuItem(value: 'food', child: Text('Food')),
-              DropdownMenuItem(value: 'quick', child: Text('Quick commerce')),
-              DropdownMenuItem(value: 'shopping', child: Text('Shopping')),
-            ],
-            onChanged: (v) { if (v != null) setDialogState(() => kind = v); },
-          ),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save draft')),
-        ],
-      )));
-      if (ok != true) return;
-      final priceRupees = int.tryParse(price.text.trim());
-      if (name.text.trim().isEmpty || priceRupees == null || priceRupees < 1) {
-        notice('Enter a product name and a price greater than ₹0.');
-        return;
-      }
-      await client.from('seller_products').insert({
-        'seller_id': sellerId,
-        'kind': kind,
-        'name': name.text.trim(),
-        'description': description.text.trim(),
-        'price_minor': priceRupees * 100,
-        'currency': 'INR',
-        'status': 'draft',
-      });
-      notice('Product saved as a draft. Admin approval is required before it appears in the public catalogue.');
-    } catch (e) {
-      notice('Could not save product: ' + e.toString());
-    } finally {
-      name.dispose();
-      description.dispose();
-      price.dispose();
-    }
-  }
 
   Future<void> _createSellerProfile() async {
     final name = TextEditingController();
