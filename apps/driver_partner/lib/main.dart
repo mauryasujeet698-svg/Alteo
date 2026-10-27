@@ -919,47 +919,43 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _driverDashboard() => Scaffold(
     appBar: _partnerAppBar('My rides'),
-    body: StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('rides').stream(primaryKey: ['id']).eq('driver_id', user!.id).order('created_at', ascending: false),
+    body: FutureBuilder<List<Map<String, dynamic>>>(
+      future: client.from('rides').select('*').eq('driver_id', user!.id)
+          .order('created_at', ascending: false).timeout(const Duration(seconds: 15)),
       builder: (context, s) {
-        if (s.hasError) return _error('Rides unavailable. Check driver role and RLS.');
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
+        if (s.hasError) return _loadFailure('Rides could not load. Check your connection and approved driver access, then retry.', () => setState(() {}));
+        if (!s.hasData) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(), SizedBox(height: 12), Text('Loading your rides…'),
+        ]));
         if (s.data!.isEmpty) return _empty('No rides assigned', 'Assigned rides appear here when you are online and eligible for dispatch.');
-        return ListView(padding: const EdgeInsets.all(16), children: s.data!.map((r) {
-          final status = r['status']?.toString() ?? 'requested';
-          final buttons = <Widget>[];
-          if (status == 'requested') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'accept'}, 'Ride accepted.'), child: const Text('Accept')));
-          if (status == 'accepted') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'arrived'}, 'Marked arrived.'), child: const Text('Arrived')));
-          if (status == 'arrived') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'start'}, 'Trip started.'), child: const Text('Start trip')));
-          if (status == 'in_progress') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'complete'}, 'Trip completed.'), child: const Text('Complete')));
-          return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text((r['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (r['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w900)),
-            const SizedBox(height: 6), Text('Status: ' + status + ' · Fare ₹' + (((r['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: [
-              if (status != 'in_progress' && status != 'completed')
-                OutlinedButton.icon(
-                  onPressed: () => _openDirections(
-                    latitude: (r['pickup_latitude'] as num?)?.toDouble(),
-                    longitude: (r['pickup_longitude'] as num?)?.toDouble(),
-                    label: r['pickup_label']?.toString(),
+        return RefreshIndicator(
+          onRefresh: () async { setState(() {}); },
+          child: ListView(padding: const EdgeInsets.all(16), children: s.data!.map((r) {
+            final status = r['status']?.toString() ?? 'requested';
+            final buttons = <Widget>[];
+            if (status == 'requested') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'accept'}, 'Ride accepted.'), child: const Text('Accept')));
+            if (status == 'accepted') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'arrived'}, 'Marked arrived.'), child: const Text('Arrived')));
+            if (status == 'arrived') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'start'}, 'Trip started.'), child: const Text('Start trip')));
+            if (status == 'in_progress') buttons.add(FilledButton(onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': r['id'], 'p_action': 'complete'}, 'Trip completed.'), child: const Text('Complete')));
+            return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text((r['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (r['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w900)),
+              const SizedBox(height: 6), Text('Status: ' + status + ' · Fare ₹' + (((r['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+              Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, runSpacing: 8, children: [
+                if (status != 'in_progress' && status != 'completed')
+                  OutlinedButton.icon(
+                    onPressed: () => _openDirections(latitude: (r['pickup_latitude'] as num?)?.toDouble(), longitude: (r['pickup_longitude'] as num?)?.toDouble(), label: r['pickup_label']?.toString()),
+                    icon: const Icon(Icons.navigation_outlined), label: const Text('Navigate to pickup'),
                   ),
-                  icon: const Icon(Icons.navigation_outlined),
-                  label: const Text('Navigate to pickup'),
-                ),
-              if (status == 'in_progress')
-                OutlinedButton.icon(
-                  onPressed: () => _openDirections(
-                    latitude: (r['destination_latitude'] as num?)?.toDouble(),
-                    longitude: (r['destination_longitude'] as num?)?.toDouble(),
-                    label: r['destination_label']?.toString(),
+                if (status == 'in_progress')
+                  OutlinedButton.icon(
+                    onPressed: () => _openDirections(latitude: (r['destination_latitude'] as num?)?.toDouble(), longitude: (r['destination_longitude'] as num?)?.toDouble(), label: r['destination_label']?.toString()),
+                    icon: const Icon(Icons.navigation_outlined), label: const Text('Navigate to destination'),
                   ),
-                  icon: const Icon(Icons.navigation_outlined),
-                  label: const Text('Navigate to destination'),
-                ),
-              ...buttons,
-            ])),
-          ])));
-        }).toList());
+                ...buttons,
+              ])),
+            ])));
+          }).toList()),
+        );
       },
     ),
   );
@@ -1126,6 +1122,19 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     padding: const EdgeInsets.all(20), margin: const EdgeInsets.only(top: 8, bottom: 8),
     decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
     child: Column(children: [const Icon(Icons.inbox_outlined, size: 36, color: Color(0xFF176B57)), const SizedBox(height: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 4), Text(detail, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF68736D), height: 1.4))]),
+  );
+
+  Widget _loadFailure(String text, VoidCallback retry) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.cloud_off_rounded, size: 42, color: Color(0xFF176B57)),
+        const SizedBox(height: 10),
+        Text(text, textAlign: TextAlign.center, style: const TextStyle(height: 1.45)),
+        const SizedBox(height: 14),
+        FilledButton.icon(onPressed: retry, icon: const Icon(Icons.refresh_rounded), label: const Text('Retry')),
+      ]),
+    ),
   );
 
   Widget _error(String text) => Padding(padding: const EdgeInsets.all(18), child: Text(text, style: const TextStyle(color: Colors.red, height: 1.4)));
