@@ -3,7 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/mapbox_service.dart';
 
 class CustomerAddressesPage extends StatefulWidget {
-  const CustomerAddressesPage({super.key});
+  const CustomerAddressesPage({super.key, this.selectForDelivery = false});
+  final bool selectForDelivery;
   @override
   State<CustomerAddressesPage> createState() => _CustomerAddressesPageState();
 }
@@ -166,6 +167,7 @@ class _CustomerAddressesPageState extends State<CustomerAddressesPage> {
                 title: Row(children: [Expanded(child: Text((row['label'] ?? 'Address').toString(), style: const TextStyle(fontWeight: FontWeight.w800))), if (isDefault) const Chip(label: Text('Default'), visualDensity: VisualDensity.compact)]),
                 subtitle: Text('${row['recipient_name']} • ${row['phone']}\n$parts', maxLines: 4, overflow: TextOverflow.ellipsis),
                 isThreeLine: true,
+                onTap: widget.selectForDelivery ? () => Navigator.of(context).pop<Map<String, dynamic>>(row) : null,
                 trailing: PopupMenuButton<String>(onSelected: (v) { if (v == 'default') _setDefault(row); if (v == 'delete') _delete(row); }, itemBuilder: (_) => [
                   if (!isDefault) const PopupMenuItem(value: 'default', child: Text('Set as default')),
                   const PopupMenuItem(value: 'delete', child: Text('Delete')),
