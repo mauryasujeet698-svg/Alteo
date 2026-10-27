@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final ValueNotifier<ThemeMode> alteoThemeMode = ValueNotifier<ThemeMode>(ThemeMode.light);
 final ValueNotifier<String> alteoPreferredLanguage = ValueNotifier<String>('English');
+final ValueNotifier<String> alteoDeliveryLocation = ValueNotifier<String>('Choose your location');
 
 Future<void> loadCustomerPreferences() async {
   final store = await SharedPreferences.getInstance();
@@ -15,6 +16,7 @@ Future<void> loadCustomerPreferences() async {
   const supported = ['English', 'हिन्दी', 'বাংলা', 'தமிழ்', 'తెలుగు'];
   final language = store.getString('alteo_language') ?? 'English';
   alteoPreferredLanguage.value = supported.contains(language) ? language : 'English';
+  alteoDeliveryLocation.value = store.getString('alteo_delivery_location') ?? 'Choose your location';
 }
 
 Future<void> setAlteoTheme(ThemeMode mode) async {
@@ -78,4 +80,12 @@ String alteoText(String key) {
     },
   };
   return translations[alteoPreferredLanguage.value]?[key] ?? key;
+}
+
+Future<void> setAlteoDeliveryLocation(String location) async {
+  final value = location.trim();
+  if (value.isEmpty) return;
+  alteoDeliveryLocation.value = value;
+  final store = await SharedPreferences.getInstance();
+  await store.setString('alteo_delivery_location', value);
 }
