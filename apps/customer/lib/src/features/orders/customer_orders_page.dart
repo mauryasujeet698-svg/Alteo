@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
+import 'customer_live_tracking_page.dart';
 
 class CustomerOrdersPage extends StatelessWidget {
   const CustomerOrdersPage({super.key});
@@ -57,6 +58,11 @@ class CustomerOrdersPage extends StatelessWidget {
           title: Text('Order ' + _shortId(order['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
           subtitle: Text('Status: ' + (order['status']?.toString() ?? 'unknown').replaceAll('_', ' ') + '\nPayment: ' + (order['payment_status']?.toString() ?? 'pending') + ' · Total ₹' + total),
           isThreeLine: true,
+          trailing: TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'order', entityId: order['id'].toString()))),
+            icon: const Icon(Icons.location_searching_rounded, size: 17),
+            label: const Text('Track'),
+          ),
         ));
       }).toList());
     },
@@ -73,6 +79,11 @@ class CustomerOrdersPage extends StatelessWidget {
         leading: const CircleAvatar(backgroundColor: Color(0xFFFFF0C7), child: Icon(Icons.directions_car_rounded, color: Color(0xFF8C6410))),
         title: Text((ride['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (ride['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text('Status: ' + (ride['status']?.toString() ?? 'requested').replaceAll('_', ' ') + ' · Fare ₹' + (((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+        trailing: TextButton.icon(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'ride', entityId: ride['id'].toString()))),
+          icon: const Icon(Icons.my_location_rounded, size: 17),
+          label: const Text('Track'),
+        ),
       ))).toList());
     },
   );
@@ -88,6 +99,11 @@ class CustomerOrdersPage extends StatelessWidget {
         leading: const CircleAvatar(backgroundColor: Color(0xFFDDF3F1), child: Icon(Icons.local_shipping_rounded, color: Color(0xFF187B73))),
         title: Text((job['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (job['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text('Status: ' + (job['status']?.toString() ?? 'pending').replaceAll('_', ' ') + ' · Fare ₹' + (((job['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+        trailing: TextButton.icon(
+          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'parcel', entityId: job['id'].toString()))),
+          icon: const Icon(Icons.location_searching_rounded, size: 17),
+          label: const Text('Track'),
+        ),
       ))).toList());
     },
   );
