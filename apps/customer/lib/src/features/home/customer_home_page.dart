@@ -41,7 +41,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   try {
    final available = await speech.initialize(onError: (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search is not available on this device.'))); });
    if(!available){if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enable speech recognition on your device to use voice search.')));return;}
-   await speech.listen(onResult:(result){if(result.finalResult && result.recognizedWords.trim().isNotEmpty && mounted){speech.stop();showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart),query:result.recognizedWords.trim());}});
+   await speech.listen(onResult:(result){if(result.finalResult && result.recognizedWords.trim().isNotEmpty && mounted){speech.stop();showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart,pincode:_selectedPincode),query:result.recognizedWords.trim());}});
    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Listening… say the name of an item or product.')));
   } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
  }
@@ -614,8 +614,9 @@ Widget productCard(CustomerProduct p) {
 
 }
 class _ProductSearch extends SearchDelegate<String>{
- _ProductSearch({required this.onAdd});
+ _ProductSearch({required this.onAdd, this.pincode});
  final Future<void> Function(CustomerProduct) onAdd;
+ final String? pincode;
  @override List<Widget>? buildActions(BuildContext context)=>[IconButton(onPressed:()=>query='',icon:const Icon(Icons.clear))];
  @override Widget? buildLeading(BuildContext context)=>IconButton(onPressed:()=>close(context,''),icon:const Icon(Icons.arrow_back));
  @override Widget buildResults(BuildContext context)=>_results(context);
@@ -623,12 +624,12 @@ class _ProductSearch extends SearchDelegate<String>{
  Widget _results(BuildContext context){
   if(query.trim().isEmpty)return const Center(child:Text('Type or say an item name to search.'));
   return FutureBuilder<List<Map<String,dynamic>>>(
-   future:Supabase.instance.client.from('seller_products').select('id,name,description,price_minor,image_url,kind').eq('status','active').ilike('name','%${query.trim()}%').order('created_at',ascending:false).limit(30),
+   future:CustomerContentService(Supabase.instance.client).searchProducts(query:query.trim(),pincode:pincode).then((products)=>products.map((item)=><String,dynamic>{'id':item.id,'name':item.name,'description':item.description,'price_minor':item.priceMinor,'image_url':item.imageUrl,'kind':item.kind}).toList()),
    builder:(context,s){
     if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
     if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Search is temporarily unavailable. Pull down on Home to retry.',textAlign:TextAlign.center)));
     final rows=s.data??[];
-    if(rows.isEmpty)return const Center(child:Text('No matching items yet.'));
+    if(rows.isEmpty)return Center(child:Padding(padding:const EdgeInsets.all(24),child:Text(pincode==null?'Choose a serviceable PIN code from Home to see local items.':'No matching items are listed in this area yet.',textAlign:TextAlign.center)));
     return ListView.separated(padding:const EdgeInsets.all(14),itemCount:rows.length,separatorBuilder:(_,__)=>const Divider(),itemBuilder:(context,i){
      final p=CustomerProduct.fromMap(rows[i]);
      return ListTile(
