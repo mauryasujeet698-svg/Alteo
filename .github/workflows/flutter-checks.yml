@@ -156,6 +156,22 @@ jobs:
               source = re.sub(r'android:label="[^"]+"', 'android:label="' + display_names[name] + '"', source, count=1)
           else:
               source = source.replace('<application', '<application android:label="' + display_names[name] + '"', 1)
+          # Android 13+ runtime permissions are required by the shared first-launch
+          # permission flow. Only partner operational apps request these; Customer and
+          # Admin retain their existing first-launch behaviour in this scope.
+          if name in {"seller", "driver-partner", "delivery-partner", "dark-store"}:
+              for permission in (
+                  "android.permission.ACCESS_COARSE_LOCATION",
+                  "android.permission.ACCESS_FINE_LOCATION",
+                  "android.permission.POST_NOTIFICATIONS",
+              ):
+                  marker = 'android:name="' + permission + '"'
+                  if marker not in source:
+                      source = source.replace(
+                          "<application",
+                          '    <uses-permission android:name="' + permission + '" />\\n    <application',
+                          1,
+                      )
           manifest.write_text(source)
           print("Generated custom Alteo launcher branding for", name)
           PY
