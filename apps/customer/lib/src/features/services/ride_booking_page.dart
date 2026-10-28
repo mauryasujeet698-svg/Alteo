@@ -5,6 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../../services/mapbox_service.dart';
+import '../../services/customer_location_service.dart';
 
 class RideBookingPage extends StatefulWidget {
   const RideBookingPage({super.key, this.enableBackendQueries = true});
@@ -26,6 +27,10 @@ class _RideBookingPageState extends State<RideBookingPage> {
   bool searchingDestination = false;
   bool requestingRide = false;
   Map<String, dynamic>? fareQuote;
+  String pickupAreaCode = 'DEFAULT';
+  MapboxRouteResult? routeResult;
+  List<LatLng> routeCoordinates = <LatLng>[];
+  bool calculatingRoute = false;
 
   @override
   void initState() {
@@ -49,33 +54,38 @@ class _RideBookingPageState extends State<RideBookingPage> {
   }
 
   Future<void> _useCurrentLocation({bool silent = false}) async {
+    if (locating) return;
     setState(() => locating = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        if (!silent) _message('Turn on Location on your phone to use your current pickup point.');
+        if (!silent) _message('Turn on Location services to detect your pickup point.');
         return;
       }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        if (!silent) _message('Location permission is needed for current pickup. You can enter a pickup address manually instead.');
+        if (!silent) _message('Allow location access or enter a pickup address manually.');
         return;
       }
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
       );
-      final address = await MapboxService.reverseGeocode(position.longitude, position.latitude);
+      final details = await CustomerLocationService.resolveCoordinates(position.latitude, position.longitude);
       if (!mounted) return;
+      final address = (details['formatted_address']?.toString() ?? '').trim();
       setState(() {
+        currentCoordinates = [position.longitude, position.latitude];
         pickupCoordinates = [position.longitude, position.latitude];
-        pickupController.text = address ?? 'Current location';
+        pickupAreaCode = _validPin(details['postal_code']?.toString()) ??
+            _validPin(_extractPin(address)) ?? 'DEFAULT';
+        pickupController.text = address.isNotEmpty ? address : 'Current pickup location';
+        routeResult = null;
+        routeCoordinates = <LatLng>[];
       });
+      try { mapController.move(LatLng(position.latitude, position.longitude), 15); } catch (_) {}
       await _refreshQuote();
-      if (address == null && !MapboxService.isConfigured) {
-        _message('Current location is selected. Add a restricted Mapbox public token to show a readable address and search destinations.');
-      }
     } catch (_) {
-      if (!silent) _message('Could not get your current location. Try again or enter a pickup address.');
+      if (!silent) _message('We could not detect your location. Try again or enter your pickup address.');
     } finally {
       if (mounted) setState(() => locating = false);
     }
@@ -83,16 +93,29 @@ class _RideBookingPageState extends State<RideBookingPage> {
 
   Future<void> _searchPickup() async {
     final value = pickupController.text.trim();
-    if (value.length < 3) { _message('Enter a pickup address or use current location.'); return; }
-    if (!MapboxService.isConfigured) { _message('Address search needs the restricted public Mapbox token in the app build.'); return; }
+    if (value.length < 3) { _message('Enter a pickup address, locality or PIN code.'); return; }
     setState(() => searchingPickup = true);
     try {
       final coords = await MapboxService.geocode(value);
-      if (coords == null) { _message('Pickup not found. Try a fuller address or nearby landmark.'); return; }
+      if (coords == null || coords.length < 2) {
+        _message(MapboxService.lastError ?? 'We could not find that pickup. Try a nearby landmark or move the map pin.');
+        return;
+      }
+      final details = await CustomerLocationService.resolveCoordinates(coords[1], coords[0]);
       if (!mounted) return;
-      setState(() => pickupCoordinates = coords);
-      try { mapController.move(LatLng(coords[1], coords[0]), 14.5); } catch (_) {}
+      final address = (details['formatted_address']?.toString() ?? '').trim();
+      setState(() {
+        pickupCoordinates = coords;
+        pickupAreaCode = _validPin(details['postal_code']?.toString()) ??
+            _validPin(_extractPin(value)) ?? 'DEFAULT';
+        if (address.isNotEmpty) pickupController.text = address;
+        routeResult = null;
+        routeCoordinates = <LatLng>[];
+      });
+      try { mapController.move(LatLng(coords[1], coords[0]), 15); } catch (_) {}
       await _refreshQuote();
+    } catch (_) {
+      _message('We could not search for that pickup. Select the point on the map or try another address.');
     } finally {
       if (mounted) setState(() => searchingPickup = false);
     }
@@ -101,24 +124,52 @@ class _RideBookingPageState extends State<RideBookingPage> {
   Future<void> _searchDestination() async {
     final value = destinationController.text.trim();
     if (value.length < 3) { _message('Enter a destination address or landmark.'); return; }
-    if (!MapboxService.isConfigured) { _message('Destination search needs the restricted public Mapbox token in the app build.'); return; }
     setState(() => searchingDestination = true);
     try {
       final coords = await MapboxService.geocode(value);
-      if (coords == null) { _message('Destination not found. Try a fuller address or nearby landmark.'); return; }
+      if (coords == null || coords.length < 2) {
+        _message(MapboxService.lastError ?? 'We could not find that destination. Try a nearby landmark or move the map pin.');
+        return;
+      }
+      final details = await CustomerLocationService.resolveCoordinates(coords[1], coords[0]);
       if (!mounted) return;
-      setState(() => destinationCoordinates = coords);
-      try { mapController.move(LatLng((pickupCoordinates ?? coords)[1], (pickupCoordinates ?? coords)[0]), 14.5); } catch (_) {}
+      final address = (details['formatted_address']?.toString() ?? '').trim();
+      setState(() {
+        destinationCoordinates = coords;
+        if (address.isNotEmpty) destinationController.text = address;
+        routeResult = null;
+        routeCoordinates = <LatLng>[];
+      });
+      try {
+        final focus = pickupCoordinates ?? coords;
+        mapController.move(LatLng(focus[1], focus[0]), 13.5);
+      } catch (_) {}
       await _refreshQuote();
+    } catch (_) {
+      _message('We could not search for that destination. Try a nearby landmark or select it on the map.');
     } finally {
       if (mounted) setState(() => searchingDestination = false);
     }
   }
 
+  String? _validPin(String? value) {
+    final v = (value ?? '').trim();
+    return RegExp(r'^[1-9][0-9]{5}$').hasMatch(v) ? v : null;
+  }
+
+  String? _extractPin(String value) {
+    final match = RegExp(r'\b[1-9][0-9]{5}\b').firstMatch(value);
+    return match?.group(0);
+  }
+
   Future<void> _refreshQuote() async {
-    if (!widget.enableBackendQueries) { if (mounted) setState(() => fareQuote = {'enabled': false, 'message': 'Preview mode: live ride prices load when backend access is enabled.'}); return; }
+    if (!widget.enableBackendQueries) {
+      if (mounted) setState(() => fareQuote = {'enabled': false, 'message': 'Ride estimates are available when booking is enabled.'});
+      return;
+    }
     if (pickupCoordinates == null || destinationCoordinates == null) {
       if (mounted) setState(() => fareQuote = null);
+      await _refreshRoute();
       return;
     }
     try {
@@ -127,17 +178,75 @@ class _RideBookingPageState extends State<RideBookingPage> {
         'p_pickup_longitude': pickupCoordinates![0],
         'p_destination_latitude': destinationCoordinates![1],
         'p_destination_longitude': destinationCoordinates![0],
-        'p_area_code': 'DEFAULT',
+        'p_area_code': pickupAreaCode,
         'p_vehicle_type': vehicleType,
-      });
+      }).timeout(const Duration(seconds: 12));
       if (!mounted) return;
       setState(() => fareQuote = Map<String, dynamic>.from(response as Map));
     } catch (_) {
       if (mounted) setState(() => fareQuote = {
         'enabled': false,
-        'message': 'Fare estimate is unavailable. Check that ride pricing and service availability are configured in Admin.',
+        'message': 'The ride estimate is unavailable right now. Please try again later.',
       });
     }
+    await _refreshRoute();
+  }
+
+  Future<void> _refreshRoute() async {
+    final pickup = pickupCoordinates;
+    final destination = destinationCoordinates;
+    if (pickup == null || destination == null || !MapboxService.isConfigured) {
+      if (mounted) setState(() {
+        routeResult = null;
+        routeCoordinates = <LatLng>[];
+        calculatingRoute = false;
+      });
+      return;
+    }
+    if (mounted) setState(() => calculatingRoute = true);
+    final result = await MapboxService.directions(
+      startLongitude: pickup[0],
+      startLatitude: pickup[1],
+      endLongitude: destination[0],
+      endLatitude: destination[1],
+      profile: 'driving',
+    );
+    if (!mounted) return;
+    setState(() {
+      routeResult = result;
+      routeCoordinates = result?.coordinates.map((p) => LatLng(p[1], p[0])).toList() ?? <LatLng>[];
+      calculatingRoute = false;
+    });
+  }
+
+  Widget _etaSummary() {
+    final pickup = pickupCoordinates;
+    final destination = destinationCoordinates;
+    if (pickup == null || destination == null) return const SizedBox.shrink();
+    final fallbackDistance = MapboxService.straightLineDistanceMeters(
+      pickup[1], pickup[0], destination[1], destination[0],
+    ) * 1.35;
+    final distance = routeResult?.distanceMeters ??
+        ((fareQuote?['estimated_distance_m'] as num?)?.toDouble() ?? fallbackDistance);
+    final duration = routeResult?.durationSeconds ?? (distance / 5.5) + 180;
+    final minutes = (duration / 60).ceil();
+    return Container(
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: const Color(0xFFE3F4E9), borderRadius: BorderRadius.circular(16)),
+      child: Row(children: [
+        const Icon(Icons.schedule_rounded, color: Color(0xFF176B57), size: 26),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(calculatingRoute ? 'Calculating travel time…' : routeResult != null ? 'Estimated road travel time' : 'Approximate travel time',
+            style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+          Text('About $minutes min · ${(distance / 1000).toStringAsFixed(1)} km',
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+          if (routeResult == null)
+            const Text('Estimate only; a road route is not available.', style: TextStyle(fontSize: 11, color: Color(0xFF68736D))),
+        ])),
+      ]),
+    );
   }
 
   Future<void> _requestRide() async {
@@ -171,13 +280,13 @@ class _RideBookingPageState extends State<RideBookingPage> {
         'p_destination_latitude': destinationCoordinates![1],
         'p_destination_longitude': destinationCoordinates![0],
         'p_idempotency_key': 'ride-' + DateTime.now().microsecondsSinceEpoch.toString() + '-' + currentUser.id,
-        'p_area_code': 'DEFAULT',
+        'p_area_code': pickupAreaCode,
         'p_vehicle_type': vehicleType,
       });
       if (!mounted) return;
       _message('Ride requested. Request ID: ' + requestId.toString().substring(0, 8) + '. Fare is recalculated by Alteo before the request is saved.');
-    } catch (e) {
-      if (mounted) _message('Could not request this ride. Check service availability, pricing and driver coverage. ' + e.toString());
+    } catch (_) {
+      if (mounted) _message('Could not request this ride. Check the selected pickup area and try again.');
     } finally {
       if (mounted) setState(() => requestingRide = false);
     }
@@ -226,13 +335,6 @@ class _RideBookingPageState extends State<RideBookingPage> {
               ]),
             ]),
           ),
-          const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: locating ? null : _useCurrentLocation,
-            icon: locating ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.gps_fixed_rounded),
-            label: const Text('Use current location for pickup'),
-            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(46), alignment: Alignment.centerLeft),
-          ),
           const SizedBox(height: 18),
           const Text('Choose your ride', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
@@ -245,6 +347,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
           ]),
           const SizedBox(height: 14),
           _fareCard(),
+          _etaSummary(),
           const SizedBox(height: 14),
           FilledButton(
             onPressed: requestingRide || locating || searchingPickup || searchingDestination || fareQuote?['enabled'] != true ? null : _requestRide,
@@ -371,13 +474,14 @@ class _RideBookingPageState extends State<RideBookingPage> {
             mapController: mapController,
             options: MapOptions(initialCenter: center, initialZoom: focus == null ? 4.3 : 14.5),
             children: [
-              TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer'),
-              if (pickup != null && destination != null)
+              TileLayer(urlTemplate: tileUrl, userAgentPackageName: 'com.alteo.customer', maxZoom: 19),
+              if (routeCoordinates.length >= 2)
                 PolylineLayer(polylines: [
-                  Polyline(
-                    points: [LatLng(pickup[1], pickup[0]), LatLng(destination[1], destination[0])],
-                    strokeWidth: 4, color: const Color(0xFF176B57),
-                  ),
+                  Polyline(points: routeCoordinates, strokeWidth: 4, color: const Color(0xFF176B57)),
+                ])
+              else if (pickup != null && destination != null)
+                PolylineLayer(polylines: [
+                  Polyline(points: [LatLng(pickup[1], pickup[0]), LatLng(destination[1], destination[0])], strokeWidth: 3, color: const Color(0xFF7CA89A)),
                 ]),
               if (markers.isNotEmpty) MarkerLayer(markers: markers),
               RichAttributionWidget(attributions: [
@@ -415,7 +519,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
               decoration: BoxDecoration(color: Colors.white.withValues(alpha: .92), borderRadius: BorderRadius.circular(8)),
-              child: Text(MapboxService.isConfigured ? 'Mapbox' : 'Map preview', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+              child: Text(routeResult != null ? 'Road route' : 'Map preview', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
             ),
           ),
         ]),
