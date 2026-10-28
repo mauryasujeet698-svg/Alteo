@@ -3,7 +3,6 @@ import 'package:alteo_notifications/alteo_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
-import 'package:geolocator/geolocator.dart';
 import '../../services/mapbox_service.dart';
 import '../../services/customer_location_service.dart';
 import '../../services/customer_preferences.dart';
@@ -84,16 +83,16 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     }
    }
    if (selectedLocation != null) {
-    selectedLatitude = (selectedLocation!['latitude'] as num?)?.toDouble();
-    selectedLongitude = (selectedLocation!['longitude'] as num?)?.toDouble();
+    selectedLatitude = (selectedLocation['latitude'] as num?)?.toDouble();
+    selectedLongitude = (selectedLocation['longitude'] as num?)?.toDouble();
     addressLine.text = [
-      selectedLocation!['address_line1'],
-      selectedLocation!['locality'],
+      selectedLocation['address_line1'],
+      selectedLocation['locality'],
     ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
-    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation!['formatted_address']?.toString() ?? '';
-    city.text = selectedLocation!['city']?.toString() ?? '';
-    stateName.text = selectedLocation!['state']?.toString() ?? '';
-    postalCode.text = selectedLocation!['postal_code']?.toString() ?? '';
+    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation['formatted_address']?.toString() ?? '';
+    city.text = selectedLocation['city']?.toString() ?? '';
+    stateName.text = selectedLocation['state']?.toString() ?? '';
+    postalCode.text = selectedLocation['postal_code']?.toString() ?? '';
    }
    final userForAddresses = Supabase.instance.client.auth.currentUser;
    if (userForAddresses != null) {
@@ -104,7 +103,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    }
    if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
     for (final saved in savedAddresses) {
-     if (saved['id'].toString() == selectedLocation!['id'].toString()) {
+     if (saved['id'].toString() == selectedLocation['id'].toString()) {
       selectedAddress = saved;
       break;
      }
@@ -194,7 +193,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        ]),
        Text(
         selectedLocation?['formatted_address']?.toString().trim().isNotEmpty == true
-         ? selectedLocation!['formatted_address'].toString()
+         ? selectedLocation['formatted_address'].toString()
          : selectedLatitude != null ? 'Your phone location is selected. Add house or street details below.'
          : 'Choose your current location or pin the exact delivery point.',
         style: const TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF365D50)),
