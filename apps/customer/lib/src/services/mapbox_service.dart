@@ -95,7 +95,7 @@ class MapboxService {
   /// Forward-geocodes an address in India to [longitude, latitude].
   static Future<List<double>?> geocode(String address) async {
     final value = address.trim();
-    if (!isConfigured) return _nativeGeocode(value);
+    if (!isConfigured) return await _nativeGeocode(value);
     if (value.length < 3) {
       _lastError = 'Enter at least 3 characters of an address or landmark.';
       return null;
@@ -119,7 +119,7 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return _nativeGeocode(value);
+        return await _nativeGeocode(value);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
@@ -148,7 +148,7 @@ class MapboxService {
 
   /// Reverse-geocodes GPS coordinates to a readable address.
   static Future<String?> reverseGeocode(double longitude, double latitude) async {
-    if (!isConfigured) return _nativeReverseGeocode(longitude, latitude);
+    if (!isConfigured) return await _nativeReverseGeocode(longitude, latitude);
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
       _lastError = 'Invalid GPS coordinates.';
       return null;
@@ -162,7 +162,7 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return _nativeReverseGeocode(longitude, latitude);
+        return await _nativeReverseGeocode(longitude, latitude);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
