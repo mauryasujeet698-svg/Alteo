@@ -1,11 +1,9 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final ValueNotifier<ThemeMode> alteoThemeMode = ValueNotifier<ThemeMode>(ThemeMode.light);
 final ValueNotifier<String> alteoPreferredLanguage = ValueNotifier<String>('English');
 final ValueNotifier<String> alteoDeliveryLocation = ValueNotifier<String>('Choose your location');
-final ValueNotifier<Map<String, dynamic>?> alteoLocationSelection = ValueNotifier<Map<String, dynamic>?>(null);
 
 Future<void> loadCustomerPreferences() async {
   final store = await SharedPreferences.getInstance();
@@ -19,15 +17,6 @@ Future<void> loadCustomerPreferences() async {
   final language = store.getString('alteo_language') ?? 'English';
   alteoPreferredLanguage.value = supported.contains(language) ? language : 'English';
   alteoDeliveryLocation.value = store.getString('alteo_delivery_location') ?? 'Choose your location';
-  final savedSelection = store.getString('alteo_location_selection');
-  if (savedSelection != null) {
-    try {
-      final decoded = jsonDecode(savedSelection);
-      alteoLocationSelection.value = decoded is Map ? Map<String, dynamic>.from(decoded) : null;
-    } catch (_) {
-      alteoLocationSelection.value = null;
-    }
-  }
 }
 
 Future<void> setAlteoTheme(ThemeMode mode) async {
@@ -97,31 +86,10 @@ String alteoText(String key) {
   return translations[alteoPreferredLanguage.value]?[key] ?? key;
 }
 
-Future<void> setAlteoDeliveryLocation(
-  String location, {
-  Map<String, dynamic>? details,
-  String source = 'manual',
-}) async {
+Future<void> setAlteoDeliveryLocation(String location) async {
   final value = location.trim();
   if (value.isEmpty) return;
   alteoDeliveryLocation.value = value;
   final store = await SharedPreferences.getInstance();
   await store.setString('alteo_delivery_location', value);
-  if (details != null) {
-    final normalized = <String, dynamic>{
-      ...details,
-      'display_address': value,
-      'source': source,
-    };
-    alteoLocationSelection.value = normalized;
-    await store.setString('alteo_location_selection', jsonEncode(normalized));
-  } else if (alteoLocationSelection.value != null) {
-    final updated = <String, dynamic>{
-      ...alteoLocationSelection.value!,
-      'display_address': value,
-      'source': source,
-    };
-    alteoLocationSelection.value = updated;
-    await store.setString('alteo_location_selection', jsonEncode(updated));
-  }
 }
