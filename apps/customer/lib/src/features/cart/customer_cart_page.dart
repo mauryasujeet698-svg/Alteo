@@ -302,10 +302,13 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     ],
    )));
    if (confirmed != true || !mounted) return;
-   if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
-       addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
-       stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete all delivery details before continuing.')));
+   if (recipient.text.trim().length < 2 ||
+       phone.text.trim().length < 8 ||
+       addressLine.text.trim().length < 3 ||
+       city.text.trim().length < 2 ||
+       stateName.text.trim().length < 2 ||
+       !RegExp(r'^[1-9][0-9]{5}$').hasMatch(postalCode.text.trim())) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the recipient, phone, full address and a valid 6-digit PIN code.')));
     return;
    }
 
@@ -322,6 +325,19 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    final user = client.auth.currentUser;
    if (user == null) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in is required to place an order. You can keep exploring without signing in.')));
+    return;
+   }
+   try {
+    final serviceability = await client.rpc(
+      'get_public_serviceability',
+      params: {'p_pincode': postalCode.text.trim()},
+    ).timeout(const Duration(seconds: 12));
+    if (serviceability is! Map || serviceability['serviceable'] != true) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alteo is not delivering to this PIN code yet. Choose another address.')));
+      return;
+    }
+   } catch (_) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not verify delivery availability. Please try again.')));
     return;
    }
    if (saveAddress && selectedAddress == null) {
@@ -384,7 +400,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        'postal_code': postalCode.text.trim(),
        'latitude': selectedLatitude,
        'longitude': selectedLongitude,
-       'area_code': 'DEFAULT',
+       'area_code': postalCode.text.trim(),
       },
       'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
       'p_payment_method': selectedPaymentMethod,
