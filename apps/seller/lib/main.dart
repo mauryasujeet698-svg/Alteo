@@ -25,7 +25,7 @@ Future<void> main() async {
       backendReady = true;
     }
   } catch (_) {
-    // Public exploration must work even when auth or backend configuration is unavailable.
+    // Public exploration should remain available when sign-in or live services are unavailable.
   }
   if (backendReady) {
     unawaited(AlteoPushNotifications.instance.initialize(
@@ -1492,7 +1492,7 @@ class _Feature {
 
 const _features = <_Feature>[
   _Feature('Product catalogue', 'Manage items and descriptions', 'Sellers manage their own listings, prices, photos and availability after authorisation.', Icons.inventory_2_rounded),
-  _Feature('Inventory', 'Stock and availability', 'Stock changes should be validated by the backend and reflected across customer browsing and dark-store operations.', Icons.inventory_2_rounded),
+  _Feature('Inventory', 'Stock and availability', 'Stock changes are checked before being applied and reflected across customer browsing and dark-store operations.', Icons.inventory_2_rounded),
   _Feature('Incoming orders', 'Prepare and fulfil orders', 'Only orders routed to this seller should be visible; status changes are shared with admin and customers.', Icons.shopping_bag_rounded),
   _Feature('Pricing and offers', 'Keep listings current', 'Authorised sellers update pricing and eligible offers, with validation and audit history.', Icons.sell_rounded),
   _Feature('Business insights', 'Sales and fulfilment summaries', 'See seller-specific summaries when the reporting layer is connected.', Icons.bar_chart_rounded),
