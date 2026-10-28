@@ -20,6 +20,8 @@ declare
   v_minimum bigint;
   v_area text := upper(trim(coalesce(nullif(trim(p_delivery_address->>'postal_code'),''), nullif(trim(p_delivery_address->>'area_code'),''), '')));
   v_service_enabled boolean;
+  v_area_enabled boolean;
+  v_global_enabled boolean;
   v_order_id uuid;
   v_payment_method text := lower(trim(coalesce(p_payment_method, 'cod')));
 begin
@@ -104,18 +106,36 @@ begin
   end loop;
   if v_subtotal > 1000000000 then raise exception 'cart total exceeds allowed limit' using errcode = '22023'; end if;
 
-  select sc.enabled into v_service_enabled
-    from public.service_controls sc
-    where sc.service = v_kind and sc.area_code = v_area
-    limit 1;
-  if not found then
-    select sc.enabled into v_service_enabled
+  if exists (select 1 from public.service_areas) then
+    -- The global switch is authoritative; a per-PIN row can only narrow coverage.
+    select sc.enabled into v_global_enabled
       from public.service_controls sc
       where sc.service = v_kind and sc.area_code = 'DEFAULT'
       limit 1;
-  end if;
-  if not coalesce(v_service_enabled, false) then
-    raise exception 'This service is not available for your PIN code yet.' using errcode = 'P0002';
+    if not coalesce(v_global_enabled, false) then
+      raise exception 'This service is temporarily unavailable.' using errcode = 'P0002';
+    end if;
+    select sc.enabled into v_area_enabled
+      from public.service_controls sc
+      where sc.service = v_kind and sc.area_code = v_area
+      limit 1;
+    if found and not coalesce(v_area_enabled, false) then
+      raise exception 'This service is not available for your PIN code yet.' using errcode = 'P0002';
+    end if;
+  else
+    select sc.enabled into v_service_enabled
+      from public.service_controls sc
+      where sc.service = v_kind and sc.area_code = v_area
+      limit 1;
+    if not found then
+      select sc.enabled into v_service_enabled
+        from public.service_controls sc
+        where sc.service = v_kind and sc.area_code = 'DEFAULT'
+        limit 1;
+    end if;
+    if not coalesce(v_service_enabled, false) then
+      raise exception 'This service is not available for your PIN code yet.' using errcode = 'P0002';
+    end if;
   end if;
   select base_fee_minor, minimum_fee_minor into v_base, v_minimum
     from public.pricing_rules
