@@ -128,7 +128,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   Future<void> signInWithGoogle() async {
     if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is unavailable until the Supabase configuration is restored.');
+      setState(() => message = 'Sign-in is temporarily unavailable. Please try again later.');
       return;
     }
     setState(() { busy = true; message = null; });
@@ -247,8 +247,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
             Icon(widget.backendReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, color: const Color(0xFF176B57)),
             const SizedBox(width: 10),
             Expanded(child: Text(widget.backendReady
-              ? 'Public exploration is available. Live data and protected actions depend on backend permissions and service configuration.'
-              : 'Public exploration is available. Sign-in and live data are temporarily unavailable until backend configuration is restored.',
+              ? 'Some live features may be temporarily unavailable. Please try again later.'
+              : 'Sign-in and live updates are temporarily unavailable. Please try again later.',
               style: const TextStyle(height: 1.45))),
           ]),
         ),
@@ -408,7 +408,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                     const SizedBox(height: 8),
                     Text(feature.detail, style: const TextStyle(height: 1.5)),
                     const SizedBox(height: 12),
-                    const Text('Live records appear after the backend is configured and the signed-in account is authorised.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+                    const Text('Live records appear when your account is authorised and new work becomes available.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
                   ]),
                 )),
               ),
@@ -923,7 +923,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           children: [
             const Text('Customer homepage banners', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
             const SizedBox(height: 6),
-            const Text('Manage the swipeable Customer home carousel here. Published changes are read live from Supabase; the Customer app does not need reinstalling.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+            const Text('Manage the swipeable Customer home carousel here. Published changes appear automatically in the Customer app.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
             const SizedBox(height: 18),
             _bannerManagement(),
           ],
@@ -1232,7 +1232,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 setDialogState(() => uploading = true);
                 final uploadedUrl = await _uploadBannerImage(selectedFile);
                 setDialogState(() => image.text = uploadedUrl);
-                notice('Banner image uploaded to Supabase Storage.');
+                notice('Banner image uploaded successfully.');
               } catch (e) {
                 debugPrint('Admin banner image upload failed (${e.runtimeType}).');
       notice('Image upload failed. Check the image type, file size and connection, then retry.');
@@ -1241,7 +1241,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               }
             },
             icon: uploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.cloud_upload_outlined),
-            label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Supabase'),
+            label: Text(uploading ? 'Uploading image…' : 'Choose and upload image'),
           )),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(value: action, decoration: const InputDecoration(labelText: 'Tap action', border: OutlineInputBorder()), items: const [
@@ -1274,7 +1274,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       } else {
         await client.from('app_banners').update(payload).eq('id', existing['id']);
       }
-      notice('Banner saved and published to Supabase.');
+      notice('Banner saved and published.');
     } catch (e) { debugPrint('Banner save failed (${e.runtimeType}).'); notice('Could not save the banner. Check the required fields and try again.'); }
     finally { title.dispose(); subtitle.dispose(); image.dispose(); actionValue.dispose(); priority.dispose(); }
   }
@@ -1397,7 +1397,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             enabled: !_sendingNotification,
             decoration: const InputDecoration(
               labelText: 'Customer user UUID',
-              hintText: 'UUID from Supabase Auth users',
+              hintText: 'Customer account ID',
               border: OutlineInputBorder(),
             ),
           ),
@@ -1441,7 +1441,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ],
         const SizedBox(height: 18),
         const Text(
-          'If Firebase server credentials have not been added to the Supabase Edge Function secrets, sending will return a configuration error. Test a broadcast only after confirming one or more Customer devices have registered successfully.',
+          'Notifications can be sent only after secure delivery is configured and at least one Customer device has registered. Send a test notification before broadcasting.',
           style: TextStyle(color: Color(0xFF68736D), fontSize: 12, height: 1.45),
         ),
       ],
@@ -1469,7 +1469,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       children: [
         const Text('Operations control centre', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
         const SizedBox(height: 6),
-        const Text('Open the tools you need. Approval, serviceability and pricing changes are validated by Supabase before they take effect.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+        const Text('Open the tools you need. Approval, service availability and pricing changes are validated before taking effect.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
         const SizedBox(height: 16),
         _adminModuleTile(
           Icons.location_on_rounded,
@@ -1752,7 +1752,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               const Text('Customer homepage banners', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
               const Text(
-                'Upload banner images to Supabase Storage, then create, edit, reorder, publish or remove banners. Published changes are read live by the Customer app.',
+                'Upload banner images, then create, edit, reorder, publish or remove banners. Published changes appear automatically in the Customer app.',
                 style: TextStyle(color: Color(0xFF68736D), height: 1.45),
               ),
               const SizedBox(height: 18),
@@ -1803,7 +1803,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                   children: [
                     Text('Customer items', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
                     SizedBox(height: 4),
-                    Text('Add and maintain products served from Supabase.', style: TextStyle(color: Color(0xFF68736D))),
+                    Text('Review and manage marketplace product listings.', style: TextStyle(color: Color(0xFF68736D))),
                   ],
                 ),
               ),
@@ -1816,7 +1816,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Items marked Active appear in the Customer catalogue. Images are uploaded to Supabase Storage (app-media/items); keep each image at 5 MB or less.',
+            'Approved items appear in the Customer catalogue. Upload a clear product image no larger than 5 MB.',
             style: TextStyle(color: Color(0xFF68736D), height: 1.45),
           ),
           const SizedBox(height: 14),
@@ -1998,7 +1998,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                             setDialogState(() => uploading = true);
                             final url = await _uploadCatalogImage(selected);
                             setDialogState(() => image.text = url);
-                            notice('Item image uploaded to Supabase Storage.');
+                            notice('Item image uploaded successfully.');
                           } catch (e) {
                             debugPrint('Catalog image upload failed (${e.runtimeType}).');
       notice('Image upload failed. Check the image type, file size and connection, then retry.');
@@ -2009,7 +2009,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                         icon: uploading
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.cloud_upload_outlined),
-                        label: Text(uploading ? 'Uploading image…' : 'Choose image and upload to Supabase'),
+                        label: Text(uploading ? 'Uploading image…' : 'Choose and upload image'),
                       ),
                     ),
                     if (image.text.startsWith('https://')) ...[
