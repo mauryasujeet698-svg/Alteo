@@ -45,6 +45,10 @@ class AlteoCustomerApp extends StatelessWidget {
     valueListenable: alteoThemeMode,
     builder: (context, mode, _) => MaterialApp(
       title: 'Alteo',
+      builder: (context, child) => AlteoFirstLaunchPermissionGate(
+        appId: 'customer',
+        child: child ?? const SizedBox.shrink(),
+      ),
       debugShowCheckedModeBanner: false,
       themeMode: mode,
       theme: ThemeData(
