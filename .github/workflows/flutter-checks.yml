@@ -156,22 +156,6 @@ jobs:
               source = re.sub(r'android:label="[^"]+"', 'android:label="' + display_names[name] + '"', source, count=1)
           else:
               source = source.replace('<application', '<application android:label="' + display_names[name] + '"', 1)
-          # Android 13+ runtime permissions are required by the shared first-launch
-          # permission flow. Only partner operational apps request these; Customer and
-          # Admin retain their existing first-launch behaviour in this scope.
-          if name in {"seller", "driver-partner", "delivery-partner", "dark-store"}:
-              for permission in (
-                  "android.permission.ACCESS_COARSE_LOCATION",
-                  "android.permission.ACCESS_FINE_LOCATION",
-                  "android.permission.POST_NOTIFICATIONS",
-              ):
-                  marker = 'android:name="' + permission + '"'
-                  if marker not in source:
-                      source = source.replace(
-                          "<application",
-                          '    <uses-permission android:name="' + permission + '" />\\n    <application',
-                          1,
-                      )
           manifest.write_text(source)
           print("Generated custom Alteo launcher branding for", name)
           PY
@@ -357,6 +341,7 @@ jobs:
       - name: Configure Google OAuth deep links and microphone permission
         env:
           ALTEO_REDIRECT_SCHEME: ${{ matrix.scheme }}
+          ALTEO_APP_NAME: ${{ matrix.name }}
         shell: bash
         run: |
           python3 - <<'PY'
@@ -367,13 +352,18 @@ jobs:
               raise SystemExit("AndroidManifest.xml was not generated")
           text = manifest.read_text()
           permissions = [
-              # Release APKs need network access for Supabase OAuth code exchange and API calls.
+              # Release APKs need network access for APIs/OAuth and speech input for Customer search.
               "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",
-              "android.permission.ACCESS_FINE_LOCATION",
-              "android.permission.ACCESS_COARSE_LOCATION",
-              "android.permission.POST_NOTIFICATIONS",
           ]
+          # Only the four operational partner apps use location and operational push alerts
+          # as part of their first-launch workflow. Keep Customer and Admin unchanged.
+          if os.environ.get("ALTEO_APP_NAME") in {"seller", "driver-partner", "delivery-partner", "dark-store"}:
+              permissions.extend([
+                  "android.permission.ACCESS_FINE_LOCATION",
+                  "android.permission.ACCESS_COARSE_LOCATION",
+                  "android.permission.POST_NOTIFICATIONS",
+              ])
           for permission_name in permissions:
               if f'android:name="{permission_name}"' not in text:
                   text = text.replace("<application", f'    <uses-permission android:name="{permission_name}" />\n    <application', 1)
