@@ -190,7 +190,7 @@ class AlteoTermsPage extends StatelessWidget {
         _item('Follow the assigned workflow', 'Use the app only for work you are authorised to perform. Update ride, delivery, stock and order statuses accurately, and do not mark work complete before it is complete.'),
         _item('Use location responsibly', 'When location is needed for availability or an active assignment, use it only for that work and follow the relevant safety and privacy requirements.'),
         _item('Protect customers and partners', 'Use customer, seller, order and location information only to complete the permitted operation. Do not copy, disclose or misuse it.'),
-        _item('Service availability and changes', 'Work availability depends on approval, service-area coverage, stock, dispatch and platform configuration. A screen showing an option does not override backend eligibility or safety checks.'),
+        _item('Service availability and changes', 'Work availability depends on approval, service-area coverage, stock and dispatch readiness. Showing an option does not override account eligibility or safety checks.'),
         _item('Issues and violations', 'Report incorrect assignments, suspected abuse, safety concerns or technical problems through Help & support. Alteo may restrict access when security, fraud or policy concerns require review.'),
         const SizedBox(height: 12),
         const Text('This is an operational terms summary, not a substitute for a complete legal agreement. A full version should be reviewed and published before public launch.', style: TextStyle(fontSize: 12, height: 1.5, color: Color(0xFF68736D))),
