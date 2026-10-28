@@ -279,6 +279,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
   IconData _publicNavIcon(String label, bool selected) => switch (label) {
     'Home' => selected ? Icons.home_rounded : Icons.home_outlined,
     'Orders' => selected ? Icons.receipt_long_rounded : Icons.receipt_long_outlined,
+    'Modules' => selected ? Icons.grid_view_rounded : Icons.grid_view_outlined,
     'Catalogue' => selected ? Icons.inventory_2_rounded : Icons.inventory_2_outlined,
     'Partners' => selected ? Icons.groups_rounded : Icons.groups_outlined,
     'Rides' => selected ? Icons.directions_car_filled_rounded : Icons.directions_car_outlined,
@@ -884,7 +885,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   List<String> get _navLabels => switch (requiredRole) {
-    'admin' => const ['Home', 'Orders', 'Catalogue', 'Notifications', 'Partners', 'Profile'],
+    'admin' => const ['Home', 'Orders', 'Modules', 'Profile'],
     'driver_partner' => const ['Home', 'Rides', 'Earnings', 'Profile'],
     'delivery_partner' => const ['Home', 'Deliveries', 'Earnings', 'Profile'],
     'seller' => const ['Home', 'Orders', 'Products', 'Profile'],
@@ -909,6 +910,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _navigationPage() {
     final label = _navLabels[selectedTab];
+    if (requiredRole == 'admin' && label == 'Modules') return _adminModulesPage();
     if (requiredRole == 'admin' && label == 'Catalogue') return _adminCataloguePage();
     if (requiredRole == 'admin' && label == 'Notifications') {
       return _adminNotificationsPage();
@@ -1459,6 +1461,71 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
     ));
   }
+
+  Widget _adminModulesPage() => Scaffold(
+    appBar: _appBar('Admin modules'),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+      children: [
+        const Text('Operations control centre', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 6),
+        const Text('Open the tools you need. Approval, serviceability and pricing changes are validated by Supabase before they take effect.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+        const SizedBox(height: 16),
+        _adminModuleTile(
+          Icons.location_on_rounded,
+          'Service Areas & Availability',
+          'Register PIN codes, enable services per area and configure validated pricing.',
+          _openServiceAreaSettings,
+        ),
+        _adminModuleTile(
+          Icons.inventory_2_rounded,
+          'Catalogue & banners',
+          'Review seller listings and manage the Customer homepage carousel.',
+          () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminCataloguePage())),
+        ),
+        _adminModuleTile(
+          Icons.groups_rounded,
+          'Partners & approvals',
+          'Review applications and manage sellers, drivers, delivery partners and dark stores.',
+          () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminPartnersPage())),
+        ),
+        _adminModuleTile(
+          Icons.notifications_active_outlined,
+          'Notifications',
+          'Send an authorised notification and review the result returned by the sending service.',
+          () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminNotificationsPage())),
+        ),
+        _adminModuleTile(
+          Icons.support_agent_rounded,
+          'Support & escalations',
+          'Review open customer requests, update status and find unresolved issues on the operations dashboard.',
+          () => setState(() => selectedTab = 0),
+        ),
+      ],
+    ),
+  );
+
+  Widget _adminModuleTile(IconData icon, String title, String subtitle, VoidCallback onTap) => Card(
+    elevation: 0,
+    color: Colors.white,
+    margin: const EdgeInsets.only(bottom: 10),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(17),
+      side: const BorderSide(color: Color(0xFFDCE6DF)),
+    ),
+    child: ListTile(
+      minVerticalPadding: 12,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      leading: CircleAvatar(
+        backgroundColor: const Color(0xFFE1F2E9),
+        child: Icon(icon, color: const Color(0xFF176B57)),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+      subtitle: Text(subtitle, style: const TextStyle(height: 1.35)),
+      trailing: const Icon(Icons.chevron_right_rounded),
+      onTap: onTap,
+    ),
+  );
 
   Widget _adminDashboard() => Scaffold(
     appBar: _appBar('Live operations'),
