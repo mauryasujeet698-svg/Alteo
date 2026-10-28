@@ -4,6 +4,9 @@ import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../services/mapbox_service.dart';
+import '../../services/customer_location_service.dart';
+import '../../services/customer_preferences.dart';
+import '../location/customer_location_picker_page.dart';
 
 class CustomerCartPage extends StatefulWidget {
  const CustomerCartPage({super.key});
@@ -11,6 +14,7 @@ class CustomerCartPage extends StatefulWidget {
 }
 class _CustomerCartPageState extends State<CustomerCartPage>{
  late Future<List<Map<String,dynamic>>> items;
+ final Set<String> _updatingItems = <String>{};
  @override void initState(){super.initState();items=load();}
  Future<List<Map<String,dynamic>>> load()async{
   final client=Supabase.instance.client;
@@ -20,6 +24,29 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   if(cart==null)return [];
   final rows=await client.from('cart_items').select('id,quantity,product_id,seller_products(name,price_minor,image_url,seller_id,kind)').eq('cart_id',cart['id']).order('created_at');
   return (rows as List).map((e)=>Map<String,dynamic>.from(e as Map)).toList();
+ }
+
+ Future<void> _changeQuantity(Map<String, dynamic> row, int delta) async {
+  final id = row['id']?.toString();
+  if (id == null || _updatingItems.contains(id)) return;
+  final current = (row['quantity'] as num?)?.toInt() ?? 1;
+  final next = (current + delta).clamp(0, 99).toInt();
+  if (next == current) return;
+  setState(() => _updatingItems.add(id));
+  try {
+   if (next == 0) {
+    await Supabase.instance.client.from('cart_items').delete().eq('id', id);
+   } else {
+    await Supabase.instance.client.from('cart_items').update({'quantity': next}).eq('id', id);
+   }
+   if (!mounted) return;
+   setState(() => items = load());
+  } catch (_) {
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not update that item. Please try again.')));
+   if (mounted) setState(() => items = load());
+  } finally {
+   if (mounted) setState(() => _updatingItems.remove(id));
+  }
  }
 
  Future<void> checkout() async {
@@ -261,7 +288,57 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    return Column(children:[
     Expanded(child:ListView.separated(padding:const EdgeInsets.all(16),itemCount:list.length,separatorBuilder:(_,__)=>const SizedBox(height:8),itemBuilder:(context,i){
      final row=list[i],p=(row['seller_products'] as Map?)??{};
-     return Card(elevation:0,color:Colors.white,child:ListTile(title:Text((p['name'] as String?)??'Item',style:const TextStyle(fontWeight:FontWeight.w800)),subtitle:Text('Qty: ${row['quantity']}'),trailing:Text('₹${((((p['price_minor'] as num?)?.toInt()??0)*(row['quantity'] as int? ??1))/100).toStringAsFixed(0)}',style:const TextStyle(fontWeight:FontWeight.w900,color:Color(0xFF176B57)))));
+     final quantity = (row['quantity'] as num?)?.toInt() ?? 1;
+     final unitPrice = (p['price_minor'] as num?)?.toInt() ?? 0;
+     final lineTotal = unitPrice * quantity;
+     final busy = _updatingItems.contains(row['id']?.toString());
+     final imageUrl = p['image_url']?.toString() ?? '';
+     return Card(
+      elevation: 0,
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 6),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+      child: Padding(
+       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+       child: Row(children: [
+        ClipRRect(
+         borderRadius: BorderRadius.circular(10),
+         child: SizedBox(width: 62, height: 62, child: imageUrl.startsWith('https://')
+          ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const ColoredBox(color: Color(0xFFEAF2EC), child: Icon(Icons.shopping_bag_outlined)))
+          : const ColoredBox(color: Color(0xFFEAF2EC), child: Icon(Icons.shopping_bag_outlined))),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+         Text((p['name'] as String?) ?? 'Item', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+         const SizedBox(height: 4),
+         Text('₹${(unitPrice / 100).toStringAsFixed(0)} each', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+         const SizedBox(height: 5),
+         Text('Line total ₹${(lineTotal / 100).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+        ])),
+        const SizedBox(width: 6),
+        Container(
+         decoration: BoxDecoration(color: const Color(0xFFE2F4EA), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFB8DDCB))),
+         child: Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(
+           tooltip: 'Decrease quantity',
+           visualDensity: VisualDensity.compact,
+           constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+           onPressed: busy ? null : () => _changeQuantity(row, -1),
+           icon: const Icon(Icons.remove_rounded, size: 18),
+          ),
+          SizedBox(width: 20, child: Center(child: busy ? const SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 2)) : Text('$quantity', style: const TextStyle(fontWeight: FontWeight.w900)))),
+          IconButton(
+           tooltip: 'Increase quantity',
+           visualDensity: VisualDensity.compact,
+           constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+           onPressed: busy ? null : () => _changeQuantity(row, 1),
+           icon: const Icon(Icons.add_rounded, size: 18),
+          ),
+         ]),
+        ),
+       ]),
+      ),
+     );
     })),
     SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('Cash on delivery is available now. UPI, cards, wallets and net banking are coming soon.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Checkout · Cash on delivery')))])))
    ]);
