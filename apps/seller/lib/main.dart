@@ -1035,7 +1035,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         'path': objectPath,
       };
     } on StorageException catch (e) {
-      throw StateError('Supabase Storage upload failed: ' + e.message + '. Check the seller image upload policy and app-media bucket.');
+      debugPrint('Seller image upload failed (${e.runtimeType}).');
+      throw StateError('Image upload unavailable.');
     }
   }
 
@@ -1092,7 +1093,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                           });
                           notice('Product image uploaded to Supabase Storage.');
                         } catch (e) {
-                          notice('Product image upload failed: ' + e.toString());
+                          debugPrint('Product image upload failed (${e.runtimeType}).');
+                          notice('Could not upload the image. Check the file type, size and connection, then retry.');
                         } finally {
                           setDialogState(() => uploadingImage = false);
                         }
