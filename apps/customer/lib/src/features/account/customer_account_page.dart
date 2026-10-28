@@ -131,7 +131,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
     if (confirmed != true || !mounted) return;
     // Auth-user deletion must be performed by a privileged server-side workflow.
     // Do not attempt to delete the auth user directly from the client.
-    await _info('Deletion not enabled yet', 'Your confirmation was received, but secure account deletion is not enabled on the backend yet. No account data has been deleted.');
+    await _info('Deletion not enabled yet', 'Account deletion is not available yet. No account data has been deleted.');
   }
 
   @override
