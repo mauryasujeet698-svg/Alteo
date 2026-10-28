@@ -1,6 +1,5 @@
 -- Safe follow-up hardening for PIN coverage and business-rule auditing.
-alter table public.service_areas
-  add column if not exists updated_by uuid references auth.users(id) on delete set null;
+alter table public.service_areas add column if not exists updated_by uuid references auth.users(id) on delete set null;
 alter table public.service_areas drop constraint if exists service_areas_pincode_format;
 alter table public.service_areas add constraint service_areas_pincode_format
   check (char_length(pincode) = 6 and pincode ~ '^[1-9][0-9]{5}$');
@@ -26,8 +25,7 @@ drop trigger if exists service_areas_touch_updated_at on public.service_areas;
 create trigger service_areas_touch_updated_at before insert or update on public.service_areas
 for each row execute function public.service_areas_touch_updated_at();
 
-alter table public.pricing_rules
-  add column if not exists updated_by uuid references auth.users(id) on delete set null;
+alter table public.pricing_rules add column if not exists updated_by uuid references auth.users(id) on delete set null;
 create or replace function public.pricing_rules_prepare_audit()
 returns trigger language plpgsql security definer set search_path = '' as $function$
 begin
@@ -164,7 +162,12 @@ begin
 
   -- Keep the legacy DEFAULT-area path until the owner registers a first PIN.
   if exists (select 1 from public.service_areas) then
-    if v_area !~ '^[1-9][0-9]{5}
+    if v_area !~ '^[1-9][0-9]{5}$' or not exists (
+      select 1 from public.service_areas a where a.pincode = v_area and a.active = true
+    ) then
+      raise exception 'This PIN code is not currently serviceable.' using errcode = 'P0002';
+    end if;
+  end if;
 
   select id into v_order_id from public.orders
     where customer_id = v_customer_id and idempotency_key = p_idempotency_key;
@@ -265,95 +268,6 @@ exception when unique_violation then
   if v_order_id is not null then return v_order_id; end if;
   raise;
 end;
-$function$; or not exists (
-      select 1 from public.service_areas a where a.pincode = v_area and a.active = true
-    ) then
-      raise exception 'This PIN code is not currently serviceable.' using errcode = 'P0002';
-    end if;
-  end if;
-
-  select id into v_order_id from public.orders
-    where customer_id = v_customer_id and idempotency_key = p_idempotency_key;
-  if v_order_id is not null then return v_order_id; end if;
-
-  for v_item in select value from jsonb_array_elements(p_items)
-  loop
-    if jsonb_typeof(v_item) <> 'object' then raise exception 'invalid cart item' using errcode = '22023'; end if;
-    v_product_id := (v_item->>'product_id')::uuid;
-    v_quantity := (v_item->>'quantity')::integer;
-    if v_quantity < 1 or v_quantity > 99 then raise exception 'quantity must be between 1 and 99' using errcode = '22023'; end if;
-    if exists (
-      select 1 from jsonb_array_elements(p_items) x
-      where x.value->>'product_id' = v_product_id::text
-      group by x.value->>'product_id' having count(*) > 1
-    ) then raise exception 'duplicate products must be combined into one cart line' using errcode = '22023'; end if;
-    select p.id, p.seller_id, p.name, p.price_minor, p.kind
-      into v_product
-      from public.seller_products p join public.sellers s on s.id = p.seller_id
-      where p.id = v_product_id and p.status = 'active' and s.status = 'approved'
-      for share of p, s;
-    if not found then raise exception 'an item is unavailable' using errcode = 'P0002'; end if;
-    if v_seller_id is null then v_seller_id := v_product.seller_id;
-    elsif v_seller_id <> v_product.seller_id then
-      raise exception 'checkout currently supports one seller per order' using errcode = '22023';
-    end if;
-    if v_kind is null then v_kind := v_product.kind;
-    elsif v_kind <> v_product.kind then raise exception 'separate service categories into different orders' using errcode = '22023';
-    end if;
-    v_subtotal := v_subtotal + (v_product.price_minor * v_quantity);
-  end loop;
-  if v_subtotal > 1000000000 then raise exception 'cart total exceeds allowed limit' using errcode = '22023'; end if;
-
-  select sc.enabled into v_service_enabled
-    from public.service_controls sc
-    where sc.service = v_kind and sc.area_code = v_area
-    limit 1;
-  if not found then
-    select sc.enabled into v_service_enabled
-      from public.service_controls sc
-      where sc.service = v_kind and sc.area_code = 'DEFAULT'
-      limit 1;
-  end if;
-  if not coalesce(v_service_enabled, false) then
-    raise exception 'This service is not available for your PIN code yet.' using errcode = 'P0002';
-  end if;
-  select base_fee_minor, minimum_fee_minor into v_base, v_minimum
-    from public.pricing_rules
-    where service = v_kind and active = true and city_code = v_area
-    limit 1;
-  if not found then
-    select base_fee_minor, minimum_fee_minor into v_base, v_minimum
-      from public.pricing_rules
-      where service = v_kind and active = true and city_code = 'DEFAULT'
-      limit 1;
-  end if;
-  if not found then raise exception 'Pricing is not configured for this service yet.' using errcode = 'P0002'; end if;
-  v_delivery_fee := greatest(v_base, v_minimum);
-
-  insert into public.orders(customer_id,seller_id,idempotency_key,status,payment_status,payment_method,subtotal_minor,delivery_fee_minor,total_minor,delivery_address_snapshot)
-  values (v_customer_id,v_seller_id,p_idempotency_key,'cod_pending','cod_pending',v_payment_method,v_subtotal,v_delivery_fee,v_subtotal+v_delivery_fee,p_delivery_address)
-  returning id into v_order_id;
-
-  for v_item in select value from jsonb_array_elements(p_items)
-  loop
-    v_product_id := (v_item->>'product_id')::uuid;
-    v_quantity := (v_item->>'quantity')::integer;
-    select p.id, p.name, p.price_minor into v_product
-      from public.seller_products p join public.sellers s on s.id = p.seller_id
-      where p.id = v_product_id and p.status = 'active' and s.status = 'approved'
-      for share of p, s;
-    if not found then raise exception 'an item became unavailable' using errcode = 'P0002'; end if;
-    insert into public.order_items(order_id,product_id,product_name_snapshot,quantity,unit_price_minor,line_total_minor)
-    values (v_order_id,v_product.id,v_product.name,v_quantity,v_product.price_minor,v_product.price_minor*v_quantity);
-  end loop;
-  insert into public.order_events(order_id,actor_id,action,detail)
-    values (v_order_id,v_customer_id,'order.created',jsonb_build_object('payment_status','cod_pending','payment_method',v_payment_method,'service',v_kind));
-  return v_order_id;
-exception when unique_violation then
-  select id into v_order_id from public.orders where customer_id=auth.uid() and idempotency_key=p_idempotency_key;
-  if v_order_id is not null then return v_order_id; end if;
-  raise;
-end;
 $function$;
 
 CREATE OR REPLACE FUNCTION public.quote_customer_ride(p_pickup_latitude double precision, p_pickup_longitude double precision, p_destination_latitude double precision, p_destination_longitude double precision, p_area_code text, p_vehicle_type text)
@@ -384,40 +298,7 @@ begin
   end if;
 
   if exists (select 1 from public.service_areas) then
-    if v_area !~ '^[1-9][0-9]{5}
-
-  v_straight_m := ceil(6371000 * 2 * asin(sqrt(
-    power(sin(radians(p_destination_latitude-p_pickup_latitude)/2),2)
-    + cos(radians(p_pickup_latitude))*cos(radians(p_destination_latitude))
-      * power(sin(radians(p_destination_longitude-p_pickup_longitude)/2),2)
-  )))::integer;
-  if v_straight_m<100 or v_straight_m>500000 then
-    return jsonb_build_object('enabled',false,'message','This route is outside the supported distance range.');
-  end if;
-  v_estimated_m := ceil(v_straight_m*1.35)::integer;
-
-  select base_fee_minor,per_km_minor,minimum_fee_minor into v_base,v_per_km,v_minimum
-    from public.pricing_rules
-    where service='ride' and active=true and city_code = v_area
-    limit 1;
-  if not found then
-    select base_fee_minor,per_km_minor,minimum_fee_minor into v_base,v_per_km,v_minimum
-      from public.pricing_rules
-      where service='ride' and active=true and city_code = 'DEFAULT'
-      limit 1;
-  end if;
-  if not found then
-    return jsonb_build_object('enabled',false,'message','Ride prices are not configured yet.');
-  end if;
-
-  v_multiplier := case p_vehicle_type when 'bike' then 1.0 when 'auto' then 1.5 when 'car' then 2.0 end;
-  v_fare := ceil(greatest(v_minimum,v_base+ceil(v_estimated_m/1000.0)::bigint*v_per_km)*v_multiplier)::bigint;
-  return jsonb_build_object(
-    'enabled',true,'vehicle_type',p_vehicle_type,'estimated_distance_m',v_estimated_m,
-    'fare_minor',v_fare,'currency','INR','note','Estimated fare; final amount is calculated and checked by Alteo before creating the ride.'
-  );
-end;
-$function$; or not exists (
+    if v_area !~ '^[1-9][0-9]{5}$' or not exists (
       select 1 from public.service_areas a where a.pincode = v_area and a.active = true
     ) then
       return jsonb_build_object('enabled',false,'message','This pickup PIN code is not currently serviceable.');
