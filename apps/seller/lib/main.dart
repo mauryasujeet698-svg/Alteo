@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:alteo_notifications/alteo_notifications.dart';
+import 'package:alteo_partner_ui/alteo_partner_ui.dart';
 
 const appName = 'Alteo Seller';
 const requiredRole = 'seller';
@@ -16,6 +17,7 @@ final ValueNotifier<String> roleLanguage = ValueNotifier<String>('English');
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await loadAlteoPartnerPreferences(appId: requiredRole, themeMode: roleThemeMode, language: roleLanguage);
   var backendReady = false;
   try {
     if (supabaseUrl.isNotEmpty && supabaseKey.isNotEmpty) {
