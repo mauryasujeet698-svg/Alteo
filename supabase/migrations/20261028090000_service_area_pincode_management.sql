@@ -27,13 +27,13 @@ for select to anon using (active = true);
 drop policy if exists service_areas_read_authenticated on public.service_areas;
 create policy service_areas_read_authenticated on public.service_areas
 for select to authenticated
-using (active = true or (select private.has_role('admin')));
+using (active = true or private.has_role('admin'::text));
 
 drop policy if exists service_areas_admin_manage on public.service_areas;
 create policy service_areas_admin_manage on public.service_areas
 for all to authenticated
-using ((select private.has_role('admin')))
-with check ((select private.has_role('admin')));
+using (private.has_role('admin'::text))
+with check (private.has_role('admin'::text));
 
 create index if not exists service_areas_active_pincode_idx
 on public.service_areas (pincode) where active = true;
