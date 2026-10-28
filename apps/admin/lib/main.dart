@@ -157,9 +157,10 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     } catch (e) {
       if (!mounted) return;
       final lower = e.toString().toLowerCase();
+      debugPrint('Google sign-in failed (${e.runtimeType}).');
       setState(() => message = lower.contains('canceled') || lower.contains('cancelled')
           ? 'Google sign-in was cancelled.'
-          : 'Google sign-in failed: ' + e.toString());
+          : 'Google sign-in could not be completed. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -514,7 +515,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       await client.rpc(name, params: params);
       notice(success);
     } catch (e) {
-      notice('Action failed: ' + e.toString());
+      debugPrint('Admin/partner RPC action failed (${e.runtimeType}).');
+      notice('We could not complete this action. Check your access and connection, then try again.');
     }
   }
 
@@ -538,7 +540,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (mounted) setState(() => partnerOnline = next);
       notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
     } catch (e) {
-      notice('Could not update availability: ' + e.toString());
+      debugPrint('Availability update failed (${e.runtimeType}).');
+      notice('Availability could not be updated. Check your connection and try again.');
     }
   }
 
@@ -1104,7 +1107,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 setDialogState(() => image.text = uploadedUrl);
                 notice('Banner image uploaded to Supabase Storage.');
               } catch (e) {
-                notice('Image upload failed: ' + e.toString());
+                debugPrint('Admin banner image upload failed (${e.runtimeType}).');
+      notice('Image upload failed. Check the image type, file size and connection, then retry.');
               } finally {
                 setDialogState(() => uploading = false);
               }
@@ -1725,7 +1729,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       });
       notice(status == 'active' ? 'Item published to the Customer catalogue.' : 'Item status changed to ' + status + '.');
     } catch (e) {
-      notice('Could not change item status: ' + e.toString());
+      debugPrint('Catalog status update failed (${e.runtimeType}).');
+      notice('Could not update the listing status. Please retry.');
     }
   }
 
@@ -1803,7 +1808,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                             setDialogState(() => image.text = url);
                             notice('Item image uploaded to Supabase Storage.');
                           } catch (e) {
-                            notice('Item image upload failed: ' + e.toString());
+                            debugPrint('Catalog image upload failed (${e.runtimeType}).');
+      notice('Image upload failed. Check the image type, file size and connection, then retry.');
                           } finally {
                             setDialogState(() => uploading = false);
                           }
@@ -1897,7 +1903,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         notice('Item updated.');
       }
     } catch (e) {
-      notice('Could not save item: ' + e.toString());
+      debugPrint('Catalog item save failed (${e.runtimeType}).');
+      notice('Could not save the listing. Check the required fields and try again.');
     } finally {
       name.dispose();
       description.dispose();
@@ -2130,7 +2137,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       }
       notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated.');
     } catch (e) {
-      notice('Could not save product: ' + e.toString());
+      debugPrint('Product save failed (${e.runtimeType}).');
+      notice('Could not save the product. Check the required fields and try again.');
     } finally {
       name.dispose(); description.dispose(); price.dispose(); image.dispose();
     }
@@ -2478,7 +2486,7 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
 
-  bool _isPincode(String value) => RegExp(r'^\d{6}$').hasMatch(value);
+  bool _isPincode(String value) => RegExp(r'^[1-9][0-9]{5}$').hasMatch(value);
 
   Future<Map<String, String>?> _lookupPincode(String pin) async {
     if (!_isPincode(pin)) {
