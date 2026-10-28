@@ -125,6 +125,8 @@ class AlteoPushNotifications {
   }
 
   Future<void> _requestPermissionAndRegister() async {
+    // Admin operations must never trigger location/notification permission prompts.
+    if (_appId == 'admin') return;
     final messaging = _messaging;
     if (messaging == null) return;
     final user = _client?.auth.currentUser;
