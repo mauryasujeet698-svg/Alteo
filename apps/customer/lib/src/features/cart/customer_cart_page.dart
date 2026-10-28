@@ -126,29 +126,115 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        });
       },
      ),
-     Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-      onPressed: locating ? null : () async {
-       setDialogState(() => locating = true);
-       try {
-        var permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-         throw StateError('Allow location access in Android settings to use your current location.');
-        }
-        final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)).timeout(const Duration(seconds: 15));
-        selectedLatitude = position.latitude;
-        selectedLongitude = position.longitude;
-        selectedAddress = null;
-        final place = await MapboxService.reverseGeocode(position.longitude, position.latitude);
-        addressLine.text = place ?? 'Current location (address details below)';
-        setDialogState(() {});
-       } catch (e) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Could not get your current location. Check location permission and try again.')));
-       } finally { setDialogState(() => locating = false); }
-      },
-      icon: locating ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location),
-      label: Text(locating ? 'Getting location…' : 'Use current location'),
-     )),
+     Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+       color: const Color(0xFFEAF4EE),
+       borderRadius: BorderRadius.circular(15),
+       border: Border.all(color: const Color(0xFFD1E5D8)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       Row(children: [
+        const Icon(Icons.location_on_rounded, color: Color(0xFF176B57)),
+        const SizedBox(width: 8),
+        const Expanded(child: Text('Delivery location', style: TextStyle(fontWeight: FontWeight.w900))),
+        TextButton(
+         onPressed: locating ? null : () async {
+          setDialogState(() => locating = true);
+          try {
+           final result = await Navigator.of(dialogContext).push<Map<String, dynamic>>(MaterialPageRoute(
+            builder: (_) => CustomerLocationPickerPage(
+             initialLatitude: selectedLatitude,
+             initialLongitude: selectedLongitude,
+             initialAddress: selectedLocation?['formatted_address']?.toString(),
+            ),
+           ));
+           if (result != null) {
+            selectedLocation = result;
+            selectedAddress = null;
+            selectedLatitude = (result['latitude'] as num?)?.toDouble();
+            selectedLongitude = (result['longitude'] as num?)?.toDouble();
+            addressLine.text = [
+             result['address_line1'], result['locality'],
+            ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+            if (addressLine.text.trim().isEmpty) addressLine.text = result['formatted_address']?.toString() ?? '';
+            city.text = result['city']?.toString() ?? '';
+            stateName.text = result['state']?.toString() ?? '';
+            postalCode.text = result['postal_code']?.toString() ?? '';
+            final display = (result['display_address']?.toString() ?? '').trim();
+            final full = (result['formatted_address']?.toString() ?? '').trim();
+            await setAlteoDeliveryLocation(display.isNotEmpty ? display : full, details: result, source: 'manual');
+            setDialogState(() {});
+           }
+          } catch (_) {
+           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not open the location picker. Please try again.')));
+          } finally {
+           if (context.mounted) setDialogState(() => locating = false);
+          }
+         },
+         child: Text(locating ? 'Opening…' : 'Change'),
+        ),
+       ]),
+       Text(
+        (selectedLocation?['formatted_address']?.toString().trim().isNotEmpty ?? false)
+          ? selectedLocation!['formatted_address'].toString()
+          : selectedLatitude != null
+            ? 'Your current map point is selected. Add house or street details below.'
+            : 'Your detected location will be used when available. You can pin a different address.',
+        style: const TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF365D50)),
+       ),
+       Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+         onPressed: locating ? null : () async {
+          setDialogState(() => locating = true);
+          try {
+           if (!await Geolocator.isLocationServiceEnabled()) {
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Turn on Location services and try again.')));
+            return;
+           }
+           var permission = await Geolocator.checkPermission();
+           if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+           if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Allow location access or choose the address on the map.')));
+            return;
+           }
+           final result = await CustomerLocationService.currentLocationIfPermitted();
+           if (result == null) {
+            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not detect your address. Choose it on the map instead.')));
+            return;
+           }
+           selectedLocation = result;
+           selectedAddress = null;
+           selectedLatitude = (result['latitude'] as num?)?.toDouble();
+           selectedLongitude = (result['longitude'] as num?)?.toDouble();
+           addressLine.text = [
+            result['address_line1'], result['locality'],
+           ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+           if (addressLine.text.trim().isEmpty) addressLine.text = result['formatted_address']?.toString() ?? '';
+           city.text = result['city']?.toString() ?? '';
+           stateName.text = result['state']?.toString() ?? '';
+           postalCode.text = result['postal_code']?.toString() ?? '';
+           final display = (result['display_address']?.toString() ?? '').trim();
+           final full = (result['formatted_address']?.toString() ?? '').trim();
+           await setAlteoDeliveryLocation(display.isNotEmpty ? display : full, details: result, source: 'current');
+           setDialogState(() {});
+          } catch (_) {
+           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not detect your address. Please try again or choose it on the map.')));
+          } finally {
+           if (context.mounted) setDialogState(() => locating = false);
+          }
+         },
+         icon: locating
+           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+           : const Icon(Icons.my_location_rounded, size: 18),
+         label: Text(locating ? 'Detecting…' : 'Use current location'),
+        ),
+       ),
+      ]),
+     ),
      TextField(controller: recipient, decoration: const InputDecoration(labelText: 'Recipient name')),
      TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number')),
      TextField(controller: addressLine, minLines: 1, maxLines: 2, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'House and street')),
