@@ -101,9 +101,12 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      savedAddresses = (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
     } catch (_) { /* Manual entry remains available if saved addresses cannot load. */ }
    }
-   if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
+   final locationForSavedAddress = selectedLocation;
+   if (locationForSavedAddress != null &&
+       locationForSavedAddress['source'] == 'saved' &&
+       locationForSavedAddress['id'] != null) {
     for (final saved in savedAddresses) {
-     if (saved['id'].toString() == selectedLocation['id'].toString()) {
+     if (saved['id'].toString() == locationForSavedAddress['id'].toString()) {
       selectedAddress = saved;
       break;
      }
@@ -192,8 +195,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
         ),
        ]),
        Text(
-        selectedLocation?['formatted_address']?.toString().trim().isNotEmpty == true
-         ? selectedLocation['formatted_address'].toString()
+        (selectedLocation?['formatted_address']?.toString().trim().isNotEmpty ?? false)
+         ? (selectedLocation?['formatted_address']?.toString() ?? '')
          : selectedLatitude != null ? 'Your phone location is selected. Add house or street details below.'
          : 'Choose your current location or pin the exact delivery point.',
         style: const TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF365D50)),
