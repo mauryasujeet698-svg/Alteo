@@ -1058,7 +1058,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             title: const Text('App permissions', style: TextStyle(fontWeight: FontWeight.w800)),
             subtitle: const Text('Manage location and notification access in Android settings'),
             trailing: const Icon(Icons.chevron_right_rounded),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoDevicePermissionsPage(appName: appName))),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoDevicePermissionsPage(appName: appName, includeLocation: false))),
           )),
           Card(elevation: 0, child: ListTile(
             leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.support_agent_rounded, color: Color(0xFF176B57))),
