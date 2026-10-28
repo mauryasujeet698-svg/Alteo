@@ -673,6 +673,105 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
 
+  Widget _deliveryPartnerProfile() => Scaffold(
+    appBar: _appBar('Profile'),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 28),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]),
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: Row(children: [
+            const CircleAvatar(
+              radius: 26,
+              backgroundColor: Color(0x33FFFFFF),
+              child: Icon(Icons.delivery_dining_rounded, color: Colors.white, size: 28),
+            ),
+            const SizedBox(width: 13),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(user?.email ?? 'Delivery partner', maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 4),
+              const Text('Delivery partner account', style: TextStyle(color: Colors.white70, fontSize: 12)),
+            ])),
+          ]),
+        ),
+        const SizedBox(height: 14),
+        Card(
+          elevation: 0,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(children: [
+              const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.palette_outlined, color: Color(0xFF176B57))),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Theme', style: TextStyle(fontWeight: FontWeight.w800))),
+              ValueListenableBuilder<ThemeMode>(
+                valueListenable: roleThemeMode,
+                builder: (context, mode, _) => DropdownButton<ThemeMode>(
+                  value: mode,
+                  underline: const SizedBox.shrink(),
+                  items: const [
+                    DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
+                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+                    DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    roleThemeMode.value = value;
+                    unawaited(saveAlteoPartnerTheme(requiredRole, value));
+                  },
+                ),
+              ),
+            ]),
+          ),
+        ),
+        Card(
+          elevation: 0,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            child: Row(children: [
+              const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.language_rounded, color: Color(0xFF176B57))),
+              const SizedBox(width: 12),
+              const Expanded(child: Text('Language', style: TextStyle(fontWeight: FontWeight.w800))),
+              ValueListenableBuilder<String>(
+                valueListenable: roleLanguage,
+                builder: (context, language, _) => DropdownButton<String>(
+                  value: language,
+                  underline: const SizedBox.shrink(),
+                  items: const [
+                    DropdownMenuItem(value: 'English', child: Text('English')),
+                    DropdownMenuItem(value: 'हिन्दी', child: Text('हिन्दी')),
+                    DropdownMenuItem(value: 'বাংলা', child: Text('বাংলা')),
+                    DropdownMenuItem(value: 'தமிழ்', child: Text('தமிழ்')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    roleLanguage.value = value;
+                    unawaited(saveAlteoPartnerLanguage(requiredRole, value));
+                  },
+                ),
+              ),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton.icon(
+          onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut),
+          icon: const Icon(Icons.logout_rounded),
+          label: const Text('Sign out'),
+          style: OutlinedButton.styleFrom(
+            minimumSize: const Size.fromHeight(52),
+            foregroundColor: const Color(0xFFB3261E),
+            side: const BorderSide(color: Color(0xFFB3261E)),
+          ),
+        ),
+      ],
+    ),
+  );
+
   Future<void> grantUserRole() async {
     final id = roleUserId.text.trim();
     if (id.isEmpty) { notice('Enter the user UUID first.'); return; }
@@ -774,6 +873,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     if (requiredRole == 'delivery_partner' && label == 'Deliveries') return _deliveryDashboard();
     if (requiredRole == 'delivery_partner' && label == 'Earnings') return _deliveryEarningsPage();
     if (label == 'Profile') {
+      if (requiredRole == 'delivery_partner') return _deliveryPartnerProfile();
       return Scaffold(
         appBar: _appBar('Profile'),
         body: ListView(padding: const EdgeInsets.fromLTRB(18, 16, 18, 28), children: [
