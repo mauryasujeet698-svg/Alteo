@@ -175,9 +175,10 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     } catch (e) {
       if (!mounted) return;
       final lower = e.toString().toLowerCase();
+      debugPrint('Google sign-in failed (${e.runtimeType}).');
       setState(() => message = lower.contains('canceled') || lower.contains('cancelled')
           ? 'Google sign-in was cancelled.'
-          : 'Google sign-in failed: ' + e.toString());
+          : 'Google sign-in could not be completed. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -524,7 +525,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         setState(() {});
       }
     } catch (e) {
-      notice('Action failed: ' + e.toString());
+      debugPrint('Admin/partner RPC action failed (${e.runtimeType}).');
+      notice('We could not complete this action. Check your access and connection, then try again.');
     }
   }
 
@@ -582,7 +584,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       }
       notice(next ? 'You are online. Live location sharing is active while this app is open.' : 'You are offline. Live location sharing has stopped.');
     } catch (e) {
-      notice('Could not update availability: ' + e.toString());
+      debugPrint('Availability update failed (${e.runtimeType}).');
+      notice('Availability could not be updated. Check your connection and try again.');
     }
   }
 
@@ -622,7 +625,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       }).timeout(const Duration(seconds: 10));
       if (showNotice) notice('Live location updated.');
     } catch (e) {
-      if (showNotice) notice('Could not update your location: ' + e.toString());
+      debugPrint('Location update failed (${e.runtimeType}).');
+      if (showNotice) notice('We could not update your location. Check location access and try again.');
     } finally {
       locationUpdateInFlight = false;
     }
