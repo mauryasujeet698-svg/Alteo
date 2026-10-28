@@ -29,7 +29,7 @@ Future<void> main() async {
       backendReady = true;
     }
   } catch (_) {
-    // Public exploration must work even when auth or backend configuration is unavailable.
+    // Public exploration should remain available when sign-in or live services are unavailable.
   }
   if (backendReady) {
     unawaited(AlteoPushNotifications.instance.initialize(
@@ -1557,7 +1557,7 @@ class _Feature {
 }
 
 const _features = <_Feature>[
-  _Feature('Delivery assignments', 'Orders routed to eligible partners', 'Assignments are created by admin or dispatch rules and delivered through shared backend updates.', Icons.assignment_rounded),
+  _Feature('Delivery assignments', 'Orders routed to eligible partners', 'Assignments are created by Admin or dispatch rules and delivered through shared app updates.', Icons.assignment_rounded),
   _Feature('Pickup and drop', 'Update delivery milestones', 'Authorised partners can confirm pickup, en route and delivery status with server-side validation.', Icons.local_shipping_rounded),
   _Feature('Navigation', 'Reach the right location', 'Delivery destinations and customer contact details are restricted to the assigned task.', Icons.map_rounded),
   _Feature('Earnings', 'Delivery totals and payouts', 'View personal earnings only after a verified account is connected.', Icons.account_balance_wallet_rounded),
