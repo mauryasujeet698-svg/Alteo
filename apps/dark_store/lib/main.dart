@@ -25,7 +25,7 @@ Future<void> main() async {
       backendReady = true;
     }
   } catch (_) {
-    // Public exploration must work even when auth or backend configuration is unavailable.
+    // Public exploration should remain available when sign-in or live services are unavailable.
   }
   if (backendReady) {
     unawaited(AlteoPushNotifications.instance.initialize(
