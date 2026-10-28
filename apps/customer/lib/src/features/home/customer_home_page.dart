@@ -35,7 +35,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
  StreamSubscription<List<Map<String, dynamic>>>? productSubscription;
- @override void initState(){super.initState();unawaited(_autoSelectCurrentLocation());if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});productSubscription=Supabase.instance.client.from('seller_products').stream(primaryKey:['id']).eq('status','active').listen((rows){final available=rows.map((row)=>CustomerProduct.fromMap(row)).where((product)=>product.imageUrl.startsWith('https://') && (kind=='all'||product.kind==kind)).toList();if(mounted)setState(()=>products=Future.value(available));},onError:(_){/* Pull-to-refresh remains available if realtime is offline. */});}catch(_) {}}}
+ @override void initState(){super.initState();unawaited(_autoSelectCurrentLocation());if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});productSubscription=Supabase.instance.client.from('seller_products').stream(primaryKey:['id']).eq('status','active').listen((_){if(mounted)setState(refresh);},onError:(_){/* Pull-to-refresh remains available if realtime is offline. */});}catch(_) {}}}
  @override void dispose(){bannerSubscription?.cancel();productSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
@@ -45,7 +45,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Listening… say the name of an item or product.')));
   } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
  }
- void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();products=content!.loadProducts(kind:kind=='all'?null:kind);}catch(e){banners=Future.error(e);products=Future.error(e);}}
+ void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();final pin=_selectedPincode;products=pin==null?Future.value(<CustomerProduct>[]):content!.loadProducts(kind:kind=='all'?null:kind,pincode:pin);}catch(_){banners=Future.error(StateError('Banner unavailable'));products=Future.value(<CustomerProduct>[]);}}
  @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable:alteoPreferredLanguage,builder:(context,language,_)=>SafeArea(child: Stack(children:[Positioned.fill(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
   SliverToBoxAdapter(child:header()),
   SliverToBoxAdapter(child:bannerList()),
@@ -60,7 +60,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    if(s.connectionState==ConnectionState.waiting)return const Padding(padding:EdgeInsets.all(28),child:Center(child:CircularProgressIndicator()));
    if(s.hasError)return empty('Could not load items','Check your connection and pull down to refresh.');
    final items=s.data??[];
-   if(items.isEmpty)return empty('Your marketplace is getting ready','Active products will appear here automatically when sellers publish them.');
+   if(items.isEmpty){final pin=_selectedPincode;final serviceable=alteoPublicServiceability.value?['serviceable']==true;return empty(pin==null?'Choose your delivery PIN code':!serviceable?'This PIN code is not serviceable yet':'Your marketplace is getting ready',pin==null?'Choose your location or enter a PIN code to explore local services.':!serviceable?'Try another PIN code to explore Alteo services near you.':'No products are currently listed for this area. Check back soon.');}
    return Padding(padding:const EdgeInsets.fromLTRB(18,10,18,24),child:GridView.builder(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),itemCount:items.length,gridDelegate:const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount:2,crossAxisSpacing:12,mainAxisSpacing:12,childAspectRatio:.68),itemBuilder:(context,i)=>productCard(items[i])));
   })),
   const SliverToBoxAdapter(child:SizedBox(height:76))
@@ -95,13 +95,94 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   } catch (_) {}
   if (!mounted) return;
   final existing = alteoLocationSelection.value;
-  if (existing != null && existing['source'] == 'saved') return;
+  if (existing != null && existing['source'] != 'current') return;
   final current = await CustomerLocationService.currentLocationIfPermitted();
   if (current == null || !mounted) return;
   final display = (current['display_address']?.toString() ?? '').trim();
   final location = display.isNotEmpty ? display : (current['formatted_address']?.toString() ?? '').trim();
   if (location.isEmpty) return;
   await setAlteoDeliveryLocation(location, details: current, source: 'current');
+  await _refreshServiceabilityForPin(current['postal_code']?.toString());
+ }
+
+
+ String? get _selectedPincode {
+  final pin = alteoPublicServiceability.value?['pincode']?.toString().trim() ?? '';
+  return RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin) ? pin : null;
+ }
+
+ Future<void> _refreshServiceabilityForPin(String? rawPin) async {
+  final pin = (rawPin ?? '').trim();
+  if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)) {
+   await setAlteoPublicServiceability(null);
+   if (mounted) setState(refresh);
+   return;
+  }
+  try {
+   content ??= CustomerContentService(Supabase.instance.client);
+   final result = await content!.getPublicServiceability(pin).timeout(const Duration(seconds: 12));
+   await setAlteoPublicServiceability(result);
+   if (mounted) setState(refresh);
+  } catch (_) {
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not check local availability. Please try again.')));
+  }
+ }
+
+ Future<void> _enterPincode() async {
+  final controller = TextEditingController(text: _selectedPincode ?? '');
+  try {
+   final pin = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+     title: const Text('Explore your area'),
+     content: TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      maxLength: 6,
+      decoration: const InputDecoration(labelText: '6-digit PIN code', hintText: 'Enter your delivery PIN code', prefixIcon: Icon(Icons.location_on_outlined)),
+     ),
+     actions: [
+      TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+      FilledButton(onPressed: () => Navigator.pop(dialogContext, controller.text.trim()), child: const Text('Check area')),
+     ],
+    ),
+   );
+   if (!mounted || pin == null) return;
+   if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter a valid 6-digit PIN code.')));
+    return;
+   }
+   content ??= CustomerContentService(Supabase.instance.client);
+   final result = await content!.getPublicServiceability(pin).timeout(const Duration(seconds: 12));
+   await setAlteoPublicServiceability(result);
+   if (result['serviceable'] != true) {
+    if (mounted) {
+     setState(refresh);
+     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alteo is not available in this PIN code yet. Try another PIN code.')));
+    }
+    return;
+   }
+   final locality = (result['locality']?.toString() ?? '').trim();
+   final district = (result['district']?.toString() ?? '').trim();
+   final stateName = (result['state']?.toString() ?? '').trim();
+   final display = [locality, district, pin].where((part) => part.isNotEmpty).join(' · ');
+   final full = [locality, district, stateName, pin, 'India'].where((part) => part.isNotEmpty).join(', ');
+   final details = <String, dynamic>{
+    ...result,
+    'postal_code': pin,
+    'formatted_address': full.isEmpty ? 'PIN code $pin' : full,
+    'display_address': display.isEmpty ? 'PIN code $pin' : display,
+   };
+   await setAlteoDeliveryLocation(details['display_address'].toString(), details: details, source: 'pincode');
+   if (mounted) {
+    setState(refresh);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You can explore services in this area without signing in.')));
+   }
+  } catch (_) {
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not check that PIN code. Please try again.')));
+  } finally {
+   controller.dispose();
+  }
  }
 
  Future<void> _chooseLocation() async {
@@ -124,6 +205,15 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
       ),
      ),
      ListTile(
+      leading: const Icon(Icons.pin_drop_outlined, color: Color(0xFF176B57)),
+      title: const Text('Enter PIN code'),
+      subtitle: const Text('Check your area without signing in'),
+      onTap: () async {
+       Navigator.pop(sheetContext);
+       await _enterPincode();
+      },
+     ),
+     ListTile(
       leading: const Icon(Icons.map_outlined, color: Color(0xFF176B57)),
       title: const Text('Choose exact location'),
       subtitle: const Text('Search an address or tap the map to place the pin'),
@@ -141,6 +231,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
        final full = (result['formatted_address']?.toString() ?? '').trim();
        final display = (result['display_address']?.toString() ?? '').trim();
        await setAlteoDeliveryLocation(display.isNotEmpty ? display : (full.isNotEmpty ? full : 'Selected location'), details: result, source: 'manual');
+       await _refreshServiceabilityForPin(result['postal_code']?.toString());
       },
      ),
      ListTile(
@@ -169,6 +260,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         'display_address': display.isNotEmpty ? display : (selectedAddress['label']?.toString() ?? 'Saved address'),
        };
        await setAlteoDeliveryLocation(details['display_address'].toString(), details: details, source: 'saved');
+       await _refreshServiceabilityForPin(selectedAddress['postal_code']?.toString());
       },
      ),
     ]),
@@ -197,6 +289,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    final display = (result['display_address']?.toString() ?? '').trim();
    final full = (result['formatted_address']?.toString() ?? '').trim();
    await setAlteoDeliveryLocation(display.isNotEmpty ? display : (full.isNotEmpty ? full : 'Selected map location'), details: result, source: 'current');
+   await _refreshServiceabilityForPin(result['postal_code']?.toString());
    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery address updated.')));
   } catch (_) {
    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not detect your address. Select it on the map or search manually.')));
@@ -387,8 +480,8 @@ Widget header() => Padding(
  }
  Widget gradient()=>Container(decoration:const BoxDecoration(gradient:LinearGradient(colors:[Color(0xFF155C4B),Color(0xFF49A27D)],begin:Alignment.topLeft,end:Alignment.bottomRight)),child:const Align(alignment:Alignment.centerRight,child:Padding(padding:EdgeInsets.only(right:20),child:Icon(Icons.shopping_basket_rounded,size:88,color:Color(0x44FFFFFF)))));
  Widget section(String a,String b)=>Padding(padding:const EdgeInsets.fromLTRB(18,16,18,10),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(a,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,letterSpacing:-.3)),const SizedBox(height:3),Text(b,style:const TextStyle(fontSize:12,color:Color(0xFF748078)))]));
- Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:()=>Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n))),borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(alteoText(n),style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
- Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(alteoText(label)),selected:kind==value,onSelected:(_)=>setState(() {kind=value;products=content!.loadProducts(kind:kind=='all'?null:kind);})));
+ Widget service(String n,IconData icon,Color bg,Color fg)=>Padding(padding:const EdgeInsets.only(right:12),child:InkWell(onTap:(){if(_selectedPincode==null || alteoPublicServiceability.value?['serviceable']!=true){_chooseLocation();return;}Navigator.of(context).push(MaterialPageRoute<void>(builder:(_)=>ServiceBrowsePage(service:n)));},borderRadius:BorderRadius.circular(18),child:SizedBox(width:82,child:Column(children:[Container(width:70,height:70,decoration:BoxDecoration(color:bg,borderRadius:BorderRadius.circular(21)),child:Icon(icon,color:fg,size:29)),const SizedBox(height:8),Text(alteoText(n),style:const TextStyle(fontWeight:FontWeight.w800,fontSize:12))]))));
+ Widget filter(String label,String value)=>Padding(padding:const EdgeInsets.only(right:8),child:ChoiceChip(label:Text(alteoText(label)),selected:kind==value,onSelected:(_)=>setState(() {kind=value;final pin=_selectedPincode;products=pin==null?Future.value(<CustomerProduct>[]):content!.loadProducts(kind:kind=='all'?null:kind,pincode:pin);})));
  Widget empty(String title,String detail)=>Padding(padding:const EdgeInsets.fromLTRB(24,30,24,40),child:Column(children:[const Icon(Icons.storefront_outlined,size:44,color:Color(0xFF176B57)),const SizedBox(height:10),Text(title,textAlign:TextAlign.center,style:const TextStyle(fontWeight:FontWeight.w800,fontSize:15)),const SizedBox(height:6),Text(detail,textAlign:TextAlign.center,style:const TextStyle(color:Color(0xFF748078),height:1.4,fontSize:12))]));
  Future<void> _reloadCartQuantities() async {
   final client = Supabase.instance.client;
