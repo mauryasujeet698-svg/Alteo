@@ -1162,7 +1162,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       );
       return client.storage.from('app-media').getPublicUrl(objectPath);
     } on StorageException catch (e) {
-      throw StateError('Supabase Storage upload failed: ' + e.message + '. Check the app-media bucket and admin upload permissions.');
+      debugPrint('Admin media upload failed (${e.runtimeType}).');
+      throw StateError('Image upload unavailable.');
     }
   }
 
@@ -1272,7 +1273,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         await client.from('app_banners').update(payload).eq('id', existing['id']);
       }
       notice('Banner saved and published to Supabase.');
-    } catch (e) { notice('Could not save banner: ' + e.toString()); }
+    } catch (e) { debugPrint('Banner save failed (${e.runtimeType}).'); notice('Could not save the banner. Check the required fields and try again.'); }
     finally { title.dispose(); subtitle.dispose(); image.dispose(); actionValue.dispose(); priority.dispose(); }
   }
 
@@ -1280,7 +1281,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     try {
       await client.from('app_banners').update({'active': active, 'updated_at': DateTime.now().toUtc().toIso8601String()}).eq('id', banner['id']);
       notice(active ? 'Banner published.' : 'Banner unpublished.');
-    } catch (e) { notice('Could not update banner: ' + e.toString()); }
+    } catch (e) { debugPrint('Banner update failed (${e.runtimeType}).'); notice('Could not update the banner. Please retry.'); }
   }
 
   Future<void> _deleteBanner(Map<String, dynamic> banner) async {
@@ -1290,7 +1291,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ));
     if (yes != true) return;
     try { await client.from('app_banners').delete().eq('id', banner['id']); notice('Banner deleted.'); }
-    catch (e) { notice('Could not delete banner: ' + e.toString()); }
+    catch (e) { debugPrint('Banner deletion failed (${e.runtimeType}).'); notice('Could not delete the banner. Please retry.'); }
   }
 
   Future<void> _sendAdminPushNotification() async {
@@ -1710,7 +1711,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 const SizedBox(height: 12),
                 const Text('Could not open the catalogue', style: TextStyle(fontWeight: FontWeight.w800)),
                 const SizedBox(height: 6),
-                Text(sellerSnapshot.error.toString(), textAlign: TextAlign.center),
+                const Text('The catalogue could not load. Check your connection and admin access, then try again.', textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 FilledButton.icon(
                   onPressed: () => setState(() => _adminCatalogSellerFuture = null),
