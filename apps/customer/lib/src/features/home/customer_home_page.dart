@@ -3,13 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:geolocator/geolocator.dart';
-import 'package:alteo_notifications/alteo_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/customer_content_service.dart';
 import '../../services/customer_preferences.dart';
-import '../../services/customer_location_service.dart';
-import '../location/customer_location_picker_page.dart';
+import '../../services/mapbox_service.dart';
 import '../addresses/customer_addresses_page.dart';
 import '../services/service_browse_page.dart';
 import '../auth/customer_auth_page.dart';
@@ -34,7 +32,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
  StreamSubscription<List<Map<String, dynamic>>>? productSubscription;
- @override void initState(){super.initState();unawaited(_loadCurrentLocationOnStartup());if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});productSubscription=Supabase.instance.client.from('seller_products').stream(primaryKey:['id']).eq('status','active').listen((rows){final available=rows.map((row)=>CustomerProduct.fromMap(row)).where((product)=>product.imageUrl.startsWith('https://') && (kind=='all'||product.kind==kind)).toList();if(mounted)setState(()=>products=Future.value(available));},onError:(_){/* Pull-to-refresh remains available if realtime is offline. */});}catch(_) {}}}
+ @override void initState(){super.initState();if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});productSubscription=Supabase.instance.client.from('seller_products').stream(primaryKey:['id']).eq('status','active').listen((rows){final available=rows.map((row)=>CustomerProduct.fromMap(row)).where((product)=>product.imageUrl.startsWith('https://') && (kind=='all'||product.kind==kind)).toList();if(mounted)setState(()=>products=Future.value(available));},onError:(_){/* Pull-to-refresh remains available if realtime is offline. */});}catch(_) {}}}
  @override void dispose(){bannerSubscription?.cancel();productSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
   try {
@@ -86,90 +84,27 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
      ),
    ),
  )])));
- Future<void> _loadCurrentLocationOnStartup() async {
-  // Wait until the first-launch permission prompt has been handled. If a user
-  // declined, don't repeatedly prompt them; keep manual location selection available.
-  try {
-    await AlteoFirstLaunchPermissionGate.waitUntilComplete('customer').timeout(const Duration(seconds: 35));
-  } catch (_) {}
-  if (!mounted) return;
-  final current = await CustomerLocationService.currentLocationIfPermitted();
-  if (current == null || !mounted) return;
-  final display = current['display_address']?.toString().trim();
-  if (display == null || display.isEmpty) return;
-  await setAlteoDeliveryLocation(display, details: current, source: 'current');
- }
-
  Future<void> _chooseLocation() async {
   await showModalBottomSheet<void>(
-   context: context, showDragHandle: true, isScrollControlled: true,
+   context: context, showDragHandle: true,
    builder: (sheetContext) => SafeArea(child: Padding(
     padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
     child: Column(mainAxisSize: MainAxisSize.min, children: [
      Align(alignment: Alignment.centerLeft, child: Text(alteoText('Choose delivery location'), style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900))),
-     const SizedBox(height: 10),
-     ValueListenableBuilder<Map<String, dynamic>?>(
-      valueListenable: alteoLocationSelection,
-      builder: (context, selection, _) => ListTile(
-       leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)),
-       title: Text(alteoText('Use current location')),
-       subtitle: Text(selection?['source'] == 'current'
-         ? (selection?['formatted_address']?.toString() ?? 'Detect your location with GPS')
-         : 'Detect your location with GPS'),
-       onTap: () async { Navigator.pop(sheetContext); await _useCurrentLocation(); },
-      ),
-     ),
-     ListTile(
-      leading: const Icon(Icons.map_outlined, color: Color(0xFF176B57)),
-      title: const Text('Choose exact location'),
-      subtitle: const Text('Search an address or move the map pin to your doorstep'),
-      onTap: () async {
-       Navigator.pop(sheetContext);
-       final current = alteoLocationSelection.value;
-       final result = await Navigator.of(context).push<Map<String, dynamic>>(MaterialPageRoute(
-        builder: (_) => CustomerLocationPickerPage(
-         initialLatitude: (current?['latitude'] as num?)?.toDouble(),
-         initialLongitude: (current?['longitude'] as num?)?.toDouble(),
-         initialAddress: current?['formatted_address']?.toString(),
-        ),
-       ));
-       if (!mounted || result == null) return;
-       final display = result['display_address']?.toString().trim();
-       if (display == null || display.isEmpty) return;
-       await setAlteoDeliveryLocation(display, details: result, source: 'manual');
-      },
-     ),
-     ListTile(
-      leading: const Icon(Icons.bookmark_border_rounded, color: Color(0xFF176B57)),
-      title: Text(alteoText('Choose saved address')),
-      subtitle: Text(alteoText('Select from your saved delivery addresses')),
-      onTap: () async {
-       Navigator.pop(sheetContext);
-       if (Supabase.instance.client.auth.currentUser == null) {
-        await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
-        if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
-       }
-       final selectedAddress = await Navigator.of(context).push<Map<String, dynamic>>(MaterialPageRoute(builder: (_) => const CustomerAddressesPage(selectForDelivery: true)));
-       if (!mounted || selectedAddress == null) return;
-       final full = [
-        selectedAddress['address_line1'], selectedAddress['address_line2'],
-        selectedAddress['locality'], selectedAddress['city'], selectedAddress['state'],
-        selectedAddress['postal_code'], 'India',
-       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
-       final short = [
-        selectedAddress['locality'], selectedAddress['city'], selectedAddress['postal_code'],
-       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
-       await setAlteoDeliveryLocation(
-        short.isEmpty ? (selectedAddress['label']?.toString() ?? 'Saved address') : short,
-        details: <String, dynamic>{
-         ...selectedAddress,
-         'formatted_address': full,
-         'display_address': short.isEmpty ? (selectedAddress['label']?.toString() ?? 'Saved address') : short,
-        },
-        source: 'saved',
-       );
-      },
-     ),
+     const SizedBox(height: 12),
+     ListTile(leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)), title: Text(alteoText('Use current location')), subtitle: Text(alteoText('Detect your location with GPS')), onTap: () async { Navigator.pop(sheetContext); await _useCurrentLocation(); }),
+     ListTile(leading: const Icon(Icons.bookmark_border_rounded, color: Color(0xFF176B57)), title: Text(alteoText('Choose saved address')), subtitle: Text(alteoText('Select from your saved delivery addresses')), onTap: () async {
+      Navigator.pop(sheetContext);
+      if (Supabase.instance.client.auth.currentUser == null) {
+       await Navigator.of(context).push<bool>(MaterialPageRoute(builder: (_) => const CustomerAuthPage()));
+       if (!mounted || Supabase.instance.client.auth.currentUser == null) return;
+      }
+      final selectedAddress = await Navigator.of(context).push<Map<String, dynamic>>(MaterialPageRoute(builder: (_) => const CustomerAddressesPage(selectForDelivery: true)));
+      if (!mounted || selectedAddress == null) return;
+      final location = [selectedAddress['label'], selectedAddress['locality'], selectedAddress['city']]
+        .where((x) => x != null && x.toString().trim().isNotEmpty).join(' · ');
+      if (location.isNotEmpty) await setAlteoDeliveryLocation(location);
+     }),
     ]),
    )),
   );
@@ -177,28 +112,26 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
 
  Future<void> _useCurrentLocation() async {
   try {
-   if (!await Geolocator.isLocationServiceEnabled()) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Turn on Location services in your phone settings, then try again.')));
+   final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+   if (!serviceEnabled) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Turn on device location services, then try again.')));
     return;
    }
    var permission = await Geolocator.checkPermission();
    if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
    if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Allow location access in your phone settings or choose a location on the map.')));
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(permission == LocationPermission.deniedForever ? 'Location permission is blocked. Enable it in app settings.' : 'Location permission is needed to detect your delivery location.')));
     return;
    }
-   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Finding your address…')));
-   final selection = await CustomerLocationService.currentLocationIfPermitted();
-   if (selection == null) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not determine your address. Search or select the map pin instead.')));
-    return;
-   }
-   final display = selection['display_address']?.toString().trim();
-   if (display == null || display.isEmpty) return;
-   await setAlteoDeliveryLocation(display, details: selection, source: 'current');
-   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery address updated.')));
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Detecting your location…')));
+   final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)));
+   final readable = await MapboxService.reverseGeocode(position.longitude, position.latitude);
+   final label = readable?.split(',').take(2).join(',').trim();
+   final fallback = 'Current location (' + position.latitude.toStringAsFixed(4) + ', ' + position.longitude.toStringAsFixed(4) + ')';
+   await setAlteoDeliveryLocation(label?.isNotEmpty == true ? label! : fallback);
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Delivery location updated.')));
   } catch (_) {
-   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not detect your address. Search or select the map pin instead.')));
+   if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not detect location. Check permission and try again.')));
   }
  }
 
