@@ -142,7 +142,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
 
   Future<void> signInWithGoogle() async {
     if (!widget.backendReady) {
-      setState(() => message = 'Sign-in is unavailable until the Supabase configuration is restored.');
+      setState(() => message = 'Sign-in is temporarily unavailable. Please try again later.');
       return;
     }
     setState(() { busy = true; message = null; });
@@ -274,8 +274,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
             Icon(widget.backendReady ? Icons.cloud_done_outlined : Icons.cloud_off_outlined, color: const Color(0xFF176B57)),
             const SizedBox(width: 10),
             Expanded(child: Text(widget.backendReady
-              ? 'Public exploration is available. Live data and protected actions depend on backend permissions and service configuration.'
-              : 'Public exploration is available. Sign-in and live data are temporarily unavailable until backend configuration is restored.',
+              ? 'Some live features may be temporarily unavailable. Please try again later.'
+              : 'Sign-in and live updates are temporarily unavailable. Please try again later.',
               style: const TextStyle(height: 1.45))),
           ]),
         ),
@@ -417,7 +417,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                     const SizedBox(height: 8),
                     Text(feature.detail, style: const TextStyle(height: 1.5)),
                     const SizedBox(height: 12),
-                    const Text('Live records appear after the backend is configured and the signed-in account is authorised.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+                    const Text('Live records appear when your account is authorised and new work becomes available.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
                   ]),
                 )),
               ),
