@@ -304,7 +304,199 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    if (confirmed != true || !mounted) return;
    if (recipient.text.trim().length < 2 || phone.text.trim().length < 8 ||
        addressLine.text.trim().length < 3 || city.text.trim().length < 2 ||
-       stateName.text.trim().length < 2 || postalCode.text.trim().length < 5) {
+       stateName.text.trim().length < 2 || !RegExp(r'^[1-9][0-9]{5}
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter the recipient, phone, full delivery address and a valid 6-digit PIN code.')));
+    return;
+   }
+
+   if (selectedLatitude == null || selectedLongitude == null) {
+    final addressQuery = [addressLine.text.trim(), city.text.trim(), stateName.text.trim(), postalCode.text.trim()]
+      .where((part) => part.isNotEmpty).join(', ');
+    final coordinates = await MapboxService.geocode(addressQuery);
+    if (coordinates != null && coordinates.length >= 2) {
+      selectedLongitude = coordinates[0];
+      selectedLatitude = coordinates[1];
+    }
+   }
+   final client = Supabase.instance.client;
+   final user = client.auth.currentUser;
+   if (user == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sign in is required to place an order. You can keep exploring without signing in.')));
+    return;
+   }
+   // Once the owner has configured PIN-code coverage, checkout must use an
+   // active PIN. The authoritative order RPC repeats this check server-side.
+   try {
+    final configuredAreas = await client.from('service_areas').select('pincode').limit(1);
+    if ((configuredAreas as List).isNotEmpty) {
+     final area = await client.from('service_areas').select('active').eq('pincode', postalCode.text.trim()).maybeSingle();
+     if (area == null || area['active'] != true) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Alteo is not delivering to this PIN code yet. Choose another address.')));
+      return;
+     }
+    }
+   } catch (_) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not verify service availability. Please try again.')));
+    return;
+   }
+   if (saveAddress && selectedAddress == null) {
+    try {
+     await client.from('addresses').insert({
+      'user_id': user.id,
+      'label': label.text.trim().isEmpty ? 'Home' : label.text.trim(),
+      'recipient_name': recipient.text.trim(),
+      'phone': phone.text.trim(),
+      'address_line1': addressLine.text.trim(),
+      'locality': selectedLocation?['locality'],
+      'city': city.text.trim(),
+      'state': stateName.text.trim(),
+      'postal_code': postalCode.text.trim(),
+      'latitude': selectedLatitude,
+      'longitude': selectedLongitude,
+      'is_default': false,
+     });
+    } catch (e) {
+     if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+       const SnackBar(content: Text('Address could not be saved. Your order was not submitted. Check your connection and try again.')),
+      );
+     }
+     return;
+    }
+   }
+   final cart = await client.from('carts').select('id').eq('customer_id', user.id).eq('status', 'active').maybeSingle();
+   if (cart == null) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your cart is empty.')));
+    return;
+   }
+   final currentItems = await load();
+   if (currentItems.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Your cart is empty.')));
+    return;
+   }
+   final groups = <String, List<Map<String, dynamic>>>{};
+   for (final row in currentItems) {
+    final product = row['seller_products'] as Map? ?? {};
+    final groupKey = (product['seller_id']?.toString() ?? '') + '|' + (product['kind']?.toString() ?? '');
+    groups.putIfAbsent(groupKey, () => <Map<String, dynamic>>[]).add(row);
+   }
+
+   try {
+    var createdCount = 0;
+    var groupIndex = 0;
+    for (final group in groups.values) {
+     final payload = group.map((row) => <String, dynamic>{
+      'product_id': row['product_id'],
+      'quantity': row['quantity'],
+     }).toList();
+     await client.rpc('create_customer_order', params: {
+      'p_items': payload,
+      'p_delivery_address': {
+       'recipient_name': recipient.text.trim(),
+       'phone': phone.text.trim(),
+       'address_line1': addressLine.text.trim(),
+       'city': city.text.trim(),
+       'state': stateName.text.trim(),
+       'postal_code': postalCode.text.trim(),
+       'latitude': selectedLatitude,
+       'longitude': selectedLongitude,
+       'area_code': postalCode.text.trim(),
+      },
+      'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
+      'p_payment_method': selectedPaymentMethod,
+     });
+     createdCount++;
+     groupIndex++;
+    }
+    await client.from('carts').delete().eq('id', cart['id']);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(createdCount.toString() + (createdCount == 1 ? ' order placed with Cash on Delivery. Please pay when it arrives.' : ' orders placed with Cash on Delivery. Please pay when they arrive.'))));
+    setState(() => items = load());
+    await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
+   } catch (e) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not place the order. Check your delivery details and service availability, then try again. Orders already placed will not be duplicated.')));
+   }
+  } finally {
+   recipient.dispose();
+   phone.dispose();
+   addressLine.dispose();
+   city.dispose();
+   stateName.dispose();
+   postalCode.dispose();
+   label.dispose();
+  }
+ }
+
+ @override Widget build(BuildContext context){
+  final signedIn=Supabase.instance.client.auth.currentUser!=null;
+  return Scaffold(appBar:AppBar(title:const Text('Your cart'),actions:[IconButton(onPressed:()=>setState(()=>items=load()),icon:const Icon(Icons.refresh))]),body:!signedIn?Center(child:Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.shopping_cart_outlined,size:54,color:Color(0xFF176B57)),const SizedBox(height:12),const Text('Your cart is ready when you are',style:TextStyle(fontSize:19,fontWeight:FontWeight.w800),textAlign:TextAlign.center),const SizedBox(height:8),const Text('You can keep exploring Alteo without signing in. Sign in only when you want to save a cart or continue to checkout.',textAlign:TextAlign.center,style:TextStyle(height:1.45)),const SizedBox(height:14),FilledButton(onPressed:()=>Navigator.of(context).pop(),child:const Text('Continue exploring')),TextButton(onPressed:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>const CustomerAuthPage())).then((_)=>setState(()=>items=load())),child:const Text('Sign in when ready'))]))):FutureBuilder<List<Map<String,dynamic>>>(future:items,builder:(context,s){
+   if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
+   if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Could not load your cart. Pull refresh to try again.')));
+   final list=s.data??[];
+   if(list.isEmpty)return const Center(child:Padding(padding:EdgeInsets.all(28),child:Column(mainAxisSize:MainAxisSize.min,children:[Icon(Icons.shopping_basket_outlined,size:56,color:Color(0xFF176B57)),SizedBox(height:14),Text('Your cart is empty',style:TextStyle(fontSize:20,fontWeight:FontWeight.w800)),SizedBox(height:6),Text('Add items from the home catalogue to see them here.',textAlign:TextAlign.center)])));
+   var total=0;
+   for(final row in list){final p=row['seller_products'] as Map?;total+=(((p?['price_minor'] as num?)?.toInt()??0)*(row['quantity'] as int? ??1));}
+   return Column(children:[
+    Expanded(child:ListView.separated(padding:const EdgeInsets.all(16),itemCount:list.length,separatorBuilder:(_,__)=>const SizedBox(height:8),itemBuilder:(context,i){
+     final row=list[i],p=(row['seller_products'] as Map?)??{};
+     final quantity = (row['quantity'] as num?)?.toInt() ?? 1;
+     final unitPrice = (p['price_minor'] as num?)?.toInt() ?? 0;
+     final lineTotal = unitPrice * quantity;
+     final busy = _updatingItems.contains(row['id']?.toString());
+     final imageUrl = p['image_url']?.toString() ?? '';
+     return Card(
+      elevation: 0,
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 4),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(17)),
+      child: Padding(
+       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+       child: Row(children: [
+        ClipRRect(
+         borderRadius: BorderRadius.circular(10),
+         child: SizedBox(width: 60, height: 60, child: imageUrl.startsWith('https://')
+          ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const ColoredBox(color: Color(0xFFEAF2EC), child: Icon(Icons.shopping_bag_outlined)))
+          : const ColoredBox(color: Color(0xFFEAF2EC), child: Icon(Icons.shopping_bag_outlined))),
+        ),
+        const SizedBox(width: 11),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+         Text((p['name'] as String?) ?? 'Item', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w900)),
+         const SizedBox(height: 4),
+         Text('₹${(unitPrice / 100).toStringAsFixed(0)} each', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+         const SizedBox(height: 4),
+         Text('Line total ₹${(lineTotal / 100).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+        ])),
+        const SizedBox(width: 6),
+        Container(
+         decoration: BoxDecoration(color: const Color(0xFFE2F4EA), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFB8DDCB))),
+         child: Row(mainAxisSize: MainAxisSize.min, children: [
+          IconButton(
+           tooltip: 'Decrease quantity',
+           visualDensity: VisualDensity.compact,
+           constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+           onPressed: busy ? null : () => _changeQuantity(row, -1),
+           icon: const Icon(Icons.remove_rounded, size: 18),
+          ),
+          SizedBox(width: 20, child: Center(child: busy ? const SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 2)) : Text('$quantity', style: const TextStyle(fontWeight: FontWeight.w900)))),
+          IconButton(
+           tooltip: 'Increase quantity',
+           visualDensity: VisualDensity.compact,
+           constraints: const BoxConstraints.tightFor(width: 34, height: 38),
+           onPressed: busy ? null : () => _changeQuantity(row, 1),
+           icon: const Icon(Icons.add_rounded, size: 18),
+          ),
+         ]),
+        ),
+       ]),
+      ),
+     );
+    })),
+    SafeArea(top:false,child:Padding(padding:const EdgeInsets.all(16),child:Column(children:[Row(mainAxisAlignment:MainAxisAlignment.spaceBetween,children:[const Text('Subtotal',style:TextStyle(fontSize:16,fontWeight:FontWeight.w800)),Text('₹${(total/100).toStringAsFixed(0)}',style:const TextStyle(fontSize:18,fontWeight:FontWeight.w900))]),const SizedBox(height:10),const Text('Cash on delivery is available now. UPI, cards, wallets and net banking are coming soon.',style:TextStyle(fontSize:12,color:Color(0xFF737B76))),const SizedBox(height:8),SizedBox(width:double.infinity,child:FilledButton(onPressed:checkout,child:const Text('Checkout · Cash on delivery')))])))
+   ]);
+  }));
+ }
+}).hasMatch(postalCode.text.trim())) {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Complete all delivery details before continuing.')));
     return;
    }
