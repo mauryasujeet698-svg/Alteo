@@ -1317,6 +1317,20 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
+  void _openServiceAreaSettings() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Service Areas & Availability')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            children: const [AdminServiceConfigPanel()],
+          ),
+        ),
+      ),
+    ));
+  }
+
   Widget _adminDashboard() => Scaffold(
     appBar: _appBar('Live operations'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
@@ -1334,6 +1348,20 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           _metric('Pending sellers', m['sellers_pending']),
         ]);
       }),
+      const SizedBox(height: 16),
+      Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFDCE6DF))),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.location_on_rounded, color: Color(0xFF176B57))),
+          title: const Text('Service Areas & Availability', style: TextStyle(fontWeight: FontWeight.w900)),
+          subtitle: const Text('Manage PIN codes, per-service coverage and local pricing.'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: _openServiceAreaSettings,
+        ),
+      ),
       const SizedBox(height: 22),
       const Text('Grant an app role', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
       const SizedBox(height: 8),
