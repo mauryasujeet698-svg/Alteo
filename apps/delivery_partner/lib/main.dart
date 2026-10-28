@@ -47,6 +47,10 @@ class AlteoRoleApp extends StatelessWidget {
     valueListenable: roleThemeMode,
     builder: (context, mode, _) => MaterialApp(
       title: appName,
+      builder: (context, child) => AlteoFirstLaunchPermissionGate(
+        appId: 'delivery_partner',
+        child: child ?? const SizedBox.shrink(),
+      ),
       debugShowCheckedModeBanner: false,
       themeMode: mode,
       theme: ThemeData(
