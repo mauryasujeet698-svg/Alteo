@@ -16,7 +16,7 @@ Future<void> main() async {
   String? backendNotice;
   try {
     if (config.supabaseUrl.isEmpty || config.supabaseAnonKey.isEmpty) {
-      backendNotice = 'Live catalogue and sign-in are unavailable until the backend configuration is restored.';
+      backendNotice = 'Live catalogue and sign-in are temporarily unavailable. You can still explore Alteo services.';
     } else {
       await Supabase.initialize(url: config.supabaseUrl, publishableKey: config.supabaseAnonKey);
     }
@@ -82,8 +82,8 @@ class _CustomerAppShellState extends State<CustomerAppShell> {
     if (widget.backendNotice != null) {
       return [
         PublicExploreFallback(notice: widget.backendNotice!),
-        const PublicServiceFallback(title: 'Food', detail: 'Food discovery will connect when the backend is available.'),
-        const PublicServiceFallback(title: 'Ride', detail: 'Ride booking will connect when the backend is available.'),
+        const PublicServiceFallback(title: 'Food', detail: 'Food details will appear as local partners become available.'),
+        const PublicServiceFallback(title: 'Ride', detail: 'Ride booking is temporarily unavailable. You can continue exploring services.'),
         const CustomerAccountPage(),
       ];
     }
