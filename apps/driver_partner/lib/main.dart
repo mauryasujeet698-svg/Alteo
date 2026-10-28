@@ -27,7 +27,7 @@ Future<void> main() async {
       backendReady = true;
     }
   } catch (_) {
-    // Public exploration must work even when auth or backend configuration is unavailable.
+    // Public exploration should remain available when sign-in or live services are unavailable.
   }
   if (backendReady) {
     unawaited(AlteoPushNotifications.instance.initialize(
@@ -1352,7 +1352,7 @@ class _Feature {
 }
 
 const _features = <_Feature>[
-  _Feature('Ride requests', 'View eligible trip offers', 'Eligible drivers receive ride requests from the shared backend. Acceptance is protected and validated on the server.', Icons.notifications_active_rounded),
+  _Feature('Ride requests', 'View eligible trip offers', 'Eligible drivers receive ride requests in the app. Ride acceptance is checked before it takes effect.', Icons.notifications_active_rounded),
   _Feature('Active trip', 'Pickup, navigation and completion', 'Follow an authorised trip through pickup, in-progress and completed states.', Icons.route_rounded),
   _Feature('Availability', 'Go online or offline', 'Availability affects dispatch only after a verified driver account is authorised.', Icons.toggle_on_rounded),
   _Feature('Earnings', 'Trip totals and payout history', 'Private earnings and payout details are shown only to the authenticated account owner.', Icons.payments_rounded),
