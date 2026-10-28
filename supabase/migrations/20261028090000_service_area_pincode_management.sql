@@ -56,3 +56,16 @@ drop trigger if exists service_areas_touch_updated_at on public.service_areas;
 create trigger service_areas_touch_updated_at
 before insert or update on public.service_areas
 for each row execute function public.service_areas_touch_updated_at();
+
+do $publication$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'service_areas'
+  ) then
+    execute 'alter publication supabase_realtime add table public.service_areas';
+  end if;
+end;
+$publication$;
