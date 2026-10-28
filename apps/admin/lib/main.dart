@@ -2471,6 +2471,7 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
   };
 
   String selectedAreaCode = 'DEFAULT';
+  String areaSearchQuery = '';
   bool savingArea = false;
 
   void message(String value) {
@@ -2623,6 +2624,35 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
       district.dispose();
       state.dispose();
       if (mounted) setState(() => savingArea = false);
+    }
+  }
+
+  Future<void> removeServiceArea(Map<String, dynamic> area) async {
+    final code = area['pincode']?.toString() ?? '';
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove service area?'),
+        content: Text('Remove PIN code $code from the service-area list? Existing service and pricing rules must be absent so configuration is not orphaned.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    try {
+      final controls = await client.from('service_controls').select('id').eq('area_code', code).limit(1);
+      final prices = await client.from('pricing_rules').select('id').eq('city_code', code).limit(1);
+      if ((controls as List).isNotEmpty || (prices as List).isNotEmpty) {
+        message('This PIN code has service or pricing rules. Deactivate it instead to preserve those settings and their audit history.');
+        return;
+      }
+      await client.from('service_areas').delete().eq('id', area['id']);
+      if (mounted && selectedAreaCode == code) setState(() => selectedAreaCode = 'DEFAULT');
+      message('PIN code $code removed.');
+    } catch (_) {
+      message('Could not remove this PIN code. Deactivate it instead or retry.');
     }
   }
 
@@ -2806,6 +2836,11 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
   }
 
   Widget _serviceAreaManager(List<Map<String, dynamic>> areas) {
+    final filteredAreas = areas.where((area) {
+      final haystack = [area['pincode'], area['locality'], area['district'], area['state']]
+          .where((part) => part != null).join(' ').toLowerCase();
+      return haystack.contains(areaSearchQuery.trim().toLowerCase());
+    }).toList();
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Row(children: [
         const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -2821,10 +2856,26 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         ),
       ]),
       const SizedBox(height: 10),
+      TextField(
+        onChanged: (value) => setState(() => areaSearchQuery = value),
+        decoration: InputDecoration(
+          hintText: 'Search PIN code, locality, district or state',
+          prefixIcon: const Icon(Icons.search_rounded),
+          suffixIcon: areaSearchQuery.isEmpty ? null : IconButton(
+            tooltip: 'Clear search',
+            onPressed: () => setState(() => areaSearchQuery = ''),
+            icon: const Icon(Icons.clear_rounded),
+          ),
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+        ),
+      ),
+      const SizedBox(height: 8),
       if (areas.isEmpty)
         const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(16), child: Text('No PIN codes added yet. Add your first service area to enable PIN-level controls.')))
+      else if (filteredAreas.isEmpty)
+        const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(16), child: Text('No matching service areas. Try another PIN code or locality.')))
       else
-        ...areas.map((area) {
+        ...filteredAreas.map((area) {
           final code = area['pincode']?.toString() ?? '';
           final active = area['active'] == true;
           final label = [
@@ -2843,7 +2894,17 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
               subtitle: Text(label.isEmpty ? (active ? 'Serviceable' : 'Disabled') : '$label · ${active ? 'Serviceable' : 'Disabled'}'),
               onTap: () => setState(() => selectedAreaCode = code),
               trailing: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
-                IconButton(tooltip: 'Edit area details', onPressed: () => editServiceArea(area), icon: const Icon(Icons.edit_outlined)),
+                PopupMenuButton<String>(
+                  tooltip: 'Service-area actions',
+                  onSelected: (action) {
+                    if (action == 'edit') editServiceArea(area);
+                    if (action == 'remove') removeServiceArea(area);
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(value: 'edit', child: ListTile(leading: Icon(Icons.edit_outlined), title: Text('Edit details'), contentPadding: EdgeInsets.zero)),
+                    PopupMenuItem(value: 'remove', child: ListTile(leading: Icon(Icons.delete_outline_rounded), title: Text('Remove PIN code'), contentPadding: EdgeInsets.zero)),
+                  ],
+                ),
                 Switch(value: active, onChanged: (value) => setAreaActive(area, value)),
               ]),
             ),
