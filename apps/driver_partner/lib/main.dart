@@ -665,7 +665,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
       label: Text(partnerOnline ? 'Online' : 'Go online'),
     ),
-    IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
 
   Future<void> grantUserRole() async {
@@ -771,45 +771,160 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     if (label == 'Profile') {
       return Scaffold(
         appBar: _appBar('Profile'),
-        body: ListView(padding: const EdgeInsets.all(20), children: [
+        body: ListView(padding: const EdgeInsets.fromLTRB(18, 16, 18, 28), children: [
           Container(
             padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]), borderRadius: BorderRadius.circular(22)),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF155C4B), Color(0xFF2C8B70)]),
+              borderRadius: BorderRadius.circular(22),
+            ),
             child: Row(children: [
               const CircleAvatar(backgroundColor: Color(0x33FFFFFF), child: Icon(Icons.person_rounded, color: Colors.white)),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(user?.email ?? 'Alteo team member', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
+                Text(user?.email ?? 'Alteo team member', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800)),
                 const SizedBox(height: 4),
                 Text('Role: $requiredRole', style: const TextStyle(color: Colors.white70)),
               ])),
             ]),
           ),
-          const SizedBox(height: 16),
-          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
-            const Icon(Icons.palette_outlined), const SizedBox(width: 12), const Expanded(child: Text('Appearance', style: TextStyle(fontWeight: FontWeight.w700))),
-            DropdownButton<ThemeMode>(value: roleThemeMode.value, underline: const SizedBox.shrink(), items: const [
-              DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
-              DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
-              DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
-            ], onChanged: (v) { if (v != null) roleThemeMode.value = v; }),
-          ]))),
-          Card(elevation: 0, child: Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4), child: Row(children: [
-            const Icon(Icons.language_rounded), const SizedBox(width: 12), const Expanded(child: Text('Language', style: TextStyle(fontWeight: FontWeight.w700))),
-            ValueListenableBuilder<String>(valueListenable: roleLanguage, builder: (context, language, _) => DropdownButton<String>(value: language, underline: const SizedBox.shrink(), items: const [
-              DropdownMenuItem(value: 'English', child: Text('English')),
-              DropdownMenuItem(value: 'हिन्दी', child: Text('हिन्दी')),
-              DropdownMenuItem(value: 'বাংলা', child: Text('বাংলা')),
-              DropdownMenuItem(value: 'தமிழ்', child: Text('தமிழ்')),
-            ], onChanged: (v) { if (v != null) roleLanguage.value = v; })),
-          ]))),
-          Card(elevation: 0, child: ListTile(leading: const Icon(Icons.security_rounded), title: const Text('Access & security'), subtitle: const Text('Google sign-in and role-based access protect live operations.'))),
+          if (requiredRole == 'seller')
+            FutureBuilder<Map<String, dynamic>?>(
+              future: sellerProfile,
+              builder: (context, snapshot) => Card(
+                elevation: 0,
+                margin: const EdgeInsets.only(top: 12),
+                child: ListTile(
+                  leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.storefront_rounded, color: Color(0xFF176B57))),
+                  title: Text(snapshot.data?['display_name']?.toString() ?? 'Seller business profile', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text(snapshot.connectionState == ConnectionState.waiting
+                    ? 'Loading business status…'
+                    : snapshot.hasError
+                      ? 'Business status could not be loaded. Retry from the Home screen.'
+                      : 'Approval status: ${snapshot.data?['status']?.toString() ?? 'not available'}'),
+                ),
+              ),
+            ),
+          if (requiredRole == 'dark_store')
+            FutureBuilder<Map<String, dynamic>?>(
+              future: storeProfile,
+              builder: (context, snapshot) => Card(
+                elevation: 0,
+                margin: const EdgeInsets.only(top: 12),
+                child: ListTile(
+                  leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.warehouse_rounded, color: Color(0xFF176B57))),
+                  title: Text(snapshot.data?['name']?.toString() ?? 'Dark store profile', style: const TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text(snapshot.connectionState == ConnectionState.waiting
+                    ? 'Loading store status…'
+                    : snapshot.hasError
+                      ? 'Store status could not be loaded. Retry from the Home screen.'
+                      : 'Approval status: ${snapshot.data?['status']?.toString() ?? 'not available'}'),
+                ),
+              ),
+            ),
           const SizedBox(height: 12),
-          FilledButton.icon(onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded), label: const Text('Sign out')),
+          Card(
+            elevation: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(children: [
+                const Icon(Icons.palette_outlined),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Appearance', style: TextStyle(fontWeight: FontWeight.w800))),
+                DropdownButton<ThemeMode>(
+                  value: roleThemeMode.value,
+                  underline: const SizedBox.shrink(),
+                  items: const [
+                    DropdownMenuItem(value: ThemeMode.light, child: Text('Light')),
+                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Dark')),
+                    DropdownMenuItem(value: ThemeMode.system, child: Text('System')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    roleThemeMode.value = value;
+                    unawaited(saveAlteoPartnerTheme(requiredRole, value));
+                  },
+                ),
+              ]),
+            ),
+          ),
+          Card(
+            elevation: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Row(children: [
+                const Icon(Icons.language_rounded),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('Language preference', style: TextStyle(fontWeight: FontWeight.w800))),
+                ValueListenableBuilder<String>(
+                  valueListenable: roleLanguage,
+                  builder: (context, language, _) => DropdownButton<String>(
+                    value: language,
+                    underline: const SizedBox.shrink(),
+                    items: const [
+                      DropdownMenuItem(value: 'English', child: Text('English')),
+                      DropdownMenuItem(value: 'हिन्दी', child: Text('हिन्दी')),
+                      DropdownMenuItem(value: 'বাংলা', child: Text('বাংলা')),
+                      DropdownMenuItem(value: 'தமிழ்', child: Text('தமிழ்')),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      roleLanguage.value = value;
+                      unawaited(saveAlteoPartnerLanguage(requiredRole, value));
+                    },
+                  ),
+                ),
+              ]),
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(12, 0, 12, 12),
+            child: Text('Your language preference is saved. Some operational screens may remain in English until their translation is available.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D), height: 1.4)),
+          ),
+          Card(elevation: 0, child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.support_agent_rounded, color: Color(0xFF176B57))),
+            title: const Text('Help & support', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('Send a request and check its status'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoHelpSupportPage(appName: appName, role: requiredRole))),
+          )),
+          Card(elevation: 0, child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.privacy_tip_outlined, color: Color(0xFF176B57))),
+            title: const Text('Privacy information', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('How account, work and location data are used'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoPrivacyPage(appName: appName))),
+          )),
+          Card(elevation: 0, child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.description_outlined, color: Color(0xFF176B57))),
+            title: const Text('Terms of use', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('Operational rules for using this app'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoTermsPage(appName: appName, role: requiredRole))),
+          )),
+          Card(elevation: 0, child: ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.info_outline_rounded, color: Color(0xFF176B57))),
+            title: const Text('About this app', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('App purpose and version information'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AlteoAboutPage(appName: appName, role: requiredRole))),
+          )),
+          Card(elevation: 0, child: ListTile(
+            leading: const Icon(Icons.security_rounded),
+            title: const Text('Access & security', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('Sign-in and role permissions protect operational records.'),
+          )),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut),
+            icon: const Icon(Icons.logout_rounded),
+            label: const Text('Log out'),
+            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(52), foregroundColor: const Color(0xFFB3261E), side: const BorderSide(color: Color(0xFFB3261E))),
+          ),
         ]),
       );
     }
-    final descriptions = switch (requiredRole) {
+        final descriptions = switch (requiredRole) {
       'admin' => const ['Review customer orders, payment states and service requests.', 'Manage partner access, seller approvals and operational assignments.'],
       'driver_partner' => const ['Review assigned ride requests and update trip status.', 'Review completed trips and earnings when settlement is enabled.'],
       'delivery_partner' => const ['Review assigned deliveries and confirm pickup, transit and delivery.', 'Review completed deliveries and settlement information.'],
