@@ -2814,7 +2814,7 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
               title: Text(code, style: const TextStyle(fontWeight: FontWeight.w900)),
               subtitle: Text(label.isEmpty ? (active ? 'Serviceable' : 'Disabled') : '$label · ${active ? 'Serviceable' : 'Disabled'}'),
               onTap: () => setState(() => selectedAreaCode = code),
-              trailing: Wrap(mainAxisSize: MainAxisSize.min, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              trailing: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                 IconButton(tooltip: 'Edit area details', onPressed: () => editServiceArea(area), icon: const Icon(Icons.edit_outlined)),
                 Switch(value: active, onChanged: (value) => setAreaActive(area, value)),
               ]),
