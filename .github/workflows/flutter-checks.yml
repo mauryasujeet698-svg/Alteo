@@ -356,9 +356,9 @@ jobs:
               "android.permission.INTERNET",
               "android.permission.RECORD_AUDIO",
           ]
-          # Only the four operational partner apps use location and operational push alerts
-          # as part of their first-launch workflow. Keep Customer and Admin unchanged.
-          if os.environ.get("ALTEO_APP_NAME") in {"seller", "driver-partner", "delivery-partner", "dark-store"}:
+          # Preserve the Customer APK's previous manifest permissions byte-for-byte in scope.
+          # Operational partner apps request these permissions on first launch; Admin does not.
+          if os.environ.get("ALTEO_APP_NAME") in {"customer", "seller", "driver-partner", "delivery-partner", "dark-store"}:
               permissions.extend([
                   "android.permission.ACCESS_FINE_LOCATION",
                   "android.permission.ACCESS_COARSE_LOCATION",
