@@ -1161,6 +1161,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         payload['currency'] = 'INR';
         await client.from('seller_products').insert(payload);
       } else {
+        // Any content edit to a published listing returns it to draft so Admin
+        // can review the changed image, description, category and price again.
+        payload['status'] = 'draft';
         await client.from('seller_products').update(payload).eq('id', existing['id']).eq('seller_id', sellerId);
       }
 
@@ -1168,7 +1171,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           oldImagePath.startsWith('items/' + (user?.id ?? '') + '/')) {
         try { await client.storage.from('app-media').remove([oldImagePath]); } catch (_) {}
       }
-      notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated and saved.');
+      notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated and returned to Admin review.');
     } catch (e) {
       debugPrint('Product save failed (${e.runtimeType}).');
       notice('Could not save the product. Check the required fields and try again.');
