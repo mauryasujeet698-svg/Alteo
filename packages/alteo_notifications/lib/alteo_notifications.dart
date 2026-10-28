@@ -5,6 +5,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Shared push-notification registration for the six Alteo Android apps.
@@ -220,4 +222,95 @@ class AlteoPushNotifications {
     _authSubscription = null;
     _tokenSubscription = null;
   }
+}
+
+
+/// Requests runtime permissions once on the first launch of each non-admin app.
+/// Android displays these system prompts when the app is opened for the first time,
+/// not during APK installation. A denied permission never blocks app startup.
+class AlteoFirstLaunchPermissionGate extends StatefulWidget {
+  const AlteoFirstLaunchPermissionGate({
+    super.key,
+    required this.appId,
+    required this.child,
+  });
+
+  final String appId;
+  final Widget child;
+
+  static final Map<String, Completer<void>> _completion = <String, Completer<void>>{};
+
+  static Completer<void> _forApp(String appId) =>
+      _completion.putIfAbsent(appId, Completer<void>.new);
+
+  static Future<void> waitUntilComplete(String appId) => _forApp(appId).future;
+
+  @override
+  State<AlteoFirstLaunchPermissionGate> createState() => _AlteoFirstLaunchPermissionGateState();
+}
+
+class _AlteoFirstLaunchPermissionGateState extends State<AlteoFirstLaunchPermissionGate> {
+  bool _started = false;
+  static const _notificationSettings = InitializationSettings(
+    android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+    iOS: DarwinInitializationSettings(),
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_started) {
+        _started = true;
+        unawaited(_requestOnce());
+      }
+    });
+  }
+
+  Future<void> _requestOnce() async {
+    final completion = AlteoFirstLaunchPermissionGate._forApp(widget.appId);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = 'alteo_first_launch_permissions_v1_${widget.appId}';
+      if (prefs.getBool(key) != true) {
+        // Location prompt first, followed by notifications.
+        try {
+          final current = await Geolocator.checkPermission();
+          if (current == LocationPermission.denied) {
+            await Geolocator.requestPermission();
+          }
+        } catch (_) {
+          // Permission APIs may be unavailable on a simulator or restricted device.
+        }
+
+        await _requestNotifications();
+        await prefs.setBool(key, true);
+      }
+    } catch (_) {
+      // A preferences or permissions failure must never prevent the app from opening.
+    } finally {
+      if (!completion.isCompleted) completion.complete();
+    }
+  }
+
+  Future<void> _requestNotifications() async {
+    final local = FlutterLocalNotificationsPlugin();
+    try {
+      await local.initialize(_notificationSettings);
+      final android = local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      await android?.requestNotificationsPermission();
+    } catch (_) {
+      // Continue to the FCM prompt below where Firebase is configured.
+    }
+    try {
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+      final messaging = FirebaseMessaging.instance;
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+    } catch (_) {
+      // The Android notification prompt above still works without Firebase setup.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
