@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -364,6 +365,56 @@ class _AlteoHelpSupportPageState extends State<AlteoHelpSupportPage> {
               );
             }).toList());
           },
+        ),
+      ],
+    ),
+  );
+}
+
+
+class AlteoDevicePermissionsPage extends StatelessWidget {
+  const AlteoDevicePermissionsPage({super.key, required this.appName});
+  final String appName;
+
+  Future<void> _openSettings(BuildContext context) async {
+    try {
+      final opened = await Geolocator.openAppSettings();
+      if (!opened && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Android settings could not be opened. Open this app under Settings > Apps to change permissions.')));
+      }
+    } catch (_) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Open Android Settings > Apps > this app to change permissions.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('App permissions')),
+    body: ListView(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 28),
+      children: [
+        Text(appName, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        const Text('Manage the device permissions used by this app. If you previously denied a permission, Android settings are the reliable place to enable it again.', style: TextStyle(height: 1.5)),
+        const SizedBox(height: 18),
+        Card(elevation: 0, child: ListTile(
+          leading: const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.location_on_rounded, color: _green)),
+          title: const Text('Location access', style: TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: const Text('Used for location-dependent assignments, pickup/delivery navigation and availability when the workflow requires it.'),
+          isThreeLine: true,
+        )),
+        Card(elevation: 0, child: ListTile(
+          leading: const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.notifications_active_outlined, color: _green)),
+          title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: const Text('Allow relevant assignment, order, account and support alerts to appear on your phone. Delivery still depends on notification-service configuration.'),
+          isThreeLine: true,
+        )),
+        const SizedBox(height: 10),
+        FilledButton.icon(
+          onPressed: () => _openSettings(context),
+          icon: const Icon(Icons.settings_outlined),
+          label: const Text('Open Android app settings'),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
         ),
       ],
     ),
