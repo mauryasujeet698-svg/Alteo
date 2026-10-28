@@ -171,9 +171,10 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     } catch (e) {
       if (!mounted) return;
       final lower = e.toString().toLowerCase();
+      debugPrint('Google sign-in failed (${e.runtimeType}).');
       setState(() => message = lower.contains('canceled') || lower.contains('cancelled')
           ? 'Google sign-in was cancelled.'
-          : 'Google sign-in failed: ' + e.toString());
+          : 'Google sign-in could not be completed. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -514,7 +515,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       await client.rpc(name, params: params);
       notice(success);
     } catch (e) {
-      notice('Action failed: ' + e.toString());
+      debugPrint('Admin/partner RPC action failed (${e.runtimeType}).');
+      notice('We could not complete this action. Check your access and connection, then try again.');
     }
   }
 
@@ -538,7 +540,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (mounted) setState(() => partnerOnline = next);
       notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
     } catch (e) {
-      notice('Could not update availability: ' + e.toString());
+      debugPrint('Availability update failed (${e.runtimeType}).');
+      notice('Availability could not be updated. Check your connection and try again.');
     }
   }
 
