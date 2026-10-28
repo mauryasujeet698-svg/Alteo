@@ -1275,7 +1275,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       final response = await upload.send().timeout(const Duration(seconds: 60));
       final responseBody = await response.stream.bytesToString();
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw StateError('Cloudinary returned status ' + response.statusCode.toString() + ': ' + responseBody);
+        throw StateError('Proof image upload was rejected.');
       }
       final result = jsonDecode(responseBody);
       if (result is! Map || result['public_id'] is! String) {
@@ -1288,7 +1288,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       notice('Proof of delivery saved.');
       if (mounted) setState(() {});
     } catch (e) {
-      notice('Could not attach proof: ' + e.toString());
+      debugPrint('Proof-of-delivery upload failed (${e.runtimeType}).');
+      notice('Could not attach proof. Check the image and connection, then retry.');
     }
   }
 
