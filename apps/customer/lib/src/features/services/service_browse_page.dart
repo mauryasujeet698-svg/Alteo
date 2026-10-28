@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../../services/mapbox_service.dart';
+import '../../services/customer_location_service.dart';
+import '../../services/customer_preferences.dart';
 import 'food_discovery_page.dart';
 import 'ride_booking_page.dart';
 
@@ -55,7 +57,7 @@ class ServiceBrowsePage extends StatelessWidget {
         children: [
           Text(_heading, style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
-          const Text('Explore the options below. Live availability, prices and bookings require the Alteo backend and participating local partners to be configured.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+          const Text('Explore the options below. Live availability, prices and bookings appear when Alteo services and local partners are active in your area.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
           const SizedBox(height: 18),
           for (final option in options)
             Card(
@@ -75,7 +77,7 @@ class ServiceBrowsePage extends StatelessWidget {
                   } else if (service == 'Parcel' && option.title == 'Send a parcel') {
                     _requestService(context, 'parcel');
                   } else {
-                    showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text(option.title), content: const Text('Explore this section without signing in. Live listings and availability appear when the corresponding partners and backend data are configured.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))]));
+                    showDialog<void>(context: context, builder: (context) => AlertDialog(title: Text(option.title), content: const Text('Explore this section without signing in. Live listings appear as participating local partners become available in your area.'), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Got it'))]));
                   }
                 },
               ),
@@ -91,7 +93,7 @@ class ServiceBrowsePage extends StatelessWidget {
     try {
       client = Supabase.instance.client;
     } catch (_) {
-      _showMessage(context, 'The booking backend is unavailable right now. You can continue exploring this service.');
+      _showMessage(context, 'Bookings are temporarily unavailable. You can continue exploring this service.');
       return;
     }
 
@@ -132,17 +134,33 @@ class ServiceBrowsePage extends StatelessWidget {
       }
       final user = client.auth.currentUser;
       if (user == null) return;
-      if (!MapboxService.isConfigured) {
-        _showMessage(context, 'Address lookup is not configured yet. Add the restricted public MAPBOX_PUBLIC_TOKEN to the app build. You can still explore this service.');
-        return;
-      }
-
       _showMessage(context, 'Finding your locations…');
       final pickupCoordinates = await MapboxService.geocode(pickup.text.trim());
       final destinationCoordinates = await MapboxService.geocode(dropoff.text.trim());
       if (!context.mounted) return;
       if (pickupCoordinates == null || destinationCoordinates == null) {
-        _showMessage(context, 'Could not locate one of those addresses. Try a more specific address or landmark.');
+        _showMessage(context, 'We could not locate one of those addresses. Try a nearby landmark or choose a more specific address.');
+        return;
+      }
+
+      // Prefer the actual PIN returned for the pickup coordinates. If the
+      // device geocoder cannot determine it, use the customer's confirmed
+      // serviceable PIN rather than a hard-coded default.
+      final pickupDetails = await CustomerLocationService.resolveCoordinates(
+        pickupCoordinates[1], pickupCoordinates[0],
+      );
+      final lookupPin = (pickupDetails['postal_code']?.toString() ?? '').trim();
+      final fallbackPin = (alteoPublicServiceability.value?['pincode']?.toString() ?? '').trim();
+      final areaCode = RegExp(r'^[1-9][0-9]{5}$').hasMatch(lookupPin)
+        ? lookupPin
+        : RegExp(r'^[1-9][0-9]{5}$').hasMatch(fallbackPin) ? fallbackPin : '';
+      if (areaCode.isEmpty) {
+        _showMessage(context, 'Choose or enter a serviceable PIN code before submitting this request.');
+        return;
+      }
+      final area = await client.rpc('get_public_serviceability', params: {'p_pincode': areaCode});
+      if (area is! Map || area['serviceable'] != true) {
+        _showMessage(context, 'Pickup is outside Alteo service coverage. Choose a serviceable pickup area.');
         return;
       }
 
@@ -157,7 +175,7 @@ class ServiceBrowsePage extends StatelessWidget {
           'p_destination_latitude': destinationCoordinates[1],
           'p_destination_longitude': destinationCoordinates[0],
           'p_idempotency_key': idempotencyKey,
-          'p_area_code': 'DEFAULT',
+          'p_area_code': areaCode,
         });
       } else {
         requestId = await client.rpc('create_customer_parcel', params: {
@@ -175,8 +193,8 @@ class ServiceBrowsePage extends StatelessWidget {
       if (context.mounted) {
         _showMessage(context, (type == 'ride' ? 'Ride' : 'Parcel') + ' request ' + requestId.toString().substring(0, 8) + ' created. Dispatch depends on service availability and eligible partners.');
       }
-    } catch (e) {
-      if (context.mounted) _showMessage(context, 'Could not submit the request. The service may not be enabled or priced for this area yet. ' + e.toString());
+    } catch (_) {
+      if (context.mounted) _showMessage(context, 'We could not submit the request. The service may not be available in this area yet. Please check the selected PIN code and try again.');
     } finally {
       pickup.dispose();
       dropoff.dispose();
