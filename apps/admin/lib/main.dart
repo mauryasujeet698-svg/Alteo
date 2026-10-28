@@ -1935,6 +1935,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   Widget _adminPartnersPage() => Scaffold(
     appBar: _appBar('Partners & approvals'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
+      const AdminServiceConfigPanel(),
+      const SizedBox(height: 24),
       const Text('Grant an app role', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
       const SizedBox(height: 8),
       TextField(controller: roleUserId, decoration: const InputDecoration(labelText: 'Existing user UUID', border: OutlineInputBorder())),
@@ -2005,8 +2007,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ))).toList());
         },
       ),
-      const SizedBox(height: 24),
-      const AdminServiceConfigPanel(),
     ]),
   );
 
