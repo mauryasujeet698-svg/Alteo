@@ -210,11 +210,11 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                 Expanded(child: Text(message!, style: const TextStyle(height: 1.45))),
                 if (widget.backendReady && Supabase.instance.client.auth.currentSession != null)
                   IconButton(
-                    tooltip: 'Sign out',
-                    onPressed: () async {
+                    tooltip: 'Log out',
+                    onPressed: () => confirmAlteoLogout(context, onConfirm: () async {
                       await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut();
                       if (mounted) setState(() { authorized = false; message = null; });
-                    },
+                    }),
                     icon: const Icon(Icons.logout_rounded),
                   ),
               ],
@@ -1120,7 +1120,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title), actions: [
-    IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
 
 
@@ -1659,7 +1659,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       appBar: AppBar(
         title: const Text('Catalogue management'),
         actions: [
-          IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+          IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
         ],
         bottom: const TabBar(
           tabs: [
