@@ -296,7 +296,7 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       return ListView(padding: const EdgeInsets.all(20), children: [
         const Text('Customer homepage banners', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
-        const Text('Create, edit, reorder, publish or unpublish the swipeable carousel shown at the top of the Customer app. Banner changes are delivered through Supabase and do not require an app reinstall.', style: TextStyle(color: Color(0xFF68736D), height: 1.5)),
+        const Text('Create, edit, reorder, publish or unpublish the swipeable carousel shown at the top of the Customer app. Banner changes appear automatically in the Customer app and do not require an app reinstall.', style: TextStyle(color: Color(0xFF68736D), height: 1.5)),
         const SizedBox(height: 18),
         Card(elevation: 0, child: ListTile(
           leading: const Icon(Icons.view_carousel_rounded, color: Color(0xFF176B57)),
