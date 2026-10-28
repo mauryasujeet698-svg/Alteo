@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:image_picker/image_picker.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -2440,28 +2442,212 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
     'shopping': 'Shopping',
   };
 
+  String selectedAreaCode = 'DEFAULT';
+  bool savingArea = false;
+
   void message(String value) {
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(value)));
   }
 
+  bool _isPincode(String value) => RegExp(r'^\d{6}$').hasMatch(value);
+
+  Future<Map<String, String>?> _lookupPincode(String pin) async {
+    if (!_isPincode(pin)) {
+      message('Enter a valid 6-digit Indian PIN code first.');
+      return null;
+    }
+    try {
+      final response = await http.get(Uri.https('api.postalpincode.in', '/pincode/$pin'))
+          .timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        message('We could not look up that PIN code. You can enter the area details manually.');
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! List || decoded.isEmpty || decoded.first is! Map) {
+        message('No postal details were returned. Enter the area details manually.');
+        return null;
+      }
+      final first = Map<String, dynamic>.from(decoded.first as Map);
+      final offices = first['PostOffice'];
+      if (first['Status']?.toString().toLowerCase() != 'success' || offices is! List || offices.isEmpty || offices.first is! Map) {
+        message('That PIN code was not found. Check the digits and try again.');
+        return null;
+      }
+      final office = Map<String, dynamic>.from(offices.first as Map);
+      return <String, String>{
+        'locality': office['Name']?.toString() ?? '',
+        'district': office['District']?.toString() ?? '',
+        'state': office['State']?.toString() ?? '',
+      };
+    } catch (_) {
+      message('Postal lookup is unavailable. You can still save the PIN code and enter its details manually.');
+      return null;
+    }
+  }
+
+  Future<void> editServiceArea([Map<String, dynamic>? existing]) async {
+    final pin = TextEditingController(text: existing?['pincode']?.toString() ?? '');
+    final locality = TextEditingController(text: existing?['locality']?.toString() ?? '');
+    final district = TextEditingController(text: existing?['district']?.toString() ?? '');
+    final state = TextEditingController(text: existing?['state']?.toString() ?? '');
+    var active = existing?['active'] as bool? ?? true;
+    var lookingUp = false;
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(existing == null ? 'Add serviceable PIN code' : 'Edit service area'),
+            content: SizedBox(
+              width: 520,
+              child: SingleChildScrollView(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  TextField(
+                    controller: pin,
+                    enabled: existing == null,
+                    keyboardType: TextInputType.number,
+                    maxLength: 6,
+                    decoration: const InputDecoration(
+                      labelText: 'PIN code *',
+                      hintText: '6 digits',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: OutlinedButton.icon(
+                      onPressed: lookingUp || existing != null ? null : () async {
+                        setDialogState(() => lookingUp = true);
+                        final details = await _lookupPincode(pin.text.trim());
+                        if (details != null) {
+                          setDialogState(() {
+                            if (locality.text.trim().isEmpty) locality.text = details['locality'] ?? '';
+                            if (district.text.trim().isEmpty) district.text = details['district'] ?? '';
+                            if (state.text.trim().isEmpty) state.text = details['state'] ?? '';
+                          });
+                        }
+                        setDialogState(() => lookingUp = false);
+                      },
+                      icon: lookingUp
+                          ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.search_rounded),
+                      label: Text(lookingUp ? 'Looking up PIN code…' : 'Find area details'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  TextField(controller: locality, maxLength: 100, decoration: const InputDecoration(labelText: 'Locality / post office', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  TextField(controller: district, maxLength: 100, decoration: const InputDecoration(labelText: 'District', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  TextField(controller: state, maxLength: 100, decoration: const InputDecoration(labelText: 'State', border: OutlineInputBorder())),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Serviceable'),
+                    subtitle: const Text('Customers can use services enabled for this PIN code.'),
+                    value: active,
+                    onChanged: (value) => setDialogState(() => active = value),
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    'Adding a PIN code does not automatically enable every service. Configure shopping, food, quick commerce, parcels and rides separately below.',
+                    style: TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF68736D)),
+                  ),
+                ]),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: lookingUp ? null : () => Navigator.pop(dialogContext, true), child: const Text('Save PIN code')),
+            ],
+          ),
+        ),
+      );
+      if (saved != true) return;
+      final code = pin.text.trim();
+      if (!_isPincode(code)) {
+        message('Enter a valid 6-digit Indian PIN code.');
+        return;
+      }
+      setState(() => savingArea = true);
+      final payload = <String, dynamic>{
+        'pincode': code,
+        'locality': locality.text.trim().isEmpty ? null : locality.text.trim(),
+        'district': district.text.trim().isEmpty ? null : district.text.trim(),
+        'state': state.text.trim().isEmpty ? null : state.text.trim(),
+        'active': active,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing == null) {
+        payload['created_by'] = client.auth.currentUser?.id;
+        await client.from('service_areas').insert(payload);
+      } else {
+        await client.from('service_areas').update(payload).eq('id', existing['id']);
+      }
+      if (mounted) setState(() => selectedAreaCode = code);
+      message(active ? 'PIN code $code is now serviceable. Configure its services below.' : 'PIN code $code is disabled.');
+    } catch (e) {
+      message('Could not save the service area. Check that the PIN code is not already listed and retry.');
+    } finally {
+      pin.dispose();
+      locality.dispose();
+      district.dispose();
+      state.dispose();
+      if (mounted) setState(() => savingArea = false);
+    }
+  }
+
+  Future<void> setAreaActive(Map<String, dynamic> area, bool active) async {
+    try {
+      await client.from('service_areas').update({
+        'active': active,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      }).eq('id', area['id']);
+      message(active
+          ? 'PIN code ${area['pincode']} is serviceable again.'
+          : 'PIN code ${area['pincode']} is disabled. Checkout and ride quotes will reject this PIN code.');
+    } catch (_) {
+      message('Could not update this PIN code. Please try again.');
+    }
+  }
+
   Future<void> setControl(String service, bool enabled, bool automatic) async {
     try {
+      if (selectedAreaCode != 'DEFAULT') {
+        final area = await client.from('service_areas')
+            .select('active').eq('pincode', selectedAreaCode).maybeSingle();
+        if (area == null || area['active'] != true) {
+          message('Activate this PIN code before changing its service settings.');
+          return;
+        }
+      }
       if (enabled) {
-        final price = await client.from('pricing_rules').select('id').eq('service', service).eq('city_code', 'DEFAULT').eq('active', true).maybeSingle();
-        if (price == null) {
-          message('Configure active DEFAULT pricing for ' + services[service]! + ' before enabling it.');
+        final exactPrice = await client.from('pricing_rules')
+            .select('id').eq('service', service).eq('city_code', selectedAreaCode)
+            .eq('active', true).maybeSingle();
+        if (exactPrice == null && selectedAreaCode != 'DEFAULT') {
+          final defaultPrice = await client.from('pricing_rules')
+              .select('id').eq('service', service).eq('city_code', 'DEFAULT')
+              .eq('active', true).maybeSingle();
+          if (defaultPrice == null) {
+            message('Add active pricing for ${services[service]} or configure DEFAULT pricing before enabling it.');
+            return;
+          }
+        } else if (exactPrice == null) {
+          message('Configure active pricing for ${services[service]} before enabling it.');
           return;
         }
       }
       await client.rpc('admin_set_service_control', params: {
-        'p_area_code': 'DEFAULT',
+        'p_area_code': selectedAreaCode,
         'p_service': service,
         'p_enabled': enabled,
         'p_automatic_assignment': automatic,
       });
-      message(services[service]! + ' settings updated.');
-    } catch (e) {
-      message('Could not update service settings: ' + e.toString());
+      message('${services[service]} settings saved for ${selectedAreaCode == 'DEFAULT' ? 'the default area' : 'PIN code $selectedAreaCode'}.');
+    } catch (_) {
+      message('Could not update service settings. Check that the PIN code is active and try again.');
     }
   }
 
@@ -2469,20 +2655,27 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
     final base = TextEditingController(text: (((existing?['base_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
     final perKm = TextEditingController(text: (((existing?['per_km_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
     final minimum = TextEditingController(text: (((existing?['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0));
+    var active = existing?['active'] as bool? ?? true;
     try {
-      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-        title: Text('DEFAULT pricing · ' + services[service]!),
-        content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: base, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Base fee (₹)')),
-          TextField(controller: perKm, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Per kilometre (₹)')),
-          TextField(controller: minimum, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Minimum fee (₹)')),
-          const SizedBox(height: 8),
-          const Text('Choose your real prices carefully. These values are used by server-side booking and checkout calculations.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-        ])),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save pricing')),
-        ],
+      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: Text('Pricing · ${selectedAreaCode == 'DEFAULT' ? 'DEFAULT' : selectedAreaCode} · ${services[service]}'),
+          content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: base, keyboardType: const TextInputType.numberWithOptions(decimal: false), decoration: const InputDecoration(labelText: 'Base charge (₹)', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            TextField(controller: perKm, keyboardType: const TextInputType.numberWithOptions(decimal: false), decoration: const InputDecoration(labelText: 'Additional charge per km (₹)', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            TextField(controller: minimum, keyboardType: const TextInputType.numberWithOptions(decimal: false), decoration: const InputDecoration(labelText: 'Minimum charge (₹)', border: OutlineInputBorder())),
+            const SizedBox(height: 8),
+            SwitchListTile(contentPadding: EdgeInsets.zero, title: const Text('Pricing active'), value: active, onChanged: (v) => setDialogState(() => active = v)),
+            const SizedBox(height: 8),
+            const Text('These values are used by server-side checkout or ride quoting. Leave automatic assignment off until partners and dispatch are ready.', style: TextStyle(color: Color(0xFF68736D), height: 1.4, fontSize: 12)),
+          ])),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save pricing')),
+          ],
+        ),
       ));
       if (ok != true) return;
       final b = int.tryParse(base.text.trim());
@@ -2494,16 +2687,16 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
       }
       await client.from('pricing_rules').upsert({
         'service': service,
-        'city_code': 'DEFAULT',
+        'city_code': selectedAreaCode,
         'base_fee_minor': b * 100,
         'per_km_minor': k * 100,
         'minimum_fee_minor': m * 100,
-        'active': true,
+        'active': active,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'service,city_code');
-      message('Pricing saved for ' + services[service]! + '.');
-    } catch (e) {
-      message('Could not save pricing: ' + e.toString());
+      message('Pricing saved for ${services[service]} · ${selectedAreaCode == 'DEFAULT' ? 'DEFAULT' : selectedAreaCode}.');
+    } catch (_) {
+      message('Could not save pricing. Check the amount fields and try again.');
     } finally {
       base.dispose();
       perKm.dispose();
@@ -2511,68 +2704,189 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
     }
   }
 
-  @override
-  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-    const Text('Service controls and pricing', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-    const SizedBox(height: 5),
-    const Text('Enable services only after setting real DEFAULT pricing. Automatic dispatch remains off until you switch it on.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-    const SizedBox(height: 10),
-    StreamBuilder<List<Map<String, dynamic>>>(
-      stream: client.from('service_controls').stream(primaryKey: ['id']).eq('area_code', 'DEFAULT'),
-      builder: (context, controlsSnapshot) => StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('pricing_rules').stream(primaryKey: ['id']).eq('city_code', 'DEFAULT'),
-        builder: (context, pricingSnapshot) {
-          if (controlsSnapshot.hasError || pricingSnapshot.hasError) return const Text('Service settings unavailable. Check admin policies.');
-          if (!controlsSnapshot.hasData || !pricingSnapshot.hasData) return const LinearProgressIndicator();
-          final controls = <String, Map<String, dynamic>>{
-            for (final row in controlsSnapshot.data!) (row['service'] as String): row,
-          };
-          final prices = <String, Map<String, dynamic>>{
-            for (final row in pricingSnapshot.data!) row['service'] as String: row,
-          };
-          return Column(children: services.entries.map((entry) {
-            final service = entry.key;
-            final control = controls[service];
-            final price = prices[service];
-            final enabled = control?['enabled'] as bool? ?? false;
-            final automatic = control?['automatic_assignment'] as bool? ?? false;
-            final activePrice = price?['active'] as bool? ?? false;
-            final priceLabel = price == null
-              ? 'Pricing not configured'
-              : 'Base ₹' + (((price['base_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
-                + ' · /km ₹' + (((price['per_km_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
-                + ' · Minimum ₹' + (((price['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)
-                + (activePrice ? '' : ' · inactive');
-            return Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 10), child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              child: Column(children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w800)),
-                  subtitle: Text(enabled ? 'Enabled in DEFAULT area' : 'Disabled in DEFAULT area'),
-                  value: enabled,
-                  onChanged: (value) => setControl(service, value, automatic),
-                ),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Automatic assignment'),
-                  subtitle: const Text('Off means admin-controlled assignment'),
-                  value: automatic,
-                  onChanged: (value) => setControl(service, enabled, value),
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Pricing'),
-                  subtitle: Text(priceLabel),
-                  trailing: IconButton(icon: const Icon(Icons.edit_outlined), tooltip: 'Configure pricing', onPressed: () => editPricing(service, price)),
-                ),
+  Widget _serviceControls(
+    List<Map<String, dynamic>> allControls,
+    List<Map<String, dynamic>> allPrices,
+    bool selectedAreaActive,
+  ) {
+    final controls = <String, Map<String, dynamic>>{
+      for (final row in allControls)
+        '${row['area_code']}|${row['service']}': row,
+    };
+    final prices = <String, Map<String, dynamic>>{
+      for (final row in allPrices)
+        '${row['city_code']}|${row['service']}': row,
+    };
+    return Column(children: services.entries.map((entry) {
+      final service = entry.key;
+      final exactControl = controls['$selectedAreaCode|$service'];
+      final control = exactControl ?? controls['DEFAULT|$service'];
+      final isInherited = selectedAreaCode != 'DEFAULT' && exactControl == null && control != null;
+      final enabled = control?['enabled'] as bool? ?? false;
+      final automatic = control?['automatic_assignment'] as bool? ?? false;
+      final exactPrice = prices['$selectedAreaCode|$service'];
+      final price = exactPrice ?? (selectedAreaCode == 'DEFAULT' ? null : prices['DEFAULT|$service']);
+      final activePrice = price?['active'] as bool? ?? false;
+      final inheritedPrice = selectedAreaCode != 'DEFAULT' && exactPrice == null && price != null;
+      final priceLabel = price == null
+          ? 'Pricing not configured'
+          : 'Base ₹${(((price['base_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)}'
+            + ' · /km ₹${(((price['per_km_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)}'
+            + ' · Minimum ₹${(((price['minimum_fee_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)}'
+            + (activePrice ? '' : ' · inactive')
+            + (inheritedPrice ? ' · DEFAULT rate' : '');
+      final canEditArea = selectedAreaCode == 'DEFAULT' || selectedAreaActive;
+      return Card(
+        elevation: 0,
+        color: Colors.white,
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          child: Column(children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(entry.value, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text(isInherited
+                  ? '${enabled ? 'Enabled' : 'Disabled'} by DEFAULT rules · save to override this PIN'
+                  : enabled
+                    ? 'Enabled for ${selectedAreaCode == 'DEFAULT' ? 'DEFAULT area' : 'PIN $selectedAreaCode'}'
+                    : 'Disabled for ${selectedAreaCode == 'DEFAULT' ? 'DEFAULT area' : 'PIN $selectedAreaCode'}'),
+              value: enabled,
+              onChanged: canEditArea ? (value) => setControl(service, value, automatic) : null,
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Automatic assignment'),
+              subtitle: const Text('Off keeps assignment under Admin control'),
+              value: automatic,
+              onChanged: canEditArea ? (value) => setControl(service, enabled, value) : null,
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Pricing'),
+              subtitle: Text(priceLabel),
+              trailing: IconButton(
+                icon: const Icon(Icons.edit_outlined),
+                tooltip: 'Configure pricing',
+                onPressed: canEditArea ? () => editPricing(service, exactPrice ?? price) : null,
+              ),
+            ),
+          ]),
+        ),
+      );
+    }).toList());
+  }
+
+  Widget _serviceAreaManager(List<Map<String, dynamic>> areas) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Serviceable PIN codes', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+          SizedBox(height: 4),
+          Text('Add a PIN code once. Alteo uses it to check area coverage for each enabled service.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D), height: 1.4)),
+        ])),
+        const SizedBox(width: 10),
+        FilledButton.icon(
+          onPressed: savingArea ? null : () => editServiceArea(),
+          icon: savingArea ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_location_alt_rounded),
+          label: const Text('Add PIN'),
+        ),
+      ]),
+      const SizedBox(height: 10),
+      if (areas.isEmpty)
+        const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(16), child: Text('No PIN codes added yet. Add your first service area to enable PIN-level controls.')))
+      else
+        ...areas.map((area) {
+          final code = area['pincode']?.toString() ?? '';
+          final active = area['active'] == true;
+          final label = [
+            area['locality'], area['district'], area['state'],
+          ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
+          return Card(
+            elevation: 0,
+            color: Colors.white,
+            margin: const EdgeInsets.only(bottom: 7),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: active ? const Color(0xFFE1F2E9) : const Color(0xFFFFE8E6),
+                child: Icon(Icons.location_on_outlined, color: active ? const Color(0xFF176B57) : const Color(0xFFB3261E)),
+              ),
+              title: Text(code, style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text(label.isEmpty ? (active ? 'Serviceable' : 'Disabled') : '$label · ${active ? 'Serviceable' : 'Disabled'}'),
+              onTap: () => setState(() => selectedAreaCode = code),
+              trailing: Wrap(mainAxisSize: MainAxisSize.min, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                IconButton(tooltip: 'Edit area details', onPressed: () => editServiceArea(area), icon: const Icon(Icons.edit_outlined)),
+                Switch(value: active, onChanged: (value) => setAreaActive(area, value)),
               ]),
-            ));
-          }).toList());
-        },
-      ),
-    ),
-  ]);
+            ),
+          );
+        }),
+    ]);
+  }
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
+    stream: client.from('service_areas').stream(primaryKey: ['id']).order('pincode'),
+    builder: (context, areaSnapshot) {
+      if (areaSnapshot.hasError) return const Text('PIN-code settings are unavailable. Check the admin account and connection.');
+      if (!areaSnapshot.hasData) return const LinearProgressIndicator();
+      final areas = areaSnapshot.data!;
+      final selectedArea = areas.where((row) => row['pincode']?.toString() == selectedAreaCode).toList();
+      final selectedAreaActive = selectedArea.isNotEmpty && selectedArea.first['active'] == true;
+      if (selectedAreaCode != 'DEFAULT' && selectedArea.isEmpty && areas.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !areas.any((row) => row['pincode']?.toString() == selectedAreaCode)) {
+            setState(() => selectedAreaCode = 'DEFAULT');
+          }
+        });
+      }
+      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Service availability & pricing', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 5),
+        const Text('Control the PIN codes where Alteo operates, then choose which services are available in each area. Changes apply without releasing a new app build.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
+        const SizedBox(height: 16),
+        _serviceAreaManager(areas),
+        const SizedBox(height: 18),
+        const Divider(),
+        const SizedBox(height: 8),
+        const Text('Configure services', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: selectedAreaCode,
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Area to configure', border: OutlineInputBorder()),
+          items: [
+            const DropdownMenuItem(value: 'DEFAULT', child: Text('DEFAULT · Global fallback')),
+            ...areas.map((area) => DropdownMenuItem(
+              value: area['pincode']?.toString(),
+              child: Text('${area['pincode']} · ${area['locality'] ?? area['district'] ?? area['state'] ?? (area['active'] == true ? 'Service area' : 'Disabled')}' ,
+                overflow: TextOverflow.ellipsis),
+            )),
+          ],
+          onChanged: (value) {
+            if (value != null) setState(() => selectedAreaCode = value);
+          },
+        ),
+        if (selectedAreaCode != 'DEFAULT' && !selectedAreaActive)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('This PIN code is inactive. Activate it before enabling its services.', style: TextStyle(color: Color(0xFFB3261E), fontWeight: FontWeight.w700)),
+          ),
+        const SizedBox(height: 10),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('service_controls').stream(primaryKey: ['id']),
+          builder: (context, controlSnapshot) => StreamBuilder<List<Map<String, dynamic>>>(
+            stream: client.from('pricing_rules').stream(primaryKey: ['id']),
+            builder: (context, priceSnapshot) {
+              if (controlSnapshot.hasError || priceSnapshot.hasError) return const Text('Service settings unavailable. Try again or check admin permissions.');
+              if (!controlSnapshot.hasData || !priceSnapshot.hasData) return const LinearProgressIndicator();
+              return _serviceControls(controlSnapshot.data!, priceSnapshot.data!, selectedAreaActive);
+            },
+          ),
+        ),
+      ]);
+    },
+  );
 }
 
 class _Feature {
