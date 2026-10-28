@@ -238,11 +238,11 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
                     icon: busy ? const SizedBox(width:20,height:20,child:CircularProgressIndicator(strokeWidth:2)) : const Icon(Icons.refresh_rounded),
                   ),
                   IconButton(
-                    tooltip: 'Sign out',
-                    onPressed: () async {
+                    tooltip: 'Log out',
+                    onPressed: () => confirmAlteoLogout(context, onConfirm: () async {
                       await AlteoPushNotifications.instance.unregisterCurrentDevice(); await Supabase.instance.client.auth.signOut();
                       if (mounted) setState(() { authorized = false; onboardingRequired = false; onboardingRequest = null; message = null; });
-                    },
+                    }),
                     icon: const Icon(Icons.logout_rounded),
                   ),
                 ],
@@ -948,7 +948,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title), actions: [
-    IconButton(tooltip: 'Sign out', onPressed: widget.onSignOut, icon: const Icon(Icons.logout_rounded)),
+    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
 
   Widget _adminDashboard() => Scaffold(
