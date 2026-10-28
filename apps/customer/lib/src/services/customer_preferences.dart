@@ -7,6 +7,7 @@ final ValueNotifier<ThemeMode> alteoThemeMode = ValueNotifier<ThemeMode>(ThemeMo
 final ValueNotifier<String> alteoPreferredLanguage = ValueNotifier<String>('English');
 final ValueNotifier<String> alteoDeliveryLocation = ValueNotifier<String>('Choose your location');
 final ValueNotifier<Map<String, dynamic>?> alteoLocationSelection = ValueNotifier<Map<String, dynamic>?>(null);
+final ValueNotifier<Map<String, dynamic>?> alteoPublicServiceability = ValueNotifier<Map<String, dynamic>?>(null);
 
 Future<void> loadCustomerPreferences() async {
   final store = await SharedPreferences.getInstance();
@@ -20,6 +21,15 @@ Future<void> loadCustomerPreferences() async {
   final language = store.getString('alteo_language') ?? 'English';
   alteoPreferredLanguage.value = supported.contains(language) ? language : 'English';
   alteoDeliveryLocation.value = store.getString('alteo_delivery_location') ?? 'Choose your location';
+  final savedServiceability = store.getString('alteo_public_serviceability');
+  if (savedServiceability != null) {
+    try {
+      final decoded = jsonDecode(savedServiceability);
+      alteoPublicServiceability.value = decoded is Map ? Map<String, dynamic>.from(decoded) : null;
+    } catch (_) {
+      alteoPublicServiceability.value = null;
+    }
+  }
   final savedLocation = store.getString('alteo_location_selection');
   if (savedLocation != null) {
     try {
@@ -120,5 +130,15 @@ Future<void> setAlteoDeliveryLocation(
     };
     alteoLocationSelection.value = normalized;
     await store.setString('alteo_location_selection', jsonEncode(normalized));
+  }
+}
+
+Future<void> setAlteoPublicServiceability(Map<String, dynamic>? value) async {
+  alteoPublicServiceability.value = value == null ? null : Map<String, dynamic>.from(value);
+  final store = await SharedPreferences.getInstance();
+  if (value == null) {
+    await store.remove('alteo_public_serviceability');
+  } else {
+    await store.setString('alteo_public_serviceability', jsonEncode(value));
   }
 }
