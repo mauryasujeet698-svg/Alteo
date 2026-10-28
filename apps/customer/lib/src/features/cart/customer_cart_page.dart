@@ -50,8 +50,9 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
  }
 
  Future<void> checkout() async {
-  final recipient = TextEditingController();
-  final phone = TextEditingController();
+  final userAtStart = Supabase.instance.client.auth.currentUser;
+  final recipient = TextEditingController(text: userAtStart?.userMetadata?['full_name']?.toString() ?? '');
+  final phone = TextEditingController(text: userAtStart?.phone ?? '');
   final addressLine = TextEditingController();
   final city = TextEditingController();
   final stateName = TextEditingController();
@@ -64,7 +65,33 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   String selectedPaymentMethod = 'cod';
   List<Map<String, dynamic>> savedAddresses = [];
   Map<String, dynamic>? selectedAddress;
+  Map<String, dynamic>? selectedLocation = alteoLocationSelection.value;
   try {
+   // When checkout opens, use the latest GPS address if the customer has not
+   // chosen a saved or manual address. No extra tap is required.
+   try {
+    await AlteoFirstLaunchPermissionGate.waitUntilComplete('customer').timeout(const Duration(seconds: 35));
+   } catch (_) {}
+   if (selectedLocation == null || selectedLocation['source'] == 'current') {
+    final live = await CustomerLocationService.currentLocationIfPermitted();
+    if (live != null) {
+     selectedLocation = live;
+     final display = (live['display_address']?.toString() ?? '').trim();
+     final full = (live['formatted_address']?.toString() ?? '').trim();
+     await setAlteoDeliveryLocation(display.isNotEmpty ? display : full, details: live, source: 'current');
+    }
+   }
+   if (selectedLocation != null) {
+    selectedLatitude = (selectedLocation!['latitude'] as num?)?.toDouble();
+    selectedLongitude = (selectedLocation!['longitude'] as num?)?.toDouble();
+    addressLine.text = [
+     selectedLocation!['address_line1'], selectedLocation!['locality'],
+    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation!['formatted_address']?.toString() ?? '';
+    city.text = selectedLocation!['city']?.toString() ?? '';
+    stateName.text = selectedLocation!['state']?.toString() ?? '';
+    postalCode.text = selectedLocation!['postal_code']?.toString() ?? '';
+   }
    final userForAddresses = Supabase.instance.client.auth.currentUser;
    if (userForAddresses != null) {
     try {
