@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math' as _math;
 import 'package:http/http.dart' as http;
+import 'package:geocoding/geocoding.dart';
 
 /// Mapbox client APIs used by the customer app.
 /// Only a public (pk.) token may be embedded in a mobile app. Never use an sk. token.
@@ -34,23 +35,67 @@ class MapboxService {
   static String? get lastError => _lastError;
   static String get publicToken => isConfigured ? _publicToken : '';
 
-  static String get configurationMessage => 'Map search is temporarily unavailable. You can still enter an address manually.';
+  static String get configurationMessage => 'Road routing is temporarily unavailable. You can still choose a map location or enter an address manually.';
 
   static void _setHttpError(int status) {
     _lastError = switch (status) {
-      429 => 'Location search is busy right now. Please try again shortly.',
-      401 || 403 => 'Map search is temporarily unavailable. You can enter an address manually.',
-      _ => 'Could not load map details right now. Please try again shortly.',
+      401 || 403 => 'Address search is temporarily unavailable. Choose the point on the map or enter the address manually.',
+      429 => 'Address search is busy right now. Please try again shortly.',
+      _ => 'We could not load address details right now. Please try again.',
     };
+  }
+
+  static Future<List<double>?> _nativeGeocode(String value) async {
+    try {
+      final locations = await locationFromAddress(value.toLowerCase().contains('india') ? value : '$value, India')
+          .timeout(const Duration(seconds: 10));
+      if (locations.isEmpty) {
+        _lastError = 'We could not find that address. Try a nearby landmark or select the point on the map.';
+        return null;
+      }
+      _lastError = null;
+      return [locations.first.longitude, locations.first.latitude];
+    } catch (_) {
+      _lastError = 'We could not find that address. Try a nearby landmark or select the point on the map.';
+      return null;
+    }
+  }
+
+  static Future<String?> _nativeReverseGeocode(double longitude, double latitude) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude)
+          .timeout(const Duration(seconds: 10));
+      if (placemarks.isEmpty) {
+        _lastError = 'Your location is selected, but the readable address is unavailable.';
+        return null;
+      }
+      final p = placemarks.first;
+      final parts = <String>[
+        p.name ?? '',
+        p.street ?? '',
+        p.subLocality ?? '',
+        p.locality ?? '',
+        p.subAdministrativeArea ?? '',
+        p.administrativeArea ?? '',
+        p.postalCode ?? '',
+        p.country ?? '',
+      ].map((part) => part.trim()).where((part) => part.isNotEmpty);
+      final distinct = <String>[];
+      for (final part in parts) {
+        if (distinct.isEmpty || distinct.last.toLowerCase() != part.toLowerCase()) distinct.add(part);
+      }
+      _lastError = null;
+      return distinct.isEmpty ? null : distinct.join(', ');
+    } catch (_) {
+      _lastError = 'Your location is selected, but the readable address is unavailable.';
+      return null;
+    }
   }
 
   /// Forward-geocodes an address in India to [longitude, latitude].
   static Future<List<double>?> geocode(String address) async {
-    if (!isConfigured) {
-      _lastError = configurationMessage;
-      return null;
-    }
     final value = address.trim();
+    if (!isConfigured) return _nativeGeocode(value);
     if (value.length < 3) {
       _lastError = 'Enter at least 3 characters of an address or landmark.';
       return null;
@@ -74,7 +119,7 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return null;
+        return _nativeGeocode(value);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
@@ -103,10 +148,7 @@ class MapboxService {
 
   /// Reverse-geocodes GPS coordinates to a readable address.
   static Future<String?> reverseGeocode(double longitude, double latitude) async {
-    if (!isConfigured) {
-      _lastError = configurationMessage;
-      return null;
-    }
+    if (!isConfigured) return _nativeReverseGeocode(longitude, latitude);
     if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
       _lastError = 'Invalid GPS coordinates.';
       return null;
@@ -120,7 +162,7 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 10));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return null;
+        return _nativeReverseGeocode(longitude, latitude);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
@@ -133,8 +175,7 @@ class MapboxService {
       _lastError = null;
       return name?.trim().isNotEmpty == true ? name : null;
     } catch (_) {
-      _lastError = 'We found your location, but could not read its address yet.';
-      return null;
+      return _nativeReverseGeocode(longitude, latitude);
     }
   }
 
@@ -147,7 +188,7 @@ class MapboxService {
     String profile = 'driving',
   }) async {
     if (!isConfigured) {
-      _lastError = configurationMessage;
+      _lastError = 'Road routing is temporarily unavailable. Showing an approximate travel-time estimate instead.';
       return null;
     }
     const allowedProfiles = {'driving', 'driving-traffic', 'walking', 'cycling'};
