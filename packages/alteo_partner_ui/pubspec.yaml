@@ -1,0 +1,13 @@
+name: alteo_partner_ui
+description: Shared profile, support and policy pages for Alteo operational apps.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  supabase_flutter: ^2.8.0
+  shared_preferences: ^2.5.3
