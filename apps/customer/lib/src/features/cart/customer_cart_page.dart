@@ -50,8 +50,9 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
  }
 
  Future<void> checkout() async {
-  final recipient = TextEditingController();
-  final phone = TextEditingController();
+  final userAtStart = Supabase.instance.client.auth.currentUser;
+  final recipient = TextEditingController(text: userAtStart?.userMetadata?['full_name']?.toString() ?? '');
+  final phone = TextEditingController(text: userAtStart?.phone ?? '');
   final addressLine = TextEditingController();
   final city = TextEditingController();
   final stateName = TextEditingController();
@@ -64,13 +65,49 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   String selectedPaymentMethod = 'cod';
   List<Map<String, dynamic>> savedAddresses = [];
   Map<String, dynamic>? selectedAddress;
+  Map<String, dynamic>? selectedLocation = alteoLocationSelection.value;
   try {
+   try {
+    await AlteoFirstLaunchPermissionGate.waitUntilComplete('customer').timeout(const Duration(seconds: 35));
+   } catch (_) {}
+   // Use the latest GPS point automatically when the customer's saved selection
+   // is "current". If they deliberately selected a saved/different address, preserve it.
+   if (selectedLocation == null || selectedLocation['source'] == 'current') {
+    final live = await CustomerLocationService.currentLocationIfPermitted();
+    if (live != null) {
+     selectedLocation = live;
+     final display = live['display_address']?.toString().trim();
+     if (display != null && display.isNotEmpty) {
+      await setAlteoDeliveryLocation(display, details: live, source: 'current');
+     }
+    }
+   }
+   if (selectedLocation != null) {
+    selectedLatitude = (selectedLocation!['latitude'] as num?)?.toDouble();
+    selectedLongitude = (selectedLocation!['longitude'] as num?)?.toDouble();
+    addressLine.text = [
+      selectedLocation!['address_line1'],
+      selectedLocation!['locality'],
+    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation!['formatted_address']?.toString() ?? '';
+    city.text = selectedLocation!['city']?.toString() ?? '';
+    stateName.text = selectedLocation!['state']?.toString() ?? '';
+    postalCode.text = selectedLocation!['postal_code']?.toString() ?? '';
+   }
    final userForAddresses = Supabase.instance.client.auth.currentUser;
    if (userForAddresses != null) {
     try {
      final rows = await Supabase.instance.client.from('addresses').select('id,label,recipient_name,phone,address_line1,locality,city,state,postal_code,latitude,longitude,is_default').eq('user_id', userForAddresses.id).order('is_default', ascending: false);
      savedAddresses = (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
     } catch (_) { /* Manual entry remains available if saved addresses cannot load. */ }
+   }
+   if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
+    for (final saved in savedAddresses) {
+     if (saved['id'].toString() == selectedLocation!['id'].toString()) {
+      selectedAddress = saved;
+      break;
+     }
+    }
    }
    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) => AlertDialog(
     title: const Text('Delivery details'),
@@ -99,35 +136,90 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        });
       },
      ),
-     Align(alignment: Alignment.centerLeft, child: TextButton.icon(
-      onPressed: locating ? null : () async {
-       setDialogState(() => locating = true);
-       try {
-        var permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-         throw StateError('Allow location access in Android settings to use your current location.');
-        }
-        final position = await Geolocator.getCurrentPosition(locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)).timeout(const Duration(seconds: 15));
-        selectedLatitude = position.latitude;
-        selectedLongitude = position.longitude;
-        selectedAddress = null;
-        final place = await MapboxService.reverseGeocode(position.longitude, position.latitude);
-        addressLine.text = place ?? 'Current location (address details below)';
-        setDialogState(() {});
-       } catch (e) {
-        if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: const Text('Could not get your current location. Check location permission and try again.')));
-       } finally { setDialogState(() => locating = false); }
-      },
-      icon: locating ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location),
-      label: Text(locating ? 'Getting location…' : 'Use current location'),
-     )),
+     Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 4, bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: const Color(0xFFEAF4EE), borderRadius: BorderRadius.circular(14)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+       Row(children: [
+        const Icon(Icons.location_on_rounded, color: Color(0xFF176B57)),
+        const SizedBox(width: 8),
+        const Expanded(child: Text('Delivery location', style: TextStyle(fontWeight: FontWeight.w900))),
+        TextButton(
+         onPressed: locating ? null : () async {
+          setDialogState(() => locating = true);
+          try {
+           final result = await Navigator.of(dialogContext).push<Map<String, dynamic>>(MaterialPageRoute(
+            builder: (_) => CustomerLocationPickerPage(
+             initialLatitude: selectedLatitude,
+             initialLongitude: selectedLongitude,
+             initialAddress: selectedLocation?['formatted_address']?.toString(),
+            ),
+           ));
+           if (result != null) {
+            setDialogState(() {
+             selectedLocation = result;
+             selectedAddress = null;
+             selectedLatitude = (result['latitude'] as num?)?.toDouble();
+             selectedLongitude = (result['longitude'] as num?)?.toDouble();
+             addressLine.text = [
+              result['address_line1'], result['locality'],
+             ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+             if (addressLine.text.trim().isEmpty) addressLine.text = result['formatted_address']?.toString() ?? '';
+             city.text = result['city']?.toString() ?? '';
+             stateName.text = result['state']?.toString() ?? '';
+             postalCode.text = result['postal_code']?.toString() ?? '';
+            });
+           }
+          } catch (_) {
+           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not open the location picker. Please retry.')));
+          } finally { if (context.mounted) setDialogState(() => locating = false); }
+         },
+         child: Text(locating ? 'Opening…' : 'Change'),
+        ),
+       ]),
+       Text(
+        selectedLocation?['formatted_address']?.toString().trim().isNotEmpty == true
+         ? selectedLocation!['formatted_address'].toString()
+         : selectedLatitude != null ? 'Your phone location is selected. Add house or street details below.'
+         : 'Choose your current location or pin the exact delivery point.',
+        style: const TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF365D50)),
+       ),
+       const SizedBox(height: 4),
+       Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+        onPressed: locating ? null : () async {
+         setDialogState(() => locating = true);
+         try {
+          final live = await CustomerLocationService.currentLocationIfPermitted();
+          if (live == null) {
+           if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Allow location access or select the location on the map.')));
+           return;
+          }
+          setDialogState(() {
+           selectedLocation = live;
+           selectedAddress = null;
+           selectedLatitude = (live['latitude'] as num?)?.toDouble();
+           selectedLongitude = (live['longitude'] as num?)?.toDouble();
+           addressLine.text = [live['address_line1'], live['locality']].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+           if (addressLine.text.trim().isEmpty) addressLine.text = live['formatted_address']?.toString() ?? '';
+           city.text = live['city']?.toString() ?? '';
+           stateName.text = live['state']?.toString() ?? '';
+           postalCode.text = live['postal_code']?.toString() ?? '';
+          });
+         } finally { if (context.mounted) setDialogState(() => locating = false); }
+        },
+        icon: const Icon(Icons.my_location_rounded, size: 18),
+        label: const Text('Refresh current location'),
+       )),
+      ]),
+     ),
      TextField(controller: recipient, decoration: const InputDecoration(labelText: 'Recipient name')),
      TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Phone number')),
-     TextField(controller: addressLine, minLines: 1, maxLines: 2, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'House and street')),
-     TextField(controller: city, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'City')),
-     TextField(controller: stateName, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'State')),
-     TextField(controller: postalCode, keyboardType: TextInputType.number, onChanged: (_) { selectedAddress = null; selectedLatitude = null; selectedLongitude = null; }, decoration: const InputDecoration(labelText: 'PIN code')),
+     TextField(controller: addressLine, minLines: 1, maxLines: 2, onChanged: (_) { selectedAddress = null; }, decoration: const InputDecoration(labelText: 'House, building and street *')),
+     TextField(controller: city, onChanged: (_) { selectedAddress = null; }, decoration: const InputDecoration(labelText: 'City *')),
+     TextField(controller: stateName, onChanged: (_) { selectedAddress = null; }, decoration: const InputDecoration(labelText: 'State *')),
+     TextField(controller: postalCode, keyboardType: TextInputType.number, onChanged: (_) { selectedAddress = null; }, decoration: const InputDecoration(labelText: 'PIN code *')),
      TextField(controller: label, decoration: const InputDecoration(labelText: 'Save address as (optional)')),
      CheckboxListTile(contentPadding: EdgeInsets.zero, value: saveAddress, onChanged: (value) => setDialogState(() => saveAddress = value ?? false), title: const Text('Save these details for next time')),
      const SizedBox(height: 12),
@@ -196,6 +288,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
       'recipient_name': recipient.text.trim(),
       'phone': phone.text.trim(),
       'address_line1': addressLine.text.trim(),
+      'locality': selectedLocation?['locality'],
       'city': city.text.trim(),
       'state': stateName.text.trim(),
       'postal_code': postalCode.text.trim(),
@@ -248,7 +341,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        'postal_code': postalCode.text.trim(),
        'latitude': selectedLatitude,
        'longitude': selectedLongitude,
-       'area_code': 'DEFAULT',
+       'area_code': postalCode.text.trim(),
       },
       'p_idempotency_key': 'cart-' + cart['id'].toString() + '-' + groupIndex.toString(),
       'p_payment_method': selectedPaymentMethod,
