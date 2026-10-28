@@ -99,6 +99,14 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      savedAddresses = (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
     } catch (_) { /* Manual entry remains available if saved addresses cannot load. */ }
    }
+   if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
+    for (final address in savedAddresses) {
+     if (address['id'].toString() == selectedLocation!['id'].toString()) {
+      selectedAddress = address;
+      break;
+     }
+    }
+   }
    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) => AlertDialog(
     title: const Text('Delivery details'),
     content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -109,10 +117,23 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        value: address['id'].toString(),
        child: Text('${address['label'] ?? 'Saved address'}', overflow: TextOverflow.ellipsis),
       )).toList(),
-      onChanged: (id) {
+      onChanged: (id) async {
        final matches = savedAddresses.where((address) => address['id'].toString() == id).toList();
        if (matches.isEmpty) return;
        final match = matches.first;
+       final full = [
+        match['address_line1'], match['address_line2'], match['locality'],
+        match['city'], match['state'], match['postal_code'], 'India',
+       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+       final display = [
+        match['locality'], match['city'], match['postal_code'],
+       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
+       selectedLocation = <String, dynamic>{
+        ...match,
+        'formatted_address': full,
+        'display_address': display.isNotEmpty ? display : (match['label']?.toString() ?? 'Saved address'),
+        'source': 'saved',
+       };
        setDialogState(() {
         selectedAddress = match;
         selectedLatitude = (match['latitude'] as num?)?.toDouble();
@@ -124,6 +145,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
         stateName.text = (match['state'] ?? '').toString();
         postalCode.text = (match['postal_code'] ?? '').toString();
        });
+       final showAddress = selectedLocation!['display_address'].toString();
+       await setAlteoDeliveryLocation(showAddress, details: selectedLocation, source: 'saved');
       },
      ),
      Container(
