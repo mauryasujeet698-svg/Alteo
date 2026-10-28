@@ -171,9 +171,10 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
     } catch (e) {
       if (!mounted) return;
       final lower = e.toString().toLowerCase();
+      debugPrint('Google sign-in failed (${e.runtimeType}).');
       setState(() => message = lower.contains('canceled') || lower.contains('cancelled')
           ? 'Google sign-in was cancelled.'
-          : 'Google sign-in failed: ' + e.toString());
+          : 'Google sign-in could not be completed. Check your connection and try again.');
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -514,7 +515,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       await client.rpc(name, params: params);
       notice(success);
     } catch (e) {
-      notice('Action failed: ' + e.toString());
+      debugPrint('Admin/partner RPC action failed (${e.runtimeType}).');
+      notice('We could not complete this action. Check your access and connection, then try again.');
     }
   }
 
@@ -538,7 +540,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (mounted) setState(() => partnerOnline = next);
       notice(next ? 'You are online. Dispatch can assign eligible work.' : 'You are offline.');
     } catch (e) {
-      notice('Could not update availability: ' + e.toString());
+      debugPrint('Availability update failed (${e.runtimeType}).');
+      notice('Availability could not be updated. Check your connection and try again.');
     }
   }
 
@@ -1043,7 +1046,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       }
       notice(existing == null ? 'Product saved as a draft for Admin review.' : 'Product updated and saved.');
     } catch (e) {
-      notice('Could not save product: ' + e.toString());
+      debugPrint('Product save failed (${e.runtimeType}).');
+      notice('Could not save the product. Check the required fields and try again.');
     } finally {
       name.dispose();
       description.dispose();
@@ -1239,7 +1243,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         notice('Seller application submitted for admin review.');
       }
     } catch (e) {
-      notice('Could not submit seller application: ' + e.toString());
+      debugPrint('Seller application submission failed (${e.runtimeType}).');
+      notice('Could not submit the application. Check your connection and required details, then retry.');
     } finally {
       name.dispose();
     }
