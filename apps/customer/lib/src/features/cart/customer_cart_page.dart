@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:alteo_notifications/alteo_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import '../orders/customer_orders_page.dart';
@@ -125,6 +126,18 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        final match = matches.first;
        setDialogState(() {
         selectedAddress = match;
+        selectedLocation = <String, dynamic>{
+         ...match,
+         'latitude': (match['latitude'] as num?)?.toDouble(),
+         'longitude': (match['longitude'] as num?)?.toDouble(),
+         'formatted_address': [
+          match['address_line1'], match['locality'], match['city'], match['state'], match['postal_code'], 'India',
+         ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', '),
+         'display_address': [
+          match['locality'], match['city'], match['postal_code'],
+         ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · '),
+         'source': 'saved',
+        };
         selectedLatitude = (match['latitude'] as num?)?.toDouble();
         selectedLongitude = (match['longitude'] as num?)?.toDouble();
         recipient.text = (match['recipient_name'] ?? '').toString();
