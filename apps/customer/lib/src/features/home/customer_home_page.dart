@@ -8,7 +8,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../services/customer_content_service.dart';
 import '../../services/customer_preferences.dart';
-import '../../services/mapbox_service.dart';
 import '../../services/customer_location_service.dart';
 import '../location/customer_location_picker_page.dart';
 import '../addresses/customer_addresses_page.dart';
