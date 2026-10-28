@@ -373,8 +373,9 @@ class _AlteoHelpSupportPageState extends State<AlteoHelpSupportPage> {
 
 
 class AlteoDevicePermissionsPage extends StatelessWidget {
-  const AlteoDevicePermissionsPage({super.key, required this.appName});
+  const AlteoDevicePermissionsPage({super.key, required this.appName, this.includeLocation = true});
   final String appName;
+  final bool includeLocation;
 
   Future<void> _openSettings(BuildContext context) async {
     try {
@@ -397,12 +398,13 @@ class AlteoDevicePermissionsPage extends StatelessWidget {
         const SizedBox(height: 8),
         const Text('Manage the device permissions used by this app. If you previously denied a permission, Android settings are the reliable place to enable it again.', style: TextStyle(height: 1.5)),
         const SizedBox(height: 18),
-        Card(elevation: 0, child: ListTile(
-          leading: const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.location_on_rounded, color: _green)),
-          title: const Text('Location access', style: TextStyle(fontWeight: FontWeight.w800)),
-          subtitle: const Text('Used for location-dependent assignments, pickup/delivery navigation and availability when the workflow requires it.'),
-          isThreeLine: true,
-        )),
+        if (includeLocation)
+          Card(elevation: 0, child: ListTile(
+            leading: const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.location_on_rounded, color: _green)),
+            title: const Text('Location access', style: TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: const Text('Used for location-dependent assignments, pickup/delivery navigation and availability when the workflow requires it.'),
+            isThreeLine: true,
+          )),
         Card(elevation: 0, child: ListTile(
           leading: const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.notifications_active_outlined, color: _green)),
           title: const Text('Notifications', style: TextStyle(fontWeight: FontWeight.w800)),
