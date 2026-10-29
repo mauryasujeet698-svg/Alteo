@@ -241,6 +241,9 @@ class AlteoFirstLaunchPermissionGate extends StatefulWidget {
   final String appId;
   final Widget child;
 
+  /// Can be disabled by deterministic widget tests; normal app builds keep this enabled.
+  static bool enabled = true;
+
   static final Map<String, Completer<void>> _completion = <String, Completer<void>>{};
 
   static Completer<void> _forApp(String appId) =>
@@ -262,6 +265,11 @@ class _AlteoFirstLaunchPermissionGateState extends State<AlteoFirstLaunchPermiss
   @override
   void initState() {
     super.initState();
+    if (!AlteoFirstLaunchPermissionGate.enabled) {
+      final completion = AlteoFirstLaunchPermissionGate._forApp(widget.appId);
+      if (!completion.isCompleted) completion.complete();
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_started) {
         _started = true;
@@ -272,6 +280,10 @@ class _AlteoFirstLaunchPermissionGateState extends State<AlteoFirstLaunchPermiss
 
   Future<void> _requestOnce() async {
     final completion = AlteoFirstLaunchPermissionGate._forApp(widget.appId);
+    if (!AlteoFirstLaunchPermissionGate.enabled) {
+      if (!completion.isCompleted) completion.complete();
+      return;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = 'alteo_first_launch_permissions_v1_${widget.appId}';
