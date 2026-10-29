@@ -1457,11 +1457,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                     ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
-                    child: Text(
-                      lastLocationAt == null ? 'Location has not been shared yet.'
-                        : 'Last location update · ${lastLocationAt!.toLocal().toString().substring(0, 16)}',
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
-                    ),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(
+                        lastLocationAt == null ? 'Location has not been shared yet.'
+                          : 'Last location update · ${lastLocationAt!.toLocal().toString().substring(0, 16)}',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
+                      ),
+                      const SizedBox(height: 3),
+                      const Text('Map data © OpenStreetMap contributors',
+                        style: TextStyle(fontSize: 11, color: Color(0xFF68736D))),
+                    ]),
                   ),
                 ]),
               ),
