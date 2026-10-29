@@ -484,6 +484,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   final _notificationBodyController = TextEditingController();
   final _notificationUserIdController = TextEditingController();
   String _notificationAudience = 'all_customers';
+  String? _notificationRecipientId;
+  Future<List<Map<String, dynamic>>>? _notificationRecipients;
   bool _sendingNotification = false;
   String? _notificationResult;
 
@@ -1339,26 +1341,49 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     catch (e) { debugPrint('Banner deletion failed (${e.runtimeType}).'); notice('Could not delete the banner. Please retry.'); }
   }
 
+  String _notificationTargetAppId(String audience) =>
+      audience.contains('delivery_partner') ? 'delivery_partner' : 'customer';
+
+  bool get _isSpecificNotificationAudience => _notificationAudience.startsWith('specific_');
+
+  Future<List<Map<String, dynamic>>> _loadNotificationRecipients(String appId) async {
+    final rows = await client.rpc('admin_list_notification_recipients', params: {'p_app_id': appId});
+    return List<Map<String, dynamic>>.from((rows as List).map((row) => Map<String, dynamic>.from(row as Map)));
+  }
+
+  void _changeNotificationAudience(String value) {
+    final specific = value.startsWith('specific_');
+    final appId = _notificationTargetAppId(value);
+    setState(() {
+      _notificationAudience = value;
+      _notificationRecipientId = null;
+      _notificationResult = null;
+      _notificationRecipients = specific ? _loadNotificationRecipients(appId) : null;
+    });
+  }
+
   Future<void> _sendAdminPushNotification() async {
     final title = _notificationTitleController.text.trim();
     final body = _notificationBodyController.text.trim();
-    final userId = _notificationUserIdController.text.trim();
+    final specific = _isSpecificNotificationAudience;
+    final appId = _notificationTargetAppId(_notificationAudience);
+    final userId = _notificationRecipientId ?? '';
     if (title.isEmpty || title.length > 100 || body.isEmpty || body.length > 1000) {
       notice('Enter a title (up to 100 characters) and message (up to 1,000 characters).');
       return;
     }
-    if (_notificationAudience == 'specific_user' &&
-        !RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(userId)) {
-      notice('Enter a valid customer user UUID.');
+    if (specific && userId.isEmpty) {
+      notice('Choose a recipient from the list before sending.');
       return;
     }
 
-    if (_notificationAudience == 'all_customers') {
+    if (!specific) {
+      final audienceLabel = _notificationAudience == 'all_customers' ? 'all opted-in customers' : 'all opted-in delivery partners';
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: const Text('Send to all opted-in customers?'),
-          content: Text('Title: $title\n\n$body\n\nThis sends a push notification to customer installs subscribed to Firebase notifications.'),
+          title: Text('Send to $audienceLabel?'),
+          content: Text('Title: $title\n\n$body\n\nThis sends a push notification to devices subscribed to the selected audience.'),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
             FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Send broadcast')),
@@ -1374,13 +1399,17 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     });
     try {
       final payload = <String, dynamic>{
-        'audience': _notificationAudience,
-        'app_id': 'customer',
+        'audience': specific ? 'specific_user' : _notificationAudience,
+        'app_id': appId,
         'title': title,
         'body': body,
-        'data': <String, String>{'screen': 'home', 'source': 'admin_broadcast'},
+        'data': <String, String>{
+          'screen': 'notifications',
+          'source': 'admin_broadcast',
+          'audience': _notificationAudience,
+        },
       };
-      if (_notificationAudience == 'specific_user') payload['user_id'] = userId;
+      if (specific) payload['user_id'] = userId;
       final response = await client.functions.invoke('send-push-notification', body: payload);
       final data = response.data is Map
           ? Map<String, dynamic>.from(response.data as Map)
@@ -1391,13 +1420,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
       final sent = (data['sent'] as num?)?.toInt() ?? 0;
       final attempted = (data['attempted'] as num?)?.toInt() ?? 0;
+      final inbox = (data['inbox_recipients'] as num?)?.toInt() ?? 0;
       String result;
       if (_notificationAudience == 'all_customers' && sent > 0) {
-        result = 'Firebase accepted the broadcast for the alteo_customers topic. Delivery depends on notification permission, network and device settings.';
+        result = 'Firebase accepted the broadcast for all opted-in customers. $inbox customer inbox record(s) were created. Delivery depends on device permission, network and system settings.';
+      } else if (_notificationAudience == 'all_delivery_partners' && sent > 0) {
+        result = 'Firebase accepted the broadcast for delivery partners. $inbox in-app notification record(s) were created. Delivery depends on app version, permission and device settings.';
       } else if (sent > 0) {
-        result = 'Firebase accepted $sent of $attempted registered customer device message(s).';
+        result = 'Firebase accepted $sent of $attempted registered device message(s).';
       } else {
-        result = data['message']?.toString() ?? 'No registered customer devices were found. Open the Customer app, sign in and allow notifications first.';
+        result = data['message']?.toString() ?? 'No registered devices were found for this recipient. Ask them to open the app, sign in and allow notifications.';
       }
       if (mounted) setState(() => _notificationResult = result);
     } catch (error) {
@@ -1412,10 +1444,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     body: ListView(
       padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
       children: [
-        const Text('Send a customer push notification', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
+        const Text('Send a notification', style: TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
         const SizedBox(height: 6),
         const Text(
-          'Send an announcement from Admin. The Customer app must have been opened at least once and the user must allow notifications. When the app is closed, Android can display Firebase notification messages in the notification shade.',
+          'Choose all customers, all delivery partners, or one individual. Individual recipients are selected by name from accounts with a registered device; no user UUID needs to be copied.',
           style: TextStyle(color: Color(0xFF68736D), height: 1.45),
         ),
         const SizedBox(height: 18),
@@ -1424,25 +1456,62 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           decoration: const InputDecoration(labelText: 'Audience', border: OutlineInputBorder()),
           items: const [
             DropdownMenuItem(value: 'all_customers', child: Text('All opted-in customers')),
-            DropdownMenuItem(value: 'specific_user', child: Text('One customer (user UUID)')),
+            DropdownMenuItem(value: 'all_delivery_partners', child: Text('All opted-in delivery partners')),
+            DropdownMenuItem(value: 'specific_customer', child: Text('One customer')),
+            DropdownMenuItem(value: 'specific_delivery_partner', child: Text('One delivery partner')),
           ],
           onChanged: _sendingNotification ? null : (value) {
-            if (value != null) setState(() {
-              _notificationAudience = value;
-              _notificationResult = null;
-            });
+            if (value != null) _changeNotificationAudience(value);
           },
         ),
-        if (_notificationAudience == 'specific_user') ...[
+        if (_isSpecificNotificationAudience) ...[
           const SizedBox(height: 12),
-          TextField(
-            controller: _notificationUserIdController,
-            enabled: !_sendingNotification,
-            decoration: const InputDecoration(
-              labelText: 'Customer user UUID',
-              hintText: 'Customer account ID',
-              border: OutlineInputBorder(),
-            ),
+          FutureBuilder<List<Map<String, dynamic>>>(
+            future: _notificationRecipients,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: LinearProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Could not load recipients. Check that the app has registered notification devices.'),
+                  TextButton.icon(
+                    onPressed: _sendingNotification ? null : () => setState(() {
+                      _notificationRecipientId = null;
+                      _notificationRecipients = _loadNotificationRecipients(_notificationTargetAppId(_notificationAudience));
+                    }),
+                    icon: const Icon(Icons.refresh_rounded), label: const Text('Retry recipient list'),
+                  ),
+                ]);
+              }
+              final recipients = snapshot.data ?? <Map<String, dynamic>>[];
+              if (recipients.isEmpty) return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8),
+                child: Text('No registered devices found for this audience yet. The person must open the correct app, sign in and allow notifications.',
+                  style: TextStyle(color: Color(0xFF8A5A00), height: 1.4)),
+              );
+              final validSelection = recipients.any((row) => row['user_id']?.toString() == _notificationRecipientId);
+              return DropdownButtonFormField<String>(
+                value: validSelection ? _notificationRecipientId : null,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: _notificationAudience == 'specific_customer' ? 'Customer recipient' : 'Delivery partner recipient',
+                  border: const OutlineInputBorder(),
+                  helperText: 'Only accounts with a registered device are listed.',
+                ),
+                items: recipients.map((row) {
+                  final id = row['user_id']?.toString() ?? '';
+                  final name = row['display_name']?.toString().trim() ?? '';
+                  final email = row['email']?.toString().trim() ?? '';
+                  final label = <String>[if (name.isNotEmpty) name, if (email.isNotEmpty) email].join(' · ');
+                  return DropdownMenuItem<String>(value: id, child: Text(label.isEmpty ? 'Account ' + id.substring(0, id.length < 8 ? id.length : 8) : label, maxLines: 2, overflow: TextOverflow.ellipsis));
+                }).toList(),
+                onChanged: _sendingNotification ? null : (value) => setState(() {
+                  _notificationRecipientId = value;
+                  _notificationResult = null;
+                }),
+              );
+            },
           ),
         ],
         const SizedBox(height: 12),
@@ -1484,7 +1553,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ],
         const SizedBox(height: 18),
         const Text(
-          'Notifications can be sent only after secure delivery is configured and at least one Customer device has registered. Send a test notification before broadcasting.',
+          'Notifications require a registered device and permission. Broadcasts use the app-specific Firebase topic and also create records in the recipient notification inbox.',
           style: TextStyle(color: Color(0xFF68736D), fontSize: 12, height: 1.45),
         ),
       ],
