@@ -679,6 +679,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ),
           AlteoPartnerAccountCard(role: requiredRole, userId: user!.id),
           AlteoPartnerRatingCard(role: requiredRole, userId: user!.id),
+          AlteoAppUpdateTile(appId: requiredRole),
+          AlteoAppLegalTiles(appName: appName),
           if (requiredRole == 'seller')
             FutureBuilder<Map<String, dynamic>?>(
               future: sellerProfile,
