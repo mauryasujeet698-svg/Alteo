@@ -61,14 +61,19 @@ class CustomerContentService {
     if (area['serviceable'] != true) return <CustomerProduct>[];
 
     var query = client.from('seller_products')
-        .select('id,name,description,price_minor,image_url,kind')
+        .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
         .eq('status', 'active')
         .not('image_url', 'is', null)
         .neq('image_url', '');
     if (kind != null) query = query.eq('kind', kind);
-    final rows = await query.order('created_at', ascending: false).limit(30);
-    return (rows as List)
-        .map((e) => CustomerProduct.fromMap(Map<String, dynamic>.from(e as Map)))
+    final rows = await query.order('created_at', ascending: false).limit(100);
+    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).where((row) {
+      final mode = row['availability_mode']?.toString() ?? 'all';
+      final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+      return mode == 'all' || pins.contains(pin);
+    });
+    return availableRows
+        .map(CustomerProduct.fromMap)
         .where((p) => p.imageUrl.startsWith('https://'))
         .toList();
   }
@@ -79,15 +84,20 @@ class CustomerContentService {
     final area = await getPublicServiceability(pin);
     if (area['serviceable'] != true) return <CustomerProduct>[];
     final rows = await client.from('seller_products')
-        .select('id,name,description,price_minor,image_url,kind')
+        .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
         .eq('status', 'active')
         .not('image_url', 'is', null)
         .neq('image_url', '')
         .ilike('name', '%${query.trim()}%')
         .order('created_at', ascending: false)
-        .limit(30);
-    return (rows as List)
-        .map((e) => CustomerProduct.fromMap(Map<String, dynamic>.from(e as Map)))
+        .limit(100);
+    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).where((row) {
+      final mode = row['availability_mode']?.toString() ?? 'all';
+      final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+      return mode == 'all' || pins.contains(pin);
+    });
+    return availableRows
+        .map(CustomerProduct.fromMap)
         .where((p) => p.imageUrl.startsWith('https://'))
         .toList();
   }
