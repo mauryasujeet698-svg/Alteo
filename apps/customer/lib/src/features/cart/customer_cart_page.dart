@@ -101,7 +101,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    }
    if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
     for (final address in savedAddresses) {
-     if (address['id'].toString() == selectedLocation['id'].toString()) {
+     if (address['id'].toString() == (selectedLocation?['id']?.toString() ?? '')) {
       selectedAddress = address;
       break;
      }
