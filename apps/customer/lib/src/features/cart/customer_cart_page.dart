@@ -202,7 +202,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        ]),
        Text(
         (selectedLocation?['formatted_address']?.toString().trim().isNotEmpty ?? false)
-          ? selectedLocation['formatted_address'].toString()
+          ? (selectedLocation?['formatted_address']?.toString() ?? '')
           : selectedLatitude != null
             ? 'Your current map point is selected. Add house or street details below.'
             : 'Your detected location will be used when available. You can pin a different address.',
