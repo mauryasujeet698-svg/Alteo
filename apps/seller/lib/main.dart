@@ -1053,6 +1053,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     String? imagePath = existing?['image_public_id']?.toString();
     final oldImagePath = imagePath;
     var kind = existing?['kind']?.toString() ?? 'shopping';
+    var availabilityMode = 'specific';
+    var availablePincodes = List<String>.from((existing?['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
     var uploadingImage = false;
     try {
       final saved = await showDialog<bool>(
@@ -1065,6 +1067,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   TextField(controller: name, maxLength: 140, decoration: const InputDecoration(labelText: 'Product name *', border: OutlineInputBorder())),
+                  const SizedBox(height: 10),
+                  AlteoPincodeCoverageSelector(
+                    initialMode: availabilityMode,
+                    initialPincodes: availablePincodes,
+                    allowAllPincodes: false,
+                    onChanged: (mode, pins) => setDialogState(() {
+                      availabilityMode = mode;
+                      availablePincodes = pins;
+                    }),
+                  ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<String>(
                     value: kind,
@@ -1152,10 +1164,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         notice('Upload a product image before saving. Product images are required.');
         return;
       }
+      if (availablePincodes.isEmpty) {
+        notice('Select at least one active PIN code before saving this product.');
+        return;
+      }
 
       final payload = <String, dynamic>{
         'name': productName,
         'kind': kind,
+        'availability_mode': availabilityMode,
+        'available_pincodes': availablePincodes,
         'description': itemDescription,
         'price_minor': (parsedPrice * 100).round(),
         'image_url': imageUrl,
