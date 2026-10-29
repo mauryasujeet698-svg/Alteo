@@ -387,6 +387,57 @@ jobs:
           manifest.write_text(text)
           print("Configured OAuth deep link and voice-search permission:", scheme)
           PY
+      - name: Set Android SDK levels for Google Play
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          candidates = [Path("android/app/build.gradle.kts"), Path("android/app/build.gradle")]
+          gradle = next((p for p in candidates if p.exists()), None)
+          if gradle is None:
+              raise SystemExit("Generated Android Gradle file was not found.")
+          source = gradle.read_text()
+
+          if gradle.suffix == ".kts":
+              source, compile_count = re.subn(
+                  r"compileSdk\s*=\s*flutter\.compileSdkVersion",
+                  "compileSdk = 36",
+                  source,
+                  count=1,
+              )
+              source, target_count = re.subn(
+                  r"targetSdk\s*=\s*flutter\.targetSdkVersion",
+                  "targetSdk = 36",
+                  source,
+                  count=1,
+              )
+              if compile_count == 0 and "compileSdk = 36" not in source:
+                  raise SystemExit("Could not set compileSdk to Android API 36.")
+              if target_count == 0 and "targetSdk = 36" not in source:
+                  raise SystemExit("Could not set targetSdk to Android API 36.")
+          else:
+              source, compile_count = re.subn(
+                  r"compileSdkVersion\s+flutter\.compileSdkVersion",
+                  "compileSdkVersion 36",
+                  source,
+                  count=1,
+              )
+              source, target_count = re.subn(
+                  r"targetSdkVersion\s+flutter\.targetSdkVersion",
+                  "targetSdkVersion 36",
+                  source,
+                  count=1,
+              )
+              if compile_count == 0 and not re.search(r"compileSdkVersion\s+36", source):
+                  raise SystemExit("Could not set compileSdk to Android API 36.")
+              if target_count == 0 and not re.search(r"targetSdkVersion\s+36", source):
+                  raise SystemExit("Could not set targetSdk to Android API 36.")
+
+          gradle.write_text(source)
+          print("Configured compileSdk and targetSdk to Android API 36.")
+          PY
       - name: Compress native libraries inside APK
         shell: bash
         run: |
@@ -501,6 +552,27 @@ jobs:
             echo "APK exceeds the 15 MB release limit."
             exit 1
           fi
+      - name: Build signed Android App Bundle for Google Play
+        env:
+          MAPBOX_PUBLIC_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN || secrets.MAPBOX_TOKEN || secrets.MAPBOX_ACCESS_TOKEN }}
+          GOOGLE_WEB_CLIENT_ID: ${{ secrets.GOOGLE_WEB_CLIENT_ID }}
+          ALTEO_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEYSTORE_PASSWORD }}
+          ALTEO_ANDROID_KEY_ALIAS: ${{ secrets.ALTEO_ANDROID_KEY_ALIAS }}
+          ALTEO_ANDROID_KEY_PASSWORD: ${{ secrets.ALTEO_ANDROID_KEY_PASSWORD }}
+        run: flutter build appbundle --release --dart-define=MAPBOX_PUBLIC_TOKEN="$MAPBOX_PUBLIC_TOKEN" --dart-define=GOOGLE_WEB_CLIENT_ID="$GOOGLE_WEB_CLIENT_ID"
+      - name: Verify signed Android App Bundle
+        shell: bash
+        run: |
+          AAB="build/app/outputs/bundle/release/app-release.aab"
+          test -f "$AAB"
+          echo "Signed Android App Bundle created: $(stat -c%s "$AAB") bytes"
+      - name: Upload Android App Bundle for Play Store
+        uses: actions/upload-artifact@v4
+        with:
+          name: alteo-${{ matrix.name }}-play-store-aab
+          path: ${{ matrix.app }}/build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
