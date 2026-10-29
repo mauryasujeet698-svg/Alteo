@@ -127,7 +127,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
       }
       final request = await client.from('role_requests').select('*').eq('user_id', current.id).eq('requested_role', requiredRole).maybeSingle();
       if (!mounted) return;
-      if (request == null || request['status'] == 'rejected') {
+      if (request == null || request['status'] == 'rejected' ||
+          (request['status'] == 'pending' && request['needs_correction'] == true)) {
         setState(() { authorized = false; onboardingRequired = true; onboardingRequest = request == null ? null : Map<String,dynamic>.from(request); message = null; });
         if (authSheetOpen && mounted) Navigator.of(context).maybePop();
         return;
@@ -1626,12 +1627,14 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   XFile? _photo;
   bool _saving = false;
   String? _error;
+  List<Map<String, dynamic>> _serviceAreas = <Map<String, dynamic>>[];
+  bool _loadingServiceAreas = false;
 
   List<MapEntry<String, String>> get _fields => switch (widget.role) {
     'seller' => const [MapEntry('shop_name','Shop / business name *'), MapEntry('business_category','Business category *'), MapEntry('gstin','GSTIN (if applicable)')],
     'dark_store' => const [MapEntry('store_name','Dark store name *'), MapEntry('operating_hours','Operating hours *'), MapEntry('facility_details','Facility details (optional)')],
-    'driver_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('driving_licence_number','Driving licence number *'), MapEntry('service_area','Preferred service area *')],
-    'delivery_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('service_area','Preferred service area *')],
+    'driver_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('driving_licence_number','Driving licence number *'), MapEntry('service_area','Service PIN code *')],
+    'delivery_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('service_area','Service PIN code *')],
     _ => const [],
   };
 
@@ -1644,9 +1647,33 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
     _phone.text = (r['phone'] ?? '').toString();
     _address.text = (d['address'] ?? '').toString();
     for (final f in _fields) { _extra[f.key] = TextEditingController(text: (d[f.key] ?? '').toString()); }
+    if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') {
+      unawaited(_loadServiceAreas());
+    }
   }
   @override
   void dispose() { _name.dispose(); _phone.dispose(); _address.dispose(); for (final c in _extra.values) { c.dispose(); } super.dispose(); }
+
+  Future<void> _loadServiceAreas() async {
+    if (mounted) setState(() => _loadingServiceAreas = true);
+    try {
+      final rows = await Supabase.instance.client.from('service_areas')
+        .select('pincode,locality,district,state').eq('active', true).order('pincode');
+      final areas = List<Map<String, dynamic>>.from(rows as List);
+      if (!mounted) return;
+      setState(() {
+        _serviceAreas = areas;
+        final selected = _extra['service_area']?.text.trim() ?? '';
+        if (selected.isNotEmpty && !areas.any((row) => row['pincode']?.toString() == selected)) {
+          _extra['service_area']?.clear();
+        }
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not load active service PIN codes. Please check your connection and retry.');
+    } finally {
+      if (mounted) setState(() => _loadingServiceAreas = false);
+    }
+  }
 
   Future<void> _choosePhoto() async {
     try {
@@ -1656,6 +1683,14 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   }
 
   Future<void> _submit() async {
+    if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') {
+      final pin = _extra['service_area']?.text.trim() ?? '';
+      if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin) ||
+          !_serviceAreas.any((area) => area['pincode']?.toString() == pin)) {
+        setState(() => _error = 'Select an active six-digit service PIN code before submitting.');
+        return;
+      }
+    }
     if (!_key.currentState!.validate()) return;
     final existing = widget.existingRequest;
     final oldPath = existing?['profile_photo_path']?.toString();
@@ -1678,9 +1713,11 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
         'email': widget.user.email, 'display_name': _name.text.trim(), 'phone': _phone.text.trim(),
         'profile_photo_path': photoPath, 'application_data': data,
         'document_paths': existing?['document_paths'] ?? <dynamic>[], 'rejection_reason': null,
+        'needs_correction': false, 'correction_reason': null,
         'reviewed_at': null, 'reviewed_by': null, 'updated_at': DateTime.now().toUtc().toIso8601String(),
       };
-      if (existing != null && existing['status'] == 'rejected') {
+      if (existing != null && (existing['status'] == 'rejected' ||
+          (existing['status'] == 'pending' && existing['needs_correction'] == true))) {
         await client.from('role_requests').update(payload).eq('id', existing['id']);
       } else {
         await client.from('role_requests').insert(payload);
@@ -1689,7 +1726,9 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Onboarding request submitted. Please wait for Admin approval.')));
       widget.onSubmitted();
     } catch (e) {
-      if (mounted) setState(() => _error = 'Could not submit onboarding. Please try again. $e');
+      if (mounted) setState(() => _error = e.toString().toLowerCase().contains('service pin')
+          ? 'Select an active six-digit service PIN code before submitting.'
+          : 'Could not submit onboarding. Please check your details and connection, then retry.');
     } finally { if (mounted) setState(() => _saving = false); }
   }
 
@@ -1702,6 +1741,16 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
       Text('Complete your details', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
       const SizedBox(height: 8),
       Text('This application is only for ${widget.role.replaceAll('_',' ')} access. You may use the same Google account in other Alteo partner apps and submit separate applications there.', style: const TextStyle(height: 1.45)),
+      if (widget.existingRequest?['needs_correction'] == true) ...[
+        Container(width: double.infinity, padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: const Color(0xFFFFF2D8), borderRadius: BorderRadius.circular(12)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Admin requested a correction', style: TextStyle(fontWeight: FontWeight.w900)),
+            Text((widget.existingRequest?['correction_reason'] ?? 'Please review and correct the application details.').toString()),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
       const SizedBox(height: 18),
       TextFormField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter your full name' : null),
       const SizedBox(height: 12),
@@ -1710,7 +1759,37 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
       TextFormField(controller: _address, maxLines: 2, decoration: const InputDecoration(labelText: 'Address *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 5) ? 'Enter your complete address' : null),
       const SizedBox(height: 12),
       for (final f in _fields) ...[
-        TextFormField(controller: _extra[f.key], decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder()), validator: (v) => f.value.endsWith('*') && (v == null || v.trim().isEmpty) ? 'This field is required' : null),
+        if (f.key == 'service_area' &&
+            (widget.role == 'driver_partner' || widget.role == 'delivery_partner')) ...[
+          if (_loadingServiceAreas)
+            const LinearProgressIndicator()
+          else
+            DropdownButtonFormField<String>(
+              value: _serviceAreas.any((area) => area['pincode']?.toString() == _extra[f.key]!.text.trim())
+                  ? _extra[f.key]!.text.trim() : null,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder(),
+                helperText: 'Choose an active PIN code. Admin controls which localities are covered.'),
+              items: _serviceAreas.map((area) {
+                final pin = area['pincode']?.toString() ?? '';
+                final locality = area['locality']?.toString().trim() ?? '';
+                final district = area['district']?.toString().trim() ?? '';
+                final parts = <String>[pin, if (locality.isNotEmpty) locality, if (district.isNotEmpty) district];
+                return DropdownMenuItem<String>(value: pin, child: Text(parts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis));
+              }).toList(),
+              onChanged: _saving || _serviceAreas.isEmpty ? null : (value) {
+                if (value != null) setState(() { _extra[f.key]!.text = value; _error = null; });
+              },
+              validator: (value) => value != null &&
+                  RegExp(r'^[1-9][0-9]{5}$').hasMatch(value) &&
+                  _serviceAreas.any((area) => area['pincode']?.toString() == value)
+                    ? null : (_serviceAreas.isEmpty ? 'No active PIN codes are configured. Contact Admin.' : 'Select an active six-digit PIN code.'),
+            ),
+          if (!_loadingServiceAreas && _serviceAreas.isEmpty)
+            const Padding(padding: EdgeInsets.only(top: 4), child: Text('Admin must add and activate a service PIN before you can apply.', style: TextStyle(color: Color(0xFFB3261E)))),
+        ] else
+          TextFormField(controller: _extra[f.key], decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder()),
+            validator: (v) => f.value.endsWith('*') && (v == null || v.trim().isEmpty) ? 'This field is required' : null),
         const SizedBox(height: 12),
       ],
       OutlinedButton.icon(onPressed: _saving ? null : _choosePhoto, icon: Icon(_photo == null ? Icons.add_a_photo_outlined : Icons.check_circle_outline), label: Text(_photo == null ? (widget.existingRequest?['profile_photo_path'] == null ? 'Upload profile photo *' : 'Replace profile photo') : 'Profile photo selected')),
