@@ -566,10 +566,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Future<void> reviewRoleRequest(Map<String, dynamic> request, {required bool approve}) async {
     final requestId = request['id']?.toString();
-    final userId = request['user_id']?.toString();
-    final requestedRole = request['requested_role']?.toString();
-    if (requestId == null || userId == null || requestedRole == null) {
-      notice('This approval request is missing required details.');
+    if (requestId == null) {
+      notice('This approval request is missing its request ID.');
       return;
     }
     String? rejectionReason;
@@ -578,30 +576,71 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       try {
         final confirmed = await showDialog<bool>(context: context, builder: (dc) => AlertDialog(
           title: const Text('Reject onboarding'),
-          content: TextField(controller: controller, maxLines: 3, decoration: const InputDecoration(labelText: 'Reason for rejection', hintText: 'Tell the applicant what needs to be corrected', border: OutlineInputBorder())),
+          content: TextField(controller: controller, maxLines: 3,
+            decoration: const InputDecoration(labelText: 'Reason for rejection', hintText: 'Tell the applicant what needs correcting', border: OutlineInputBorder())),
           actions: [
             TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
             FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Reject application')),
           ],
         ));
         if (confirmed != true) return;
-        rejectionReason = controller.text.trim().isEmpty ? 'Please review your details and contact Alteo support if you need help.' : controller.text.trim();
-      } finally { controller.dispose(); }
+        rejectionReason = controller.text.trim().isEmpty
+            ? 'Please review your details and contact Alteo support if you need help.'
+            : controller.text.trim();
+      } finally {
+        controller.dispose();
+      }
     }
     try {
-      if (approve) {
-        await client.rpc('admin_grant_user_role', params: {'p_user_id': userId, 'p_role': requestedRole});
-      }
-      await client.from('role_requests').update({
-        'status': approve ? 'approved' : 'rejected',
-        'reviewed_at': DateTime.now().toUtc().toIso8601String(),
-        'reviewed_by': user?.id,
-        'rejection_reason': approve ? null : rejectionReason,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }).eq('id', requestId);
-      notice(approve ? 'Role approved. This role is available only in its separate Alteo app.' : 'Onboarding rejected. The applicant can correct details and resubmit.');
+      await client.rpc('admin_review_role_request', params: {
+        'p_request_id': requestId,
+        'p_approve': approve,
+        'p_rejection_reason': rejectionReason,
+      }).timeout(const Duration(seconds: 20));
+      notice(approve
+          ? 'Role approved. The account and partner profile were updated together.'
+          : 'Application rejected with feedback.');
     } catch (e) {
-      notice('Could not review role request: $e');
+      final error = e.toString();
+      notice(error.contains('6-digit service PIN')
+          ? 'Approval blocked: select an active six-digit PIN code in the application first.'
+          : error.contains('not active')
+              ? 'Approval blocked: add and activate this PIN code in Service Areas first.'
+              : 'Could not review the application. Check its details and retry.');
+    }
+  }
+
+  Future<void> requestRoleCorrection(Map<String, dynamic> request) async {
+    final requestId = request['id']?.toString();
+    if (requestId == null) {
+      notice('This application is missing its request ID.');
+      return;
+    }
+    final controller = TextEditingController();
+    try {
+      final confirmed = await showDialog<bool>(context: context, builder: (dc) => AlertDialog(
+        title: const Text('Request application corrections'),
+        content: TextField(controller: controller, maxLines: 4, maxLength: 500,
+          decoration: const InputDecoration(labelText: 'What must the applicant correct?', border: OutlineInputBorder())),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Send corrections')),
+        ],
+      ));
+      if (confirmed != true) return;
+      if (controller.text.trim().length < 5) {
+        notice('Enter at least five characters describing the required corrections.');
+        return;
+      }
+      await client.rpc('admin_request_role_correction', params: {
+        'p_request_id': requestId,
+        'p_reason': controller.text.trim(),
+      }).timeout(const Duration(seconds: 15));
+      notice('Corrections requested. The applicant can update the same application.');
+    } catch (_) {
+      notice('Could not return this application for correction.');
+    } finally {
+      controller.dispose();
     }
   }
 
@@ -665,6 +704,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 subtitle: Text('${role.replaceAll('_', ' ')} · ${request['phone'] ?? 'No mobile number'} · ${email ?? _short(request['user_id']?.toString() ?? '')}'),
                 trailing: Wrap(spacing: 0, children: [
                   IconButton(tooltip: 'View application', onPressed: () => showPartnerApplication(request), icon: const Icon(Icons.visibility_outlined)),
+                  IconButton(tooltip: 'Request corrections', onPressed: () => requestRoleCorrection(request), icon: const Icon(Icons.edit_note_rounded, color: Color(0xFF8A5A00))),
                   IconButton(tooltip: 'Approve request', onPressed: () => reviewRoleRequest(request, approve: true), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
                   IconButton(tooltip: 'Reject request', onPressed: () => reviewRoleRequest(request, approve: false), icon: const Icon(Icons.cancel_outlined, color: Colors.red)),
                 ]),
@@ -2720,8 +2760,16 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
     final locality = TextEditingController(text: existing?['locality']?.toString() ?? '');
     final district = TextEditingController(text: existing?['district']?.toString() ?? '');
     final state = TextEditingController(text: existing?['state']?.toString() ?? '');
+    final manualLocality = TextEditingController();
     var active = existing?['active'] as bool? ?? true;
     var lookingUp = false;
+    var coverageMode = (existing?['coverage_mode']?.toString() ?? 'pincode');
+    if (!const ['pincode', 'selected_areas'].contains(coverageMode)) coverageMode = 'pincode';
+    final selectedLocalities = <String>{
+      for (final item in (existing?['covered_localities'] as List? ?? const []))
+        if (item.toString().trim().isNotEmpty) item.toString().trim(),
+    };
+    final availableLocalities = <String>{...selectedLocalities};
     try {
       final saved = await showDialog<bool>(
         context: context,
@@ -2729,7 +2777,7 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
           builder: (context, setDialogState) => AlertDialog(
             title: Text(existing == null ? 'Add serviceable PIN code' : 'Edit service area'),
             content: SizedBox(
-              width: 520,
+              width: 560,
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, children: [
                   TextField(
@@ -2737,58 +2785,140 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
                     enabled: existing == null,
                     keyboardType: TextInputType.number,
                     maxLength: 6,
-                    decoration: const InputDecoration(
-                      labelText: 'PIN code *',
-                      hintText: '6 digits',
-                      border: OutlineInputBorder(),
-                    ),
+                    decoration: const InputDecoration(labelText: 'PIN code *', hintText: '6 digits', border: OutlineInputBorder()),
                   ),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: OutlinedButton.icon(
-                      onPressed: lookingUp || existing != null ? null : () async {
-                        setDialogState(() => lookingUp = true);
-                        final details = await _lookupPincode(pin.text.trim());
-                        if (details != null) {
-                          setDialogState(() {
-                            if (locality.text.trim().isEmpty) locality.text = details['locality'] ?? '';
-                            if (district.text.trim().isEmpty) district.text = details['district'] ?? '';
-                            if (state.text.trim().isEmpty) state.text = details['state'] ?? '';
-                          });
+                      onPressed: lookingUp ? null : () async {
+                        final code = pin.text.trim();
+                        if (!_isPincode(code)) {
+                          message('Enter a valid 6-digit Indian PIN code first.');
+                          return;
                         }
-                        setDialogState(() => lookingUp = false);
+                        setDialogState(() => lookingUp = true);
+                        try {
+                          final details = await _lookupPincode(code);
+                          if (details != null) {
+                            locality.text = details['locality'] ?? locality.text;
+                            district.text = details['district'] ?? district.text;
+                            state.text = details['state'] ?? state.text;
+                          }
+                          final response = await http.get(Uri.https('api.postalpincode.in', '/pincode/$code'))
+                              .timeout(const Duration(seconds: 10));
+                          if (response.statusCode == 200) {
+                            final decoded = jsonDecode(response.body);
+                            if (decoded is List && decoded.isNotEmpty && decoded.first is Map) {
+                              final result = Map<String, dynamic>.from(decoded.first as Map);
+                              final offices = result['PostOffice'];
+                              if (result['Status']?.toString().toLowerCase() == 'success' && offices is List) {
+                                final names = offices.whereType<Map>().map((row) => (row['Name'] ?? '').toString().trim())
+                                    .where((name) => name.isNotEmpty).toSet().toList()..sort();
+                                setDialogState(() {
+                                  availableLocalities.addAll(names);
+                                  if (coverageMode == 'selected_areas' && selectedLocalities.isEmpty && locality.text.trim().isNotEmpty) {
+                                    selectedLocalities.add(locality.text.trim());
+                                  }
+                                });
+                                if (names.isEmpty) message('No post-office localities were returned for this PIN. You can add a locality manually.');
+                              }
+                            }
+                          }
+                        } catch (_) {
+                          message('Postal lookup is unavailable. You can still add localities manually.');
+                        } finally {
+                          setDialogState(() => lookingUp = false);
+                        }
                       },
                       icon: lookingUp
                           ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                           : const Icon(Icons.search_rounded),
-                      label: Text(lookingUp ? 'Looking up PIN code…' : 'Find area details'),
+                      label: Text(lookingUp ? 'Looking up PIN…' : 'Load area and post-office localities'),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  TextField(controller: locality, maxLength: 100, decoration: const InputDecoration(labelText: 'Locality / post office', border: OutlineInputBorder())),
+                  const SizedBox(height: 8),
+                  TextField(controller: locality, maxLength: 100, decoration: const InputDecoration(labelText: 'Primary locality / post office', border: OutlineInputBorder())),
                   const SizedBox(height: 10),
                   TextField(controller: district, maxLength: 100, decoration: const InputDecoration(labelText: 'District', border: OutlineInputBorder())),
                   const SizedBox(height: 10),
                   TextField(controller: state, maxLength: 100, decoration: const InputDecoration(labelText: 'State', border: OutlineInputBorder())),
+                  const SizedBox(height: 12),
+                  const Align(alignment: Alignment.centerLeft, child: Text('Coverage mode', style: TextStyle(fontWeight: FontWeight.w900))),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    value: 'pincode',
+                    groupValue: coverageMode,
+                    title: const Text('PIN code only — all localities'),
+                    subtitle: const Text('Every locality and address under this six-digit PIN can use enabled services.'),
+                    onChanged: (value) => setDialogState(() { coverageMode = value!; selectedLocalities.clear(); }),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    value: 'selected_areas',
+                    groupValue: coverageMode,
+                    title: const Text('PIN code + selected localities'),
+                    subtitle: const Text('Only the localities checked below can use enabled services.'),
+                    onChanged: (value) => setDialogState(() {
+                      coverageMode = value!;
+                      if (selectedLocalities.isEmpty && locality.text.trim().isNotEmpty) selectedLocalities.add(locality.text.trim());
+                    }),
+                  ),
+                  if (coverageMode == 'selected_areas') ...[
+                    const Divider(),
+                    const Align(alignment: Alignment.centerLeft, child: Text('Select localities covered by Alteo', style: TextStyle(fontWeight: FontWeight.w800))),
+                    const SizedBox(height: 4),
+                    if (availableLocalities.isEmpty)
+                      const Align(alignment: Alignment.centerLeft, child: Text('Tap “Load area and post-office localities” above, or add a locality manually.', style: TextStyle(color: Color(0xFF68736D), height: 1.4))),
+                    for (final name in (availableLocalities.toList()..sort()))
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                        value: selectedLocalities.contains(name),
+                        title: Text(name),
+                        onChanged: (value) => setDialogState(() {
+                          if (value == true) { selectedLocalities.add(name); } else { selectedLocalities.remove(name); }
+                        }),
+                      ),
+                    Row(children: [
+                      Expanded(child: TextField(
+                        controller: manualLocality,
+                        textCapitalization: TextCapitalization.words,
+                        decoration: const InputDecoration(labelText: 'Add another locality', border: OutlineInputBorder()),
+                      )),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(
+                        tooltip: 'Add locality',
+                        onPressed: () {
+                          final value = manualLocality.text.trim();
+                          if (value.isEmpty) return;
+                          setDialogState(() { availableLocalities.add(value); selectedLocalities.add(value); manualLocality.clear(); });
+                        },
+                        icon: const Icon(Icons.add_rounded),
+                      ),
+                    ]),
+                    Align(alignment: Alignment.centerLeft, child: Text(
+                      selectedLocalities.isEmpty ? 'Select at least one locality to save.' : selectedLocalities.length.toString() + ' locality/localities selected.',
+                      style: TextStyle(fontSize: 12, color: selectedLocalities.isEmpty ? const Color(0xFFB3261E) : const Color(0xFF176B57)),
+                    )),
+                  ],
                   const SizedBox(height: 8),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Serviceable'),
-                    subtitle: const Text('Customers can use services enabled for this PIN code.'),
+                    title: const Text('Serviceable PIN code'),
+                    subtitle: const Text('Turn off to suspend services across this PIN code.'),
                     value: active,
                     onChanged: (value) => setDialogState(() => active = value),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Adding a PIN code does not automatically enable every service. Configure shopping, food, quick commerce, parcels and rides separately below.',
-                    style: TextStyle(fontSize: 12, height: 1.4, color: Color(0xFF68736D)),
                   ),
                 ]),
               ),
             ),
             actions: [
               TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-              FilledButton(onPressed: lookingUp ? null : () => Navigator.pop(dialogContext, true), child: const Text('Save PIN code')),
+              FilledButton(
+                onPressed: lookingUp || (coverageMode == 'selected_areas' && selectedLocalities.isEmpty)
+                    ? null : () => Navigator.pop(dialogContext, true),
+                child: const Text('Save coverage'),
+              ),
             ],
           ),
         ),
@@ -2799,6 +2929,10 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         message('Enter a valid 6-digit Indian PIN code.');
         return;
       }
+      if (coverageMode == 'selected_areas' && selectedLocalities.isEmpty) {
+        message('Select at least one locality, or choose PIN code only.');
+        return;
+      }
       setState(() => savingArea = true);
       final payload = <String, dynamic>{
         'pincode': code,
@@ -2806,6 +2940,8 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         'district': district.text.trim().isEmpty ? null : district.text.trim(),
         'state': state.text.trim().isEmpty ? null : state.text.trim(),
         'active': active,
+        'coverage_mode': coverageMode,
+        'covered_localities': coverageMode == 'pincode' ? <String>[] : selectedLocalities.toList()..sort(),
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       };
       if (existing == null) {
@@ -2815,14 +2951,17 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         await client.from('service_areas').update(payload).eq('id', existing['id']);
       }
       if (mounted) setState(() => selectedAreaCode = code);
-      message(active ? 'PIN code $code is now serviceable. Configure its services below.' : 'PIN code $code is disabled.');
+      message(coverageMode == 'pincode'
+          ? 'PIN code ' + code + ' covers all localities. Configure enabled services and pricing below.'
+          : 'PIN code ' + code + ' is limited to ' + selectedLocalities.length.toString() + ' selected localities.');
     } catch (e) {
-      message('Could not save the service area. Check that the PIN code is not already listed and retry.');
+      message('Could not save the service area: ' + e.toString());
     } finally {
       pin.dispose();
       locality.dispose();
       district.dispose();
       state.dispose();
+      manualLocality.dispose();
       if (mounted) setState(() => savingArea = false);
     }
   }
@@ -3091,7 +3230,9 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
                 child: Icon(Icons.location_on_outlined, color: active ? const Color(0xFF176B57) : const Color(0xFFB3261E)),
               ),
               title: Text(code, style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text(label.isEmpty ? (active ? 'Serviceable' : 'Disabled') : '$label · ${active ? 'Serviceable' : 'Disabled'}'),
+              subtitle: Text((label.isEmpty ? '' : label + ' · ') + (area['coverage_mode'] == 'selected_areas'
+                  ? 'Selected localities: ' + ((area['covered_localities'] as List? ?? const []).join(', '))
+                  : 'Entire PIN · all localities') + ' · ' + (active ? 'Serviceable' : 'Disabled')),
               onTap: () => setState(() => selectedAreaCode = code),
               trailing: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: [
                 PopupMenuButton<String>(
