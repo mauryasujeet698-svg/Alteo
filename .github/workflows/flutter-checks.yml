@@ -537,34 +537,32 @@ jobs:
           from pathlib import Path
 
           cache = Path.home() / ".pub-cache" / "hosted" / "pub.dev"
-          if not cache.exists():
-              raise SystemExit("Pub package cache not found after flutter pub get.")
+          candidates = list(cache.glob("geocoding_android-*/android/build.gradle*"))
+          if not candidates:
+              raise SystemExit("Could not find geocoding_android Gradle file after flutter pub get.")
           patched = []
-          patterns = [
-              (re.compile(r"(compileSdkVersion\s+)33\b"), r"\g<1>36"),
-              (re.compile(r"(compileSdk\s*=\s*)33\b"), r"\g<1>36"),
-              (re.compile(r"(compileSdkVersion\s*=\s*)33\b"), r"\g<1>36"),
-          ]
-          for path in cache.glob("geocoding_android-*/android/build.gradle*"):
+          for path in candidates:
               source = path.read_text()
-              updated = source
-              for pattern, replacement in patterns:
-                  updated = pattern.sub(replacement, updated)
-              if updated != source:
+              lines = source.splitlines(keepends=True)
+              changed = False
+              for i, line in enumerate(lines):
+                  # Change API 33 only on a Gradle line that declares compileSdk.
+                  if "compileSdk" in line and re.search(r"\b33\b", line):
+                      lines[i] = re.sub(r"\b33\b", "36", line)
+                      changed = changed or lines[i] != line
+              updated = "".join(lines)
+              if changed:
                   path.write_text(updated)
                   patched.append(str(path))
-          if not patched:
-              # Fail clearly if the dependency has moved to a different build syntax/version.
-              candidates = list(cache.glob("geocoding_android-*/android/build.gradle*"))
-              if not candidates:
-                  raise SystemExit("Could not find geocoding_android Gradle file to align compile SDK.")
-              content = "\n".join(p.read_text() for p in candidates)
-              if not re.search(r"compileSdk(?:Version)?\s*(?:=\s*)?33\b", content):
-                  print("geocoding_android no longer hardcodes Android API 33; no patch needed.")
-              else:
-                  raise SystemExit("geocoding_android still targets API 33 but the automatic patch did not match its Gradle syntax.")
+          if patched:
+              print("Aligned geocoding_android compile SDK to API 36:", ", ".join(patched))
           else:
-              print("Aligned geocoding_android compile SDK to Android API 36:", ", ".join(patched))
+              content = "\n".join(p.read_text() for p in candidates)
+              if re.search(r"compileSdk[^\n]*\b33\b", content):
+                  print("Gradle compileSdk declaration still contains API 33:")
+                  print(content)
+                  raise SystemExit("Unable to patch geocoding_android compile SDK declaration.")
+              print("geocoding_android has no compileSdk API 33 declaration; no patch needed.")
           PY
       - name: Analyze Dart
         run: flutter analyze --no-fatal-infos
