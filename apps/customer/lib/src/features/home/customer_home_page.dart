@@ -49,7 +49,12 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
   try {
     final available = await speech.initialize(
       onError: (error) {
-        _voiceTranscript.value = 'Speech recognition error: ${error.errorMsg}. Try again or type your search.';
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Speech recognition stopped: ${error.errorMsg}. Tap the microphone to retry.'),
+            duration: const Duration(seconds: 3),
+          ));
+        }
       },
     ).timeout(const Duration(seconds: 12));
     if (!available) {
@@ -137,7 +142,13 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
         listenMode: stt.ListenMode.dictation,
       );
     } catch (e) {
-      _voiceTranscript.value = 'Could not start the microphone. Check microphone permission and try again.';
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop(null);
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Could not start the microphone. Check microphone permission and try again.'),
+          duration: Duration(seconds: 4),
+        ));
+      }
     }
 
     final query = await dialogFuture;
