@@ -436,10 +436,19 @@ class _AlteoPartnerAccountCardState extends State<AlteoPartnerAccountCard> {
   late Future<Map<String, dynamic>?> _request = _load();
   Future<Map<String, dynamic>?> _load() async {
     final rows = await Supabase.instance.client.from('role_requests')
-      .select('requested_role,status,display_name,email,phone,application_data,rejection_reason,needs_correction,correction_reason')
+      .select('requested_role,status,display_name,email,phone,profile_photo_path,application_data,rejection_reason,needs_correction,correction_reason')
       .eq('user_id', widget.userId).eq('requested_role', widget.role)
       .order('requested_at', ascending: false).limit(1);
-    return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first as Map);
+    if (rows.isEmpty) return null;
+    final row = Map<String, dynamic>.from(rows.first as Map);
+    final photoPath = row['profile_photo_path']?.toString();
+    if (photoPath != null && photoPath.isNotEmpty) {
+      try {
+        row['profile_photo_url'] = await Supabase.instance.client.storage
+          .from('partner-onboarding').createSignedUrl(photoPath, 300);
+      } catch (_) {}
+    }
+    return row;
   }
   @override
   Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>?>(
@@ -459,11 +468,14 @@ class _AlteoPartnerAccountCardState extends State<AlteoPartnerAccountCard> {
       final status = (row?['status'] ?? 'not submitted').toString();
       final statusColor = status == 'approved' ? _green : status == 'rejected' ? const Color(0xFFB3261E) : const Color(0xFF8A5A00);
       final details = <MapEntry<String, Object?>>[
+        MapEntry('Email', row?['email']),
         MapEntry('Mobile', row?['phone']),
         if (widget.role == 'seller') MapEntry('Business', data['shop_name']),
         if (widget.role == 'seller') MapEntry('Category', data['business_category']),
+        if (widget.role == 'seller') MapEntry('GSTIN', data['gstin']),
         if (widget.role == 'dark_store') MapEntry('Store', data['store_name']),
         if (widget.role == 'dark_store') MapEntry('Operating hours', data['operating_hours']),
+        if (widget.role == 'dark_store') MapEntry('Facility', data['facility_details']),
         if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') MapEntry('Vehicle', data['vehicle_type']),
         if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') MapEntry('Registration', data['vehicle_registration']),
         if (widget.role == 'driver_partner') MapEntry('Licence no.', data['driving_licence_number']),
@@ -474,7 +486,14 @@ class _AlteoPartnerAccountCardState extends State<AlteoPartnerAccountCard> {
         child: Padding(padding: const EdgeInsets.all(16), child: Column(
           crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.verified_user_outlined, color: _green)),
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: _paleGreen,
+                backgroundImage: row?['profile_photo_url']?.toString().isNotEmpty == true
+                    ? NetworkImage(row!['profile_photo_url'].toString()) : null,
+                child: row?['profile_photo_url']?.toString().isNotEmpty == true
+                    ? null : const Icon(Icons.verified_user_outlined, color: _green),
+              ),
               const SizedBox(width: 12),
               Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text((row?['display_name'] ?? Supabase.instance.client.auth.currentUser?.email ?? 'Partner').toString(),
