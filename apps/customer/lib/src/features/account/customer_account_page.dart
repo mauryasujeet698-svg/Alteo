@@ -1,3 +1,4 @@
+import 'package:alteo_partner_ui/alteo_partner_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:alteo_notifications/alteo_notifications.dart';
@@ -183,6 +184,7 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
           _item(context, Icons.support_agent_rounded, 'Help & support', 'Send a request and check its status', () async { if (client?.auth.currentUser == null) { await _signIn(); if (!mounted || client?.auth.currentUser == null) return; } await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerSupportPage())); }),
           _item(context, Icons.privacy_tip_outlined, 'Privacy policy', 'How Alteo handles your information', () => _showPrivacyPolicy()),
           _item(context, Icons.info_outline_rounded, 'About app', 'What Alteo is built for', () { Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAboutPage())); }),
+          const AlteoAppUpdateTile(appId: 'customer'),
           if (user != null) ...[
             const SizedBox(height: 12),
             OutlinedButton.icon(
