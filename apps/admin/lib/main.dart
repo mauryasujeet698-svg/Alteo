@@ -2438,6 +2438,124 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ]),
   );
 
+  Future<String> _partnerOperationalStatus(String userId, String role) async {
+    if (role == 'delivery_partner') {
+      final row = await client.from('partner_presence').select('is_online,area_code,updated_at')
+        .eq('user_id', userId).eq('role', role).maybeSingle();
+      if (row == null || row['is_online'] != true) return 'Offline';
+      final updated = DateTime.tryParse(row['updated_at']?.toString() ?? '');
+      if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > const Duration(minutes: 10)) return 'Location stale';
+      final active = await client.from('delivery_jobs').select('id')
+        .eq('delivery_partner_id', userId).inFilter('status', ['assigned','accepted','picked_up','in_transit']).limit(1).maybeSingle();
+      return active == null ? 'Available · PIN ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · delivery in progress';
+    }
+    if (role == 'driver_partner') {
+      final row = await client.from('partner_presence').select('is_online,area_code,updated_at')
+        .eq('user_id', userId).eq('role', role).maybeSingle();
+      if (row == null || row['is_online'] != true) return 'Offline';
+      final updated = DateTime.tryParse(row['updated_at']?.toString() ?? '');
+      if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > const Duration(minutes: 10)) return 'Location stale';
+      final active = await client.from('rides').select('id')
+        .eq('driver_id', userId).inFilter('status', ['requested','accepted','arrived','in_progress']).limit(1).maybeSingle();
+      return active == null ? 'Available · PIN ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · ride in progress';
+    }
+    if (role == 'seller') {
+      final row = await client.from('sellers').select('status,display_name').eq('owner_id', userId).limit(1).maybeSingle();
+      return row == null ? 'Approved access · seller profile not linked' : 'Seller ' + (row['status']?.toString() ?? 'unknown');
+    }
+    final store = await client.from('dark_stores').select('status,name,locality').eq('owner_user_id', userId).limit(1).maybeSingle();
+    return store == null ? 'Approved access · dark-store profile not linked' : 'Dark store ' + (store['status']?.toString() ?? 'unknown');
+  }
+
+  Widget _managePartnerRoleSection({required String role, required String title, required IconData icon}) => Card(
+    elevation: 0,
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ExpansionTile(
+      leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9), child: Icon(icon, color: const Color(0xFF176B57))),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+      subtitle: const Text('Pending requests · approved accounts · live availability'),
+      children: [
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('role_requests').stream(primaryKey: ['id']).eq('requested_role', role).order('requested_at', ascending: false),
+          builder: (context, snapshot) {
+            if (snapshot.hasError) return _error(title + ' could not be loaded. Check role-request permissions.');
+            if (!snapshot.hasData) return const Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator());
+            final rows = snapshot.data!;
+            final pending = rows.where((row) => row['status'] == 'pending').toList();
+            final approved = rows.where((row) => row['status'] == 'approved').toList();
+            final rejected = rows.where((row) => row['status'] == 'rejected').length;
+            if (rows.isEmpty) return _empty('No ' + title.toLowerCase() + ' requests yet', 'New onboarding requests will appear here.');
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Padding(padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text('Pending ' + pending.length.toString() + ' · Approved ' + approved.length.toString() + ' · Rejected ' + rejected.toString(),
+                    style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF68736D)))),
+                if (pending.isNotEmpty) ...[
+                  const Text('Pending requests', style: TextStyle(fontWeight: FontWeight.w900)),
+                  for (final request in pending)
+                    Card(elevation: 0, color: const Color(0xFFFFF8E8), child: ListTile(
+                      onTap: () => showPartnerApplication(request),
+                      title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
+                        ? request['display_name'].toString() : (request['email']?.toString() ?? 'Applicant'),
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
+                      subtitle: Text((request['phone']?.toString() ?? 'No phone') + ' · ' + (request['email']?.toString() ?? 'No email') +
+                        (request['needs_correction'] == true ? '\nCorrection requested: ' + (request['correction_reason']?.toString() ?? '') : ''),
+                        maxLines: 3, overflow: TextOverflow.ellipsis),
+                      trailing: PopupMenuButton<String>(
+                        tooltip: 'Review application',
+                        onSelected: (action) {
+                          if (action == 'view') showPartnerApplication(request);
+                          if (action == 'correct') requestRoleCorrection(request);
+                          if (action == 'approve') reviewRoleRequest(request, approve: true);
+                          if (action == 'reject') reviewRoleRequest(request, approve: false);
+                        },
+                        itemBuilder: (_) => const [
+                          PopupMenuItem(value: 'view', child: Text('View application')),
+                          PopupMenuItem(value: 'correct', child: Text('Request corrections')),
+                          PopupMenuItem(value: 'approve', child: Text('Approve')),
+                          PopupMenuItem(value: 'reject', child: Text('Reject')),
+                        ],
+                      ),
+                    )),
+                ],
+                if (approved.isNotEmpty) ...[
+                  const SizedBox(height: 10),
+                  const Text('Approved accounts', style: TextStyle(fontWeight: FontWeight.w900)),
+                  for (final request in approved)
+                    FutureBuilder<String>(
+                      future: _partnerOperationalStatus(request['user_id'].toString(), role),
+                      builder: (context, statusSnapshot) {
+                        final raw = request['application_data'];
+                        final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+                        final pin = (data['service_area'] ?? data['service_area_pincode'] ?? '').toString();
+                        final status = statusSnapshot.connectionState == ConnectionState.waiting ? 'Checking status…'
+                          : statusSnapshot.hasError ? 'Status unavailable' : (statusSnapshot.data ?? 'Status unknown');
+                        return Card(elevation: 0, child: ListTile(
+                          onTap: () => showPartnerApplication(request),
+                          leading: Icon(status.startsWith('Available') ? Icons.check_circle_outline_rounded
+                            : status.startsWith('Busy') ? Icons.local_shipping_rounded
+                            : status.toLowerCase().contains('offline') ? Icons.wifi_off_rounded : Icons.person_outline_rounded,
+                            color: status.startsWith('Available') ? const Color(0xFF176B57) : const Color(0xFF68736D)),
+                          title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
+                            ? request['display_name'].toString() : (request['email']?.toString() ?? 'Approved account'),
+                            style: const TextStyle(fontWeight: FontWeight.w800)),
+                          subtitle: Text(status + (pin.isEmpty ? '' : ' · onboarding PIN ' + pin) +
+                            (request['phone']?.toString().trim().isNotEmpty == true ? ' · ' + request['phone'].toString() : ''),
+                            maxLines: 3, overflow: TextOverflow.ellipsis),
+                          trailing: const Icon(Icons.chevron_right_rounded),
+                        ));
+                      },
+                    ),
+                ],
+              ]),
+            );
+          },
+        ),
+      ],
+    ),
+  );
+
   Widget _adminPartnersPage() => Scaffold(
     appBar: _appBar('Partners & approvals'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
@@ -2463,53 +2581,13 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       const SizedBox(height: 8),
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
       const SizedBox(height: 24),
-      _roleRequestsSection(),
-      const SizedBox(height: 22),
-      const Text('Approved partner directory', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 5),
-      const Text('Approved onboarding records across drivers, delivery partners, sellers and dark stores. The sections below provide live business and catalogue controls.',
-        style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('role_requests').stream(primaryKey: ['id'])
-          .eq('status', 'approved').order('requested_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Approved partner directory is unavailable. Check role-request permissions.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          final allowed = const {'driver_partner', 'delivery_partner', 'seller', 'dark_store'};
-          final rows = s.data!.where((row) => allowed.contains(row['requested_role']?.toString())).toList();
-          if (rows.isEmpty) return _empty('No approved onboarding records yet', 'Approved partners will appear here after their application is processed.');
-          return Column(children: rows.map((request) {
-            final role = request['requested_role']?.toString() ?? 'partner';
-            final dataValue = request['application_data'];
-            final data = dataValue is Map ? Map<String, dynamic>.from(dataValue) : <String, dynamic>{};
-            final area = (data['service_area'] ?? data['service_area_pincode'] ?? data['address'] ?? '').toString().trim();
-            final contact = <String>[
-              if ((request['phone']?.toString().trim().isNotEmpty ?? false)) request['phone'].toString(),
-              if ((request['email']?.toString().trim().isNotEmpty ?? false)) request['email'].toString(),
-            ].join(' · ');
-            return Card(elevation: 0, margin: const EdgeInsets.only(top: 8), child: ListTile(
-              onTap: () => showPartnerApplication(request),
-              leading: CircleAvatar(
-                backgroundColor: const Color(0xFFE1F2E9),
-                child: Icon(switch (role) {
-                  'driver_partner' => Icons.directions_car_filled_rounded,
-                  'delivery_partner' => Icons.local_shipping_rounded,
-                  'seller' => Icons.storefront_rounded,
-                  _ => Icons.warehouse_rounded,
-                }, color: const Color(0xFF176B57)),
-              ),
-              title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
-                ? request['display_name'].toString() : (request['email']?.toString() ?? 'Approved partner'),
-                style: const TextStyle(fontWeight: FontWeight.w900)),
-              subtitle: Text(role.replaceAll('_', ' ') +
-                (contact.isEmpty ? '' : ' · ' + contact) +
-                (area.isEmpty ? '' : '\nArea / PIN: ' + area),
-                maxLines: 3, overflow: TextOverflow.ellipsis),
-              trailing: const Icon(Icons.chevron_right_rounded),
-            ));
-          }).toList());
-        },
-      ),
+      const Text('Manage partners', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+      const Text('Review applications and check live partner availability in each role section.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+      const SizedBox(height: 12),
+      _managePartnerRoleSection(role: 'seller', title: 'Manage Sellers', icon: Icons.storefront_rounded),
+      _managePartnerRoleSection(role: 'dark_store', title: 'Manage Dark Stores', icon: Icons.warehouse_rounded),
+      _managePartnerRoleSection(role: 'delivery_partner', title: 'Manage Delivery Partners', icon: Icons.local_shipping_rounded),
+      _managePartnerRoleSection(role: 'driver_partner', title: 'Manage Driver Partners', icon: Icons.directions_car_filled_rounded),
       const SizedBox(height: 24),
       const Text('Seller approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
