@@ -1235,10 +1235,14 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             if (s.data!.isEmpty) return _empty('No inventory records', 'Add stock records after products are activated in the public catalogue.');
             return Column(children: s.data!.map((item) {
               final product = item['seller_products'] as Map? ?? {};
+              final pinMode = item['availability_mode']?.toString() ?? 'all';
+              final pins = List<String>.from((item['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+              final coverage = pinMode == 'specific' ? 'PINs ' + pins.join(', ') : 'Available on all PIN codes';
               return Card(elevation: 0, child: ListTile(
                 title: Text(product['name']?.toString() ?? 'Product'),
-                subtitle: Text('Stock: ' + (item['stock_on_hand']?.toString() ?? '0') + ' · Reserved: ' + (item['reserved_quantity']?.toString() ?? '0')),
-                trailing: IconButton(tooltip: 'Set stock', icon: const Icon(Icons.edit_outlined), onPressed: () => _setStoreStock(storeId, item['product_id'] as String, product['name']?.toString() ?? 'Product', item['stock_on_hand'] as int? ?? 0)),
+                subtitle: Text('Stock: ' + (item['stock_on_hand']?.toString() ?? '0') + ' · Reserved: ' + (item['reserved_quantity']?.toString() ?? '0') + '\n' + coverage),
+                isThreeLine: true,
+                trailing: IconButton(tooltip: 'Set stock and PIN coverage', icon: const Icon(Icons.edit_outlined), onPressed: () => _setStoreStock(storeId, item['product_id'] as String, product['name']?.toString() ?? 'Product', item['stock_on_hand'] as int? ?? 0, item)),
               ));
             }).toList());
           },
@@ -1247,10 +1251,18 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     }),
   );
 
-  Future<void> _setStoreStock(String storeId, String productId, String name, int current) async {
-    final stock = TextEditingController(text: current.toString());
-    var availabilityMode = 'all';
-    var availablePincodes = <String>[];
+  Future<void> _setStoreStock(String storeId, String productId, String name, int current, [Map<String, dynamic>? existing]) async {
+    Map<String, dynamic>? saved = existing;
+    if (saved == null) {
+      try {
+        saved = await client.from('dark_store_inventory').select('*')
+          .eq('store_id', storeId).eq('product_id', productId).maybeSingle();
+      } catch (_) {}
+    }
+    final savedStock = (saved?['stock_on_hand'] as num?)?.toInt() ?? current;
+    final stock = TextEditingController(text: savedStock.toString());
+    var availabilityMode = saved?['availability_mode']?.toString() ?? 'all';
+    var availablePincodes = List<String>.from((saved?['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
     try {
       final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: Text('Stock · ' + name),
