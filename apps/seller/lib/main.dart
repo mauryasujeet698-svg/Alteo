@@ -997,7 +997,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 ? ClipRRect(borderRadius: BorderRadius.circular(9), child: Image.network(p['image_url'].toString(), width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined)))
                 : const Icon(Icons.inventory_2_outlined),
               title: Text(p['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text('Status: ' + (p['status']?.toString() ?? 'draft') + ' · ₹' + (((p['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+              isThreeLine: true,
+              subtitle: Text('Status: ' + (p['status']?.toString() ?? 'draft') + ' · ₹' + (((p['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0) +
+                '\n' + ((p['availability_mode']?.toString() ?? 'all') == 'specific'
+                  ? 'Available on PINs: ' + List<String>.from((p['available_pincodes'] as List? ?? const []).map((v) => v.toString())).join(', ')
+                  : 'Available on all PIN codes')) ,
               trailing: IconButton(tooltip: 'Edit product', onPressed: () => _editSellerProduct(sellerId, p), icon: const Icon(Icons.edit_outlined)),
             ))).toList());
           },
