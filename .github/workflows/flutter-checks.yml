@@ -529,6 +529,43 @@ jobs:
           fi
       - name: Resolve dependencies
         run: flutter pub get
+      - name: Align Android plugin compile SDKs
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          cache = Path.home() / ".pub-cache" / "hosted" / "pub.dev"
+          if not cache.exists():
+              raise SystemExit("Pub package cache not found after flutter pub get.")
+          patched = []
+          patterns = [
+              (re.compile(r"(compileSdkVersion\\s+)33\\b"), r"\\g<1>36"),
+              (re.compile(r"(compileSdk\\s*=\\s*)33\\b"), r"\\g<1>36"),
+              (re.compile(r"(compileSdkVersion\\s*=\\s*)33\\b"), r"\\g<1>36"),
+          ]
+          for path in cache.glob("geocoding_android-*/android/build.gradle*"):
+              source = path.read_text()
+              updated = source
+              for pattern, replacement in patterns:
+                  updated = pattern.sub(replacement, updated)
+              if updated != source:
+                  path.write_text(updated)
+                  patched.append(str(path))
+          if not patched:
+              # Fail clearly if the dependency has moved to a different build syntax/version.
+              candidates = list(cache.glob("geocoding_android-*/android/build.gradle*"))
+              if not candidates:
+                  raise SystemExit("Could not find geocoding_android Gradle file to align compile SDK.")
+              content = "\\n".join(p.read_text() for p in candidates)
+              if not re.search(r"compileSdk(?:Version)?\\s*(?:=\\s*)?33\\b", content):
+                  print("geocoding_android no longer hardcodes Android API 33; no patch needed.")
+              else:
+                  raise SystemExit("geocoding_android still targets API 33 but the automatic patch did not match its Gradle syntax.")
+          else:
+              print("Aligned geocoding_android compile SDK to Android API 36:", ", ".join(patched))
+          PY
       - name: Analyze Dart
         run: flutter analyze --no-fatal-infos
       - name: Run Flutter tests
