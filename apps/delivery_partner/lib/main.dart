@@ -327,6 +327,8 @@ class _RoleExplorePageState extends State<RoleExplorePage> {
         const Text('Profile & preferences', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
         Text(appName, style: const TextStyle(color: Color(0xFF68736D))),
+        const SizedBox(height: 10),
+        AlteoPartnerPublicProfileCard(appName: appName, role: requiredRole),
         const SizedBox(height: 16),
         Card(elevation: 0, child: ValueListenableBuilder<ThemeMode>(
           valueListenable: roleThemeMode,
