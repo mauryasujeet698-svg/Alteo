@@ -2225,6 +2225,53 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
       const SizedBox(height: 24),
       _roleRequestsSection(),
+      const SizedBox(height: 22),
+      const Text('Approved partner directory', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 5),
+      const Text('Approved onboarding records across drivers, delivery partners, sellers and dark stores. The sections below provide live business and catalogue controls.',
+        style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+      StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('role_requests').stream(primaryKey: ['id'])
+          .eq('status', 'approved').order('requested_at', ascending: false),
+        builder: (context, s) {
+          if (s.hasError) return _error('Approved partner directory is unavailable. Check role-request permissions.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          final allowed = const {'driver_partner', 'delivery_partner', 'seller', 'dark_store'};
+          final rows = s.data!.where((row) => allowed.contains(row['requested_role']?.toString())).toList();
+          if (rows.isEmpty) return _empty('No approved onboarding records yet', 'Approved partners will appear here after their application is processed.');
+          return Column(children: rows.map((request) {
+            final role = request['requested_role']?.toString() ?? 'partner';
+            final dataValue = request['application_data'];
+            final data = dataValue is Map ? Map<String, dynamic>.from(dataValue) : <String, dynamic>{};
+            final area = (data['service_area'] ?? data['service_area_pincode'] ?? data['address'] ?? '').toString().trim();
+            final contact = <String>[
+              if ((request['phone']?.toString().trim().isNotEmpty ?? false)) request['phone'].toString(),
+              if ((request['email']?.toString().trim().isNotEmpty ?? false)) request['email'].toString(),
+            ].join(' · ');
+            return Card(elevation: 0, margin: const EdgeInsets.only(top: 8), child: ListTile(
+              onTap: () => showPartnerApplication(request),
+              leading: CircleAvatar(
+                backgroundColor: const Color(0xFFE1F2E9),
+                child: Icon(switch (role) {
+                  'driver_partner' => Icons.directions_car_filled_rounded,
+                  'delivery_partner' => Icons.local_shipping_rounded,
+                  'seller' => Icons.storefront_rounded,
+                  _ => Icons.warehouse_rounded,
+                }, color: const Color(0xFF176B57)),
+              ),
+              title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
+                ? request['display_name'].toString() : (request['email']?.toString() ?? 'Approved partner'),
+                style: const TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: Text(role.replaceAll('_', ' ') +
+                (contact.isEmpty ? '' : ' · ' + contact) +
+                (area.isEmpty ? '' : '\nArea / PIN: ' + area),
+                maxLines: 3, overflow: TextOverflow.ellipsis),
+              trailing: const Icon(Icons.chevron_right_rounded),
+            ));
+          }).toList());
+        },
+      ),
+      const SizedBox(height: 24),
       const Text('Seller approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('sellers').stream(primaryKey: ['id']).order('created_at', ascending: false),
@@ -2272,6 +2319,59 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               IconButton(tooltip: 'Suspend', onPressed: () => setStoreStatus(store, 'suspended'), icon: const Icon(Icons.block_outlined)),
             ]),
           ))).toList());
+        },
+      ),
+      const SizedBox(height: 24),
+      const Text('Ratings & quality moderation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 5),
+      const Text('Review genuine completed-work feedback. Hidden or reported reviews are excluded from partner rating summaries.',
+        style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+      FutureBuilder<List<Map<String, dynamic>>>(
+        future: client.from('service_ratings')
+          .select('id,transaction_type,transaction_id,reviewer_role,subject_role,subject_id,score,comment,status,created_at')
+          .order('created_at', ascending: false).limit(100)
+          .then((rows) => List<Map<String, dynamic>>.from(rows as List)),
+        builder: (context, s) {
+          if (s.hasError) return _error('Ratings are unavailable. Check Admin access.');
+          if (!s.hasData) return const LinearProgressIndicator();
+          if (s.data!.isEmpty) return _empty('No ratings submitted yet', 'Real ratings will appear here after completed work is reviewed.');
+          return Column(children: s.data!.map((rating) {
+            final score = (rating['score'] as num?)?.toInt() ?? 0;
+            final status = rating['status']?.toString() ?? 'published';
+            final comment = rating['comment']?.toString().trim() ?? '';
+            return Card(elevation: 0, margin: const EdgeInsets.only(top: 8), child: ListTile(
+              isThreeLine: comment.isNotEmpty,
+              leading: CircleAvatar(
+                backgroundColor: const Color(0xFFFFF2D8),
+                child: Text(score.toString() + '★', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF8A5A00))),
+              ),
+              title: Text(rating['subject_role'].toString().replaceAll('_', ' ') + ' · ' +
+                  rating['transaction_type'].toString().replaceAll('_', ' '),
+                style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text((comment.isEmpty ? 'No written feedback.' : comment) +
+                  '\nFrom: ' + rating['reviewer_role'].toString().replaceAll('_', ' ') + ' · Status: ' + status,
+                maxLines: 4, overflow: TextOverflow.ellipsis),
+              trailing: PopupMenuButton<String>(
+                tooltip: 'Moderate rating',
+                onSelected: (value) async {
+                  try {
+                    await client.rpc('admin_moderate_service_rating', params: {
+                      'p_rating_id': rating['id'], 'p_status': value,
+                    }).timeout(const Duration(seconds: 12));
+                    notice('Rating marked ' + value + '.');
+                    if (mounted) setState(() {});
+                  } catch (_) {
+                    notice('Could not update rating moderation status.');
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'published', child: Text('Publish')),
+                  PopupMenuItem(value: 'reported', child: Text('Mark reported')),
+                  PopupMenuItem(value: 'hidden', child: Text('Hide rating')),
+                ],
+              ),
+            ));
+          }).toList());
         },
       ),
     ]),
