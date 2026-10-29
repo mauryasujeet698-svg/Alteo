@@ -2020,7 +2020,8 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   Future<void> _submit() async {
     if (widget.role == 'driver_partner') {
       final missingDocuments = _driverDocumentLabels.where((label) =>
-        _driverDocuments[label] == null && (_savedDriverDocumentPaths[label]?.isNotEmpty ?? false) == false).toList();
+        _driverDocuments[label] == null &&
+        (_savedDriverDocumentPaths[label]?.isNotEmpty ?? false) == false).toList();
       if (missingDocuments.isNotEmpty) {
         setState(() => _error = 'Upload all required driver documents: ${missingDocuments.join(', ')}.');
         return;
@@ -2036,19 +2037,27 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
     }
     if (!_key.currentState!.validate()) return;
     final existing = widget.existingRequest;
-    final oldPath = existing?['profile_photo_path']?.toString();
-    if (_photo == null && (oldPath == null || oldPath.isEmpty)) { setState(() => _error = 'Please upload a profile photo.'); return; }
+    final oldPhotoPath = existing?['profile_photo_path']?.toString();
+    if (_photo == null && (oldPhotoPath == null || oldPhotoPath.isEmpty)) {
+      setState(() => _error = 'Please upload a profile photo.');
+      return;
+    }
     setState(() { _saving = true; _error = null; });
     try {
       final client = Supabase.instance.client;
-      var photoPath = oldPath;
+      var photoPath = oldPhotoPath;
       if (_photo != null) {
         final ext0 = _photo!.name.contains('.') ? _photo!.name.split('.').last.toLowerCase() : 'jpg';
-        final ext = const {'jpg','jpeg','png','webp'}.contains(ext0) ? ext0 : 'jpg';
+        final ext = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext0) ? ext0 : 'jpg';
         final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
         photoPath = '${widget.user.id}/${widget.role}/profile_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
-        await client.storage.from('partner-onboarding').uploadBinary(photoPath, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
+        await client.storage.from('partner-onboarding').uploadBinary(
+          photoPath,
+          await _photo!.readAsBytes(),
+          fileOptions: FileOptions(contentType: mime, upsert: false),
+        );
       }
+
       dynamic documentPathsPayload = existing?['document_paths'] ?? <dynamic>[];
       if (widget.role == 'driver_partner') {
         final uploadedDocuments = <Map<String, String>>[];
@@ -2059,29 +2068,78 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
             final ext0 = selectedFile.name.contains('.') ? selectedFile.name.split('.').last.toLowerCase() : 'jpg';
             final ext = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext0) ? ext0 : 'jpg';
             final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
-            final safeName = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_').replaceAll(RegExp(r'^_+|_+      if (existing != null && (existing['status'] == 'rejected' ||
-          (existing['status'] == 'pending' && existing['needs_correction'] == true))) {
+            final safeName = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+            savedPath = '${widget.user.id}/${widget.role}/documents/${safeName}_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
+            await client.storage.from('partner-onboarding').uploadBinary(
+              savedPath,
+              await selectedFile.readAsBytes(),
+              fileOptions: FileOptions(contentType: mime, upsert: false),
+            );
+          }
+          if (savedPath != null && savedPath.isNotEmpty) {
+            uploadedDocuments.add({'label': label, 'path': savedPath});
+          }
+        }
+        for (final entry in _savedDriverDocumentPaths.entries) {
+          if (!_driverDocumentLabels.contains(entry.key)) {
+            uploadedDocuments.add({'label': entry.key, 'path': entry.value});
+          }
+        }
+        documentPathsPayload = uploadedDocuments;
+      }
+
+      final data = <String, dynamic>{'address': _address.text.trim()};
+      for (final field in _fields) {
+        final value = _extra[field.key]!.text.trim();
+        if (value.isNotEmpty) data[field.key] = value;
+      }
+      final payload = <String, dynamic>{
+        'user_id': widget.user.id,
+        'requested_role': widget.role,
+        'status': 'pending',
+        'email': widget.user.email,
+        'display_name': _name.text.trim(),
+        'phone': _phone.text.trim(),
+        'profile_photo_path': photoPath,
+        'application_data': data,
+        'document_paths': documentPathsPayload,
+        'rejection_reason': null,
+        'needs_correction': false,
+        'correction_reason': null,
+        'reviewed_at': null,
+        'reviewed_by': null,
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
+      };
+      if (existing != null &&
+          (existing['status'] == 'rejected' ||
+           (existing['status'] == 'pending' && existing['needs_correction'] == true))) {
         await client.from('role_requests').update(payload).eq('id', existing['id']);
       } else {
         await client.from('role_requests').insert(payload);
       }
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Onboarding request submitted. Please wait for Admin approval.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Onboarding request submitted. Please wait for Admin approval.'),
+      ));
       widget.onSubmitted();
-    } catch (e) {
-      debugPrint('Partner onboarding submission failed (${e.runtimeType}): $e');
-      final details = e.toString().toLowerCase();
-      if (mounted) setState(() => _error =
-        details.contains('service pin')
-          ? 'Select an active six-digit service PIN code before submitting.'
-          : details.contains('duplicate key') || details.contains('unique constraint')
-            ? 'An application already exists for this account. Refresh the app and check its review status.'
-            : details.contains('row-level security') || details.contains('permission denied')
-              ? 'Your account could not save this application. Sign out and sign in again, then retry.'
-              : details.contains('storage') || details.contains('bucket') || details.contains('upload')
-                ? 'A document could not be uploaded. Check your connection and retry the upload.'
-                : 'Could not submit onboarding. Check every required field and document, then retry.');
-    } finally { if (mounted) setState(() => _saving = false); }
+    } catch (error) {
+      debugPrint('Partner onboarding submission failed (${error.runtimeType}): $error');
+      final details = error.toString().toLowerCase();
+      if (mounted) {
+        setState(() => _error =
+          details.contains('service pin')
+            ? 'Select an active six-digit service PIN code before submitting.'
+            : details.contains('duplicate key') || details.contains('unique constraint')
+              ? 'An application already exists for this account. Refresh the app and check its review status.'
+              : details.contains('row-level security') || details.contains('permission denied')
+                ? 'Your account could not save this application. Sign out and sign in again, then retry.'
+                : details.contains('storage') || details.contains('bucket') || details.contains('upload')
+                  ? 'A document could not be uploaded. Check your connection and retry the upload.'
+                  : 'Could not submit onboarding. Check every required field and document, then retry.');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
