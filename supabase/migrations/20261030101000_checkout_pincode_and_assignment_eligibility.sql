@@ -181,7 +181,7 @@ exception when unique_violation then
   if v_order_id is not null then return v_order_id; end if;
   raise;
 end;
-$function$
+$function$;
 
 
 
@@ -239,7 +239,7 @@ begin
     values((select auth.uid()),'delivery.partner_assigned','delivery_job',p_delivery_job_id,
       jsonb_build_object('partner_id',p_partner_id,'assigned_manually',true));
 end;
-$function$
+$function$;
 
 
 
@@ -288,7 +288,7 @@ begin
     values ((select auth.uid()), 'ride.driver_assigned', 'ride', p_ride_id,
       jsonb_build_object('driver_id', p_driver_id, 'assigned_manually', true));
 end;
-$function$
+$function$;
 
 
 
@@ -382,7 +382,7 @@ begin
   end loop;
   return v_count;
 end;
-$function$
+$function$;
 
 
 
@@ -447,7 +447,7 @@ begin
   end loop;
   return v_count;
 end;
-$function$
+$function$;
 
 
 
