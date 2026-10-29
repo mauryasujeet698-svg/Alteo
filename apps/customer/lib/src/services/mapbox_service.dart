@@ -119,7 +119,7 @@ class MapboxService {
       _lastError = 'Enter an address, locality, landmark or PIN code.';
       return null;
     }
-    if (!isConfigured) return _nativeGeocode(value);
+    if (!isConfigured) return await _nativeGeocode(value);
 
     final uri = Uri(
       scheme: 'https',
@@ -159,7 +159,7 @@ class MapboxService {
       _lastError = 'We could not identify that location. Please try again.';
       return null;
     }
-    if (!isConfigured) return _nativeReverseGeocode(longitude, latitude);
+    if (!isConfigured) return await _nativeReverseGeocode(longitude, latitude);
 
     final uri = Uri.https(
       'api.mapbox.com',
@@ -177,7 +177,7 @@ class MapboxService {
       if (features.isEmpty) return _nativeReverseGeocode(longitude, latitude);
       final name = (features.first as Map<String, dynamic>)['place_name']?.toString().trim();
       _lastError = null;
-      return name?.isNotEmpty == true ? name : _nativeReverseGeocode(longitude, latitude);
+      return name?.isNotEmpty == true ? name : await _nativeReverseGeocode(longitude, latitude);
     } catch (_) {
       return _nativeReverseGeocode(longitude, latitude);
     }
