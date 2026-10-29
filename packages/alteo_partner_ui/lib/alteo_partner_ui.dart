@@ -956,7 +956,7 @@ class _AlteoOrderItemsSectionState extends State<AlteoOrderItemsSection> {
           title: const Text('Order items', style: TextStyle(fontWeight: FontWeight.w800)),
           subtitle: snapshot.hasError ? const Text('Items could not load. Tap to retry.')
             : snapshot.connectionState == ConnectionState.waiting ? const Text('Loading item details…')
-            : items.length.toString() + ' item line(s)',
+            : Text(items.length.toString() + ' item line(s)'),
           onExpansionChanged: (expanded) { if (expanded && snapshot.hasError) setState(() => _items = _load()); },
           children: [
             if (snapshot.hasError)
