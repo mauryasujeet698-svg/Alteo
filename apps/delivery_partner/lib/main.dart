@@ -782,6 +782,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         'p_latitude': position.latitude,
         'p_longitude': position.longitude,
       }).timeout(const Duration(seconds: 10));
+      if (mounted) setState(() {
+        lastLatitude = position.latitude;
+        lastLongitude = position.longitude;
+        lastLocationAt = DateTime.now();
+      });
       if (showNotice) notice('Live location updated.');
     } catch (e) {
       debugPrint('Location update failed (${e.runtimeType}).');
