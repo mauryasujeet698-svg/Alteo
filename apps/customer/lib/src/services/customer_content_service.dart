@@ -54,11 +54,37 @@ class CustomerContentService {
     return Map<String, dynamic>.from(response as Map);
   }
 
+  Future<Map<String, Map<String, dynamic>>> _loadQuickInventoryAvailability(String pin) async {
+    try {
+      final rows = await client.rpc('get_public_inventory_availability', params: {'p_pincode': pin});
+      final records = List<Map<String, dynamic>>.from((rows as List).map((row) => Map<String, dynamic>.from(row as Map)));
+      return <String, Map<String, dynamic>>{
+        for (final row in records) row['product_id'].toString(): row,
+      };
+    } catch (_) {
+      // Checkout enforces this coverage server-side even if this optional
+      // catalogue enrichment is temporarily unavailable.
+      return <String, Map<String, dynamic>>{};
+    }
+  }
+
+  bool _productAvailableForPin(Map<String, dynamic> row, String pin, Map<String, Map<String, dynamic>> inventory) {
+    final mode = row['availability_mode']?.toString() ?? 'all';
+    final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+    if (mode != 'all' && !pins.contains(pin)) return false;
+    if (row['kind']?.toString() == 'quick') {
+      final stock = inventory[row['id']?.toString() ?? ''];
+      if (stock != null && stock['inventory_managed'] == true && stock['available'] != true) return false;
+    }
+    return true;
+  }
+
   Future<List<CustomerProduct>> loadProducts({String? kind, String? pincode}) async {
     final pin = pincode?.trim() ?? '';
     if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)) return <CustomerProduct>[];
     final area = await getPublicServiceability(pin);
     if (area['serviceable'] != true) return <CustomerProduct>[];
+    final inventory = await _loadQuickInventoryAvailability(pin);
 
     var query = client.from('seller_products')
         .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
@@ -67,11 +93,8 @@ class CustomerContentService {
         .neq('image_url', '');
     if (kind != null) query = query.eq('kind', kind);
     final rows = await query.order('created_at', ascending: false).limit(100);
-    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).where((row) {
-      final mode = row['availability_mode']?.toString() ?? 'all';
-      final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
-      return mode == 'all' || pins.contains(pin);
-    });
+    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map))
+        .where((row) => _productAvailableForPin(row, pin, inventory));
     return availableRows
         .map(CustomerProduct.fromMap)
         .where((p) => p.imageUrl.startsWith('https://'))
@@ -83,6 +106,7 @@ class CustomerContentService {
     if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)) return <CustomerProduct>[];
     final area = await getPublicServiceability(pin);
     if (area['serviceable'] != true) return <CustomerProduct>[];
+    final inventory = await _loadQuickInventoryAvailability(pin);
     final rows = await client.from('seller_products')
         .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
         .eq('status', 'active')
@@ -91,11 +115,8 @@ class CustomerContentService {
         .ilike('name', '%${query.trim()}%')
         .order('created_at', ascending: false)
         .limit(100);
-    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).where((row) {
-      final mode = row['availability_mode']?.toString() ?? 'all';
-      final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
-      return mode == 'all' || pins.contains(pin);
-    });
+    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map))
+        .where((row) => _productAvailableForPin(row, pin, inventory));
     return availableRows
         .map(CustomerProduct.fromMap)
         .where((p) => p.imageUrl.startsWith('https://'))
