@@ -720,3 +720,65 @@ class _AlteoRateCompletedWorkButtonState extends State<AlteoRateCompletedWorkBut
     label: Text(_busy ? 'Submitting…' : 'Rate completed work'),
   );
 }
+
+
+class AlteoPartnerPublicProfileCard extends StatelessWidget {
+  const AlteoPartnerPublicProfileCard({super.key, required this.appName, required this.role});
+  final String appName;
+  final String role;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = switch (role) {
+      'driver_partner' => Icons.directions_car_filled_rounded,
+      'delivery_partner' => Icons.local_shipping_rounded,
+      'seller' => Icons.storefront_rounded,
+      'dark_store' => Icons.warehouse_rounded,
+      _ => Icons.admin_panel_settings_rounded,
+    };
+    final description = switch (role) {
+      'driver_partner' => 'Manage your vehicle and verification status, service PIN, current location, rides, earnings and completed-work ratings.',
+      'delivery_partner' => 'Manage your vehicle, service PIN, current location, assigned deliveries, delivery earnings and completed-work ratings.',
+      'seller' => 'Manage your business details, approval status, products, inventory, orders and customer feedback.',
+      'dark_store' => 'Manage your store details, activation status, inventory, picking and handover performance.',
+      _ => 'Manage your Alteo account, authorisations, service areas, partners and platform operations.',
+    };
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(18),
+        side: const BorderSide(color: Color(0xFFDCE6DF)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CircleAvatar(
+              radius: 25,
+              backgroundColor: _paleGreen,
+              child: Icon(icon, size: 27, color: _green),
+            ),
+            const SizedBox(width: 13),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(appName, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 4),
+                Text(description, style: const TextStyle(height: 1.45)),
+                const SizedBox(height: 10),
+                const Row(children: [
+                  Icon(Icons.lock_outline_rounded, size: 15, color: _green),
+                  SizedBox(width: 5),
+                  Expanded(child: Text('Sign in to view your account and approval status.',
+                    style: TextStyle(fontSize: 12, color: _green, fontWeight: FontWeight.w700))),
+                ]),
+              ],
+            )),
+          ],
+        ),
+      ),
+    );
+  }
+}
