@@ -145,6 +145,8 @@ class AlteoPushNotifications {
       // so they can reach all opted-in customer installs without token fan-out.
       if (_appId == 'customer') {
         await messaging.subscribeToTopic('alteo_customers');
+      } else if (_appId == 'delivery_partner') {
+        await messaging.subscribeToTopic('alteo_delivery_partners');
       }
       final token = await messaging.getToken();
       if (token != null && token.isNotEmpty) await _saveToken(token);
