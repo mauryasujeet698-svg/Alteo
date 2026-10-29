@@ -82,15 +82,15 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     }
    }
    if (selectedLocation != null) {
-    selectedLatitude = (selectedLocation!['latitude'] as num?)?.toDouble();
-    selectedLongitude = (selectedLocation!['longitude'] as num?)?.toDouble();
+    selectedLatitude = (selectedLocation['latitude'] as num?)?.toDouble();
+    selectedLongitude = (selectedLocation['longitude'] as num?)?.toDouble();
     addressLine.text = [
-     selectedLocation!['address_line1'], selectedLocation!['locality'],
+     selectedLocation['address_line1'], selectedLocation['locality'],
     ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
-    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation!['formatted_address']?.toString() ?? '';
-    city.text = selectedLocation!['city']?.toString() ?? '';
-    stateName.text = selectedLocation!['state']?.toString() ?? '';
-    postalCode.text = selectedLocation!['postal_code']?.toString() ?? '';
+    if (addressLine.text.trim().isEmpty) addressLine.text = selectedLocation['formatted_address']?.toString() ?? '';
+    city.text = selectedLocation['city']?.toString() ?? '';
+    stateName.text = selectedLocation['state']?.toString() ?? '';
+    postalCode.text = selectedLocation['postal_code']?.toString() ?? '';
    }
    final userForAddresses = Supabase.instance.client.auth.currentUser;
    if (userForAddresses != null) {
@@ -101,7 +101,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
    }
    if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
     for (final address in savedAddresses) {
-     if (address['id'].toString() == selectedLocation!['id'].toString()) {
+     if (address['id'].toString() == selectedLocation['id'].toString()) {
       selectedAddress = address;
       break;
      }
@@ -145,7 +145,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
         stateName.text = (match['state'] ?? '').toString();
         postalCode.text = (match['postal_code'] ?? '').toString();
        });
-       final showAddress = selectedLocation!['display_address'].toString();
+       final showAddress = selectedLocation['display_address'].toString();
        await setAlteoDeliveryLocation(showAddress, details: selectedLocation, source: 'saved');
       },
      ),
@@ -202,7 +202,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        ]),
        Text(
         (selectedLocation?['formatted_address']?.toString().trim().isNotEmpty ?? false)
-          ? selectedLocation!['formatted_address'].toString()
+          ? selectedLocation['formatted_address'].toString()
           : selectedLatitude != null
             ? 'Your current map point is selected. Add house or street details below.'
             : 'Your detected location will be used when available. You can pin a different address.',
