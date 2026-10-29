@@ -416,7 +416,22 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
     await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
    } catch (e) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('We could not place the order. Check your delivery details and service availability, then try again. Orders already placed will not be duplicated.')));
+    // Surface safe, actionable backend validation messages instead of hiding
+    // every checkout failure behind the same generic toast.
+    final raw = e is PostgrestException ? e.message : e.toString();
+    final lower = raw.toLowerCase();
+    final message = lower.contains('temporarily unavailable') || lower.contains('not available for your pin')
+      ? 'This service is not enabled for your delivery PIN yet. Please try again later or contact support.'
+      : lower.contains('not currently serviceable')
+        ? 'This PIN code is not serviceable yet. Choose another saved address or contact support.'
+        : lower.contains('pricing is not configured')
+          ? 'Delivery pricing is not configured for this service yet. Please contact support.'
+          : lower.contains('one seller per order')
+            ? 'Please order items from one seller at a time.'
+            : lower.contains('item is unavailable') || lower.contains('item became unavailable')
+              ? 'One or more items are no longer available. Refresh your cart and try again.'
+              : 'We could not place the order. Please check your delivery details and try again. No duplicate order was created.';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
    }
   } finally {
    recipient.dispose();
