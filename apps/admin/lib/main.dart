@@ -719,21 +719,147 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ],
   );
 
-  Future<void> assignRide(Map<String, dynamic> ride) async {
-    final id = TextEditingController();
-    try {
-      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-        title: const Text('Assign driver'),
-        content: TextField(controller: id, decoration: const InputDecoration(labelText: 'Approved driver user UUID')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Assign')),
-        ],
-      ));
-      if (ok == true && id.text.trim().isNotEmpty) {
-        await rpc('admin_assign_driver', {'p_ride_id': ride['id'], 'p_driver_id': id.text.trim()}, 'Driver assigned. The driver app will receive the ride.');
+  Future<List<Map<String, dynamic>>> _availablePartnerChoices({
+    required String role, required String areaCode, String? currentWorkId,
+  }) async {
+    final cutoff = DateTime.now().toUtc().subtract(const Duration(minutes: 10)).toIso8601String();
+    final presencesRaw = await client.from('partner_presence')
+      .select('user_id,area_code,updated_at,is_online')
+      .eq('role', role).eq('is_online', true).gt('updated_at', cutoff);
+    final presences = List<Map<String, dynamic>>.from(presencesRaw as List)
+      .where((p) => p['area_code'] == areaCode || p['area_code'] == 'DEFAULT').toList();
+    final ids = presences.map((p) => p['user_id'].toString()).toSet().toList();
+    if (ids.isEmpty) return <Map<String, dynamic>>[];
+
+    final grantedRaw = await client.from('user_roles').select('user_id')
+      .eq('role', role).inFilter('user_id', ids);
+    final granted = List<Map<String, dynamic>>.from(grantedRaw as List)
+      .map((r) => r['user_id'].toString()).toSet();
+    final eligible = ids.where(granted.contains).toList();
+    if (eligible.isEmpty) return <Map<String, dynamic>>[];
+
+    final busy = <String>{};
+    if (role == 'delivery_partner') {
+      final rows = await client.from('delivery_jobs').select('id,delivery_partner_id')
+        .inFilter('delivery_partner_id', eligible)
+        .inFilter('status', ['assigned','accepted','picked_up','in_transit']);
+      for (final row in List<Map<String, dynamic>>.from(rows as List)) {
+        if (row['id']?.toString() != currentWorkId) busy.add(row['delivery_partner_id'].toString());
       }
-    } finally { id.dispose(); }
+    } else {
+      final rows = await client.from('rides').select('id,driver_id')
+        .inFilter('driver_id', eligible)
+        .inFilter('status', ['requested','accepted','arrived','in_progress']);
+      for (final row in List<Map<String, dynamic>>.from(rows as List)) {
+        if (row['id']?.toString() != currentWorkId) busy.add(row['driver_id'].toString());
+      }
+    }
+    final free = eligible.where((id) => !busy.contains(id)).toList();
+    if (free.isEmpty) return <Map<String, dynamic>>[];
+    final profilesRaw = await client.from('profiles').select('id,display_name').inFilter('id', free);
+    final profiles = <String, Map<String, dynamic>>{
+      for (final p in List<Map<String, dynamic>>.from(profilesRaw as List)) p['id'].toString(): p,
+    };
+    final requestsRaw = await client.from('role_requests')
+      .select('user_id,display_name,email,phone,application_data')
+      .eq('requested_role', role).eq('status','approved').inFilter('user_id', free)
+      .order('requested_at', ascending: false);
+    final requests = <String, Map<String, dynamic>>{};
+    for (final r in List<Map<String, dynamic>>.from(requestsRaw as List)) {
+      final id = r['user_id'].toString();
+      requests.putIfAbsent(id, () => r);
+    }
+    final results = <Map<String, dynamic>>[];
+    for (final p in presences) {
+      final id = p['user_id'].toString();
+      if (!free.contains(id)) continue;
+      final profile = profiles[id] ?? <String, dynamic>{};
+      final request = requests[id] ?? <String, dynamic>{};
+      final data = request['application_data'] is Map
+        ? Map<String, dynamic>.from(request['application_data'] as Map) : <String, dynamic>{};
+      final updated = DateTime.tryParse(p['updated_at']?.toString() ?? '')?.toLocal();
+      results.add({
+        'user_id': id,
+        'display_name': (request['display_name']?.toString().trim().isNotEmpty ?? false)
+          ? request['display_name'].toString().trim()
+          : (profile['display_name']?.toString().trim().isNotEmpty ?? false)
+            ? profile['display_name'].toString().trim() : 'Approved partner',
+        'email': request['email']?.toString() ?? '',
+        'phone': request['phone']?.toString() ?? '',
+        'vehicle_type': data['vehicle_type']?.toString() ?? '',
+        'area_code': p['area_code']?.toString() ?? '',
+        'updated_minutes': updated == null ? 99 : DateTime.now().difference(updated).inMinutes,
+      });
+    }
+    results.sort((a,b) {
+      final al = a['area_code'] == areaCode ? 0 : 1;
+      final bl = b['area_code'] == areaCode ? 0 : 1;
+      if (al != bl) return al.compareTo(bl);
+      return (a['updated_minutes'] as int).compareTo(b['updated_minutes'] as int);
+    });
+    return results;
+  }
+
+  Future<Map<String, dynamic>?> _chooseAvailablePartner({
+    required String role, required String areaCode, required String? currentWorkId,
+  }) async {
+    List<Map<String, dynamic>> choices;
+    try {
+      choices = await _availablePartnerChoices(role: role, areaCode: areaCode, currentWorkId: currentWorkId)
+        .timeout(const Duration(seconds: 15));
+    } catch (_) {
+      notice('Could not load available partners. Check the connection and Admin permissions.');
+      return null;
+    }
+    if (!mounted) return null;
+    if (choices.isEmpty) {
+      notice('No eligible online ' + (role == 'driver_partner' ? 'drivers' : 'delivery partners') +
+        ' in PIN ' + areaCode + '. Check availability, location freshness and active work.');
+      return null;
+    }
+    return showDialog<Map<String, dynamic>>(context: context, builder: (dc) => AlertDialog(
+      title: Text(role == 'driver_partner' ? 'Select available driver' : 'Select available delivery partner'),
+      content: SizedBox(width: 520, height: 420, child: ListView.separated(
+        itemCount: choices.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final p = choices[index];
+          final name = p['display_name']?.toString() ?? 'Approved partner';
+          final contact = <String>[
+            if ((p['phone']?.toString().isNotEmpty ?? false)) p['phone'].toString(),
+            if ((p['email']?.toString().isNotEmpty ?? false)) p['email'].toString(),
+            if ((p['vehicle_type']?.toString().isNotEmpty ?? false)) p['vehicle_type'].toString(),
+          ].join(' · ');
+          final area = p['area_code']?.toString() ?? areaCode;
+          return ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9),
+              child: Icon(role == 'driver_partner' ? Icons.directions_car_filled_rounded : Icons.local_shipping_rounded, color: const Color(0xFF176B57))),
+            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: Text((area == 'DEFAULT' ? 'Default area' : 'PIN ' + area) + ' · Online · location updated ' +
+              p['updated_minutes'].toString() + ' min ago' + (contact.isEmpty ? '' : '\n' + contact),
+              maxLines: 3, overflow: TextOverflow.ellipsis),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.pop(dc, p),
+          );
+        },
+      )),
+      actions: [TextButton(onPressed: () => Navigator.pop(dc), child: const Text('Cancel'))],
+    ));
+  }
+
+  Future<void> assignRide(Map<String, dynamic> ride) async {
+    final partner = await _chooseAvailablePartner(role: 'driver_partner',
+      areaCode: ride['area_code']?.toString() ?? 'DEFAULT', currentWorkId: ride['id']?.toString());
+    if (partner == null) return;
+    try {
+      await client.rpc('admin_assign_driver', params: {'p_ride_id': ride['id'], 'p_driver_id': partner['user_id']})
+        .timeout(const Duration(seconds: 15));
+      notice('Ride assigned to ' + partner['display_name'].toString() + '.');
+    } catch (e) {
+      debugPrint('Ride assignment failed (' + e.runtimeType.toString() + ').');
+      notice('Assignment failed. The driver may have changed status; refresh and retry.');
+    }
   }
 
 
@@ -767,20 +893,17 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   Future<void> assignDelivery(Map<String, dynamic> job) async {
-    final id = TextEditingController();
+    final partner = await _chooseAvailablePartner(role: 'delivery_partner',
+      areaCode: job['area_code']?.toString() ?? 'DEFAULT', currentWorkId: job['id']?.toString());
+    if (partner == null) return;
     try {
-      final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
-        title: const Text('Assign delivery partner'),
-        content: TextField(controller: id, decoration: const InputDecoration(labelText: 'Approved delivery partner UUID')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Assign')),
-        ],
-      ));
-      if (ok == true && id.text.trim().isNotEmpty) {
-        await rpc('admin_assign_delivery_partner', {'p_delivery_job_id': job['id'], 'p_partner_id': id.text.trim()}, 'Delivery partner assigned.');
-      }
-    } finally { id.dispose(); }
+      await client.rpc('admin_assign_delivery_partner', params: {'p_delivery_job_id': job['id'], 'p_partner_id': partner['user_id']})
+        .timeout(const Duration(seconds: 15));
+      notice('Delivery assigned to ' + partner['display_name'].toString() + '.');
+    } catch (e) {
+      debugPrint('Delivery assignment failed (' + e.runtimeType.toString() + ').');
+      notice('Assignment failed. The partner may have changed status; refresh and retry.');
+    }
   }
 
 
