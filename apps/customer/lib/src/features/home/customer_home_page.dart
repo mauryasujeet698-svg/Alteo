@@ -87,6 +87,7 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
    ),
  )])));
  Future<void> _autoSelectCurrentLocation() async {
+  if (!widget.enableBackendQueries) return;
   // Wait for the first-launch permission request. Do not prompt repeatedly if
   // the customer declines; preserve browsing and manual address search.
   try {
