@@ -2361,6 +2361,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   Widget _adminOrdersPage() => Scaffold(
     appBar: _appBar('Orders & dispatch'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
+      const Text('Dispatch controls', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      const AdminServiceConfigPanel(),
+      const SizedBox(height: 22),
       const Text('Customer orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
         stream: client.from('orders').stream(primaryKey: ['id']).order('created_at', ascending: false),
@@ -2368,15 +2372,24 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           if (s.hasError) return _error('Orders unavailable. Check the admin RLS policy.');
           if (!s.hasData) return const LinearProgressIndicator();
           if (s.data!.isEmpty) return _empty('No orders yet', 'Orders appear when a customer checks out.');
-          return Column(children: s.data!.take(30).map((o) => Card(elevation: 0, child: ListTile(
-            title: Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            trailing: IconButton(
-              tooltip: 'Assign to dark store',
-              onPressed: (o['payment_status']?.toString() ?? 'pending') == 'paid' ? () => assignOrderToDarkStore(o) : null,
-              icon: const Icon(Icons.warehouse_outlined),
+          return Column(children: s.data!.take(30).map((o) => Card(
+            elevation: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                ListTile(
+                  title: Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
+                  subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+                  trailing: IconButton(
+                    tooltip: 'Assign to dark store',
+                    onPressed: (o['payment_status']?.toString() ?? 'pending') == 'paid' ? () => assignOrderToDarkStore(o) : null,
+                    icon: const Icon(Icons.warehouse_outlined),
+                  ),
+                ),
+                AlteoOrderItemsSection(orderId: o['id']?.toString()),
+              ]),
             ),
-          ))).toList());
+          )).toList());
         },
       ),
       const SizedBox(height: 22),
@@ -2402,11 +2415,24 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           if (s.hasError) return _error('Delivery jobs unavailable.');
           if (!s.hasData) return const LinearProgressIndicator();
           if (s.data!.isEmpty) return _empty('No delivery jobs', 'Jobs appear when an order or parcel needs delivery.');
-          return Column(children: s.data!.take(25).map((j) => Card(elevation: 0, child: ListTile(
-            title: Text((j['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(j['id'])),
-            subtitle: Text('Status: ' + (j['status']?.toString() ?? 'unknown')),
-            trailing: IconButton(tooltip: 'Assign delivery partner', icon: const Icon(Icons.local_shipping_rounded), onPressed: () => assignDelivery(j)),
-          ))).toList());
+          return Column(children: s.data!.take(25).map((j) => Card(
+            elevation: 0,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                ListTile(
+                  title: Text((j['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(j['id'])),
+                  subtitle: Text('Status: ' + (j['status']?.toString() ?? 'unknown') +
+                    (j['area_code']?.toString().isNotEmpty == true ? ' · PIN ' + j['area_code'].toString() : '')),
+                  trailing: IconButton(tooltip: 'Assign delivery partner', icon: const Icon(Icons.local_shipping_rounded), onPressed: () => assignDelivery(j)),
+                ),
+                AlteoOrderItemsSection(
+                  orderId: j['order_id']?.toString(),
+                  fallbackDescription: j['item_description']?.toString(),
+                ),
+              ]),
+            ),
+          )).toList());
         },
       ),
     ]),
