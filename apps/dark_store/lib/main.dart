@@ -1249,10 +1249,24 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Future<void> _setStoreStock(String storeId, String productId, String name, int current) async {
     final stock = TextEditingController(text: current.toString());
+    var availabilityMode = 'all';
+    var availablePincodes = <String>[];
     try {
       final ok = await showDialog<bool>(context: context, builder: (dialogContext) => AlertDialog(
         title: Text('Stock · ' + name),
-        content: TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stock on hand', border: OutlineInputBorder())),
+        content: SizedBox(
+          width: 480,
+          child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Stock on hand', border: OutlineInputBorder())),
+            const SizedBox(height: 10),
+            AlteoPincodeCoverageSelector(
+              initialMode: availabilityMode,
+              initialPincodes: availablePincodes,
+              allowAllPincodes: true,
+              onChanged: (mode, pins) { availabilityMode = mode; availablePincodes = pins; },
+            ),
+          ])),
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
           FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save stock')),
@@ -1261,7 +1275,14 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (ok == true) {
         final quantity = int.tryParse(stock.text.trim());
         if (quantity == null || quantity < 0) { notice('Enter a valid non-negative stock quantity.'); return; }
-        await rpc('dark_store_set_inventory', {'p_store_id': storeId, 'p_product_id': productId, 'p_stock_on_hand': quantity}, 'Inventory updated.');
+        if (availabilityMode == 'specific' && availablePincodes.isEmpty) {
+          notice('Select at least one active PIN code or choose Available on all PIN codes.');
+          return;
+        }
+        await rpc('dark_store_set_inventory', {
+          'p_store_id': storeId, 'p_product_id': productId, 'p_stock_on_hand': quantity,
+          'p_availability_mode': availabilityMode, 'p_available_pincodes': availablePincodes,
+        }, 'Inventory and PIN availability updated.');
       }
     } finally { stock.dispose(); }
   }
