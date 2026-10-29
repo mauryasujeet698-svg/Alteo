@@ -677,6 +677,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               ])),
             ]),
           ),
+          AlteoPartnerAccountCard(role: requiredRole, userId: user!.id),
+          AlteoPartnerRatingCard(role: requiredRole, userId: user!.id),
           if (requiredRole == 'seller')
             FutureBuilder<Map<String, dynamic>?>(
               future: sellerProfile,
@@ -1207,6 +1209,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             if ((payment == 'paid' && status == 'paid') || (payment == 'cod_pending' && status == 'cod_pending')) buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'accept'}, 'Order accepted.'), child: const Text('Accept')));
             if ((payment == 'paid' || payment == 'cod_pending') && status == 'accepted') buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'prepare'}, 'Order preparation started.'), child: const Text('Prepare')));
             if ((payment == 'paid' || payment == 'cod_pending') && status == 'preparing') buttons.add(FilledButton(onPressed: () => rpc('seller_update_order_status', {'p_order_id': o['id'], 'p_action': 'ready'}, 'Order ready for pickup.'), child: const Text('Ready for pickup')));
+            if (status == 'delivered' || status == 'completed') {
+              buttons.add(AlteoRateCompletedWorkButton(role: requiredRole, transactionType: 'order', transactionId: o['id'].toString()));
+            }
             return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 5),
