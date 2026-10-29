@@ -128,12 +128,13 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
        final display = [
         match['locality'], match['city'], match['postal_code'],
        ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
-       selectedLocation = <String, dynamic>{
+       final selection = <String, dynamic>{
         ...match,
         'formatted_address': full,
         'display_address': display.isNotEmpty ? display : (match['label']?.toString() ?? 'Saved address'),
         'source': 'saved',
        };
+       selectedLocation = selection;
        setDialogState(() {
         selectedAddress = match;
         selectedLatitude = (match['latitude'] as num?)?.toDouble();
@@ -145,8 +146,8 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
         stateName.text = (match['state'] ?? '').toString();
         postalCode.text = (match['postal_code'] ?? '').toString();
        });
-       final showAddress = selectedLocation['display_address'].toString();
-       await setAlteoDeliveryLocation(showAddress, details: selectedLocation, source: 'saved');
+       final showAddress = selection['display_address'].toString();
+       await setAlteoDeliveryLocation(showAddress, details: selection, source: 'saved');
       },
      ),
      Container(
