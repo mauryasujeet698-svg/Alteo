@@ -643,6 +643,31 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     if (photoPath != null && photoPath.isNotEmpty) {
       try { photoUrl = await client.storage.from('partner-onboarding').createSignedUrl(photoPath, 300); } catch (_) {}
     }
+    final documentPreviews = <Map<String, String>>[];
+    final rawDocuments = request['document_paths'];
+    if (rawDocuments is List) {
+      for (final raw in rawDocuments) {
+        String label = 'Uploaded document';
+        String path = '';
+        if (raw is Map) {
+          final item = Map<String, dynamic>.from(raw);
+          label = item['label']?.toString().trim().isNotEmpty == true
+              ? item['label'].toString().trim() : label;
+          path = item['path']?.toString().trim() ?? '';
+        } else if (raw is String) {
+          path = raw.trim();
+          final parts = path.split('/');
+          label = parts.isEmpty ? label : parts.last;
+        }
+        if (path.isEmpty) continue;
+        try {
+          final url = await client.storage.from('partner-onboarding').createSignedUrl(path, 300);
+          documentPreviews.add({'label': label, 'url': url});
+        } catch (_) {
+          documentPreviews.add({'label': label, 'url': ''});
+        }
+      }
+    }
     if (!mounted) return;
     final details = <String>[
       'Role: ${(request['requested_role'] ?? 'unknown').toString().replaceAll('_', ' ')}',
@@ -658,6 +683,39 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           if (photoUrl != null) Center(child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.network(photoUrl, height: 150, width: 150, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.person, size: 80)))),
           if (photoUrl != null) const SizedBox(height: 14),
           SelectableText(details, style: const TextStyle(height: 1.6)),
+          if (documentPreviews.isNotEmpty) ...[
+            const SizedBox(height: 18),
+            const Text('Submitted identity & vehicle documents', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+            const SizedBox(height: 8),
+            for (final document in documentPreviews)
+              Card(
+                elevation: 0,
+                margin: const EdgeInsets.only(bottom: 10),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(document['label'] ?? 'Uploaded document', style: const TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 8),
+                    if ((document['url'] ?? '').isEmpty)
+                      const Text('Preview unavailable. The file may have expired or no longer exists.')
+                    else
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: Image.network(
+                          document['url']!,
+                          height: 190,
+                          width: double.infinity,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Padding(
+                            padding: EdgeInsets.all(12),
+                            child: Text('Could not preview this document.'),
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ),
+          ],
           if ((request['rejection_reason']?.toString().isNotEmpty ?? false)) ...[
             const SizedBox(height: 12),
             Text('Previous rejection reason: ${request['rejection_reason']}', style: const TextStyle(color: Colors.red)),
