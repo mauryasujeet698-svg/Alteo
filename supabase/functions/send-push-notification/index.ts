@@ -200,11 +200,14 @@ Deno.serve(async (request: Request) => {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const messageBody = typeof body.body === "string" ? body.body.trim() : "";
   if (!allowedApps.has(appId)) return json({ error: "Unsupported app_id." }, 400);
-  if (!["all_customers", "specific_user"].includes(audience)) {
+  if (!["all_customers", "all_delivery_partners", "specific_user"].includes(audience)) {
     return json({ error: "Unsupported notification audience." }, 400);
   }
   if (audience === "all_customers" && appId !== "customer") {
-    return json({ error: "Broadcast notifications are currently limited to customer apps." }, 400);
+    return json({ error: "Customer broadcasts require the customer app target." }, 400);
+  }
+  if (audience === "all_delivery_partners" && appId !== "delivery_partner") {
+    return json({ error: "Delivery-partner broadcasts require the delivery_partner app target." }, 400);
   }
   if (audience === "specific_user" && !/^[0-9a-fA-F-]{36}$/.test(targetUserId)) {
     return json({ error: "A valid target user_id is required." }, 400);
@@ -223,6 +226,7 @@ Deno.serve(async (request: Request) => {
   }
 
   let tokens: string[] = [];
+  let recipientIds: string[] = [];
   if (audience === "specific_user") {
     const { data: rows, error: tokenError } = await serviceClient
       .from("user_device_tokens")
@@ -232,8 +236,16 @@ Deno.serve(async (request: Request) => {
     if (tokenError) return json({ error: "Could not find registered devices for this account." }, 500);
     tokens = (rows ?? []).map((row) => String(row.token ?? "")).filter(Boolean);
     if (tokens.length === 0) {
-      return json({ sent: 0, attempted: 0, message: "No registered devices for this user and app yet. Open the app, sign in and allow notifications first." }, 200);
+      return json({ sent: 0, attempted: 0, message: "No registered devices for this account yet. Open the correct app, sign in and allow notifications first." }, 200);
     }
+    recipientIds = [targetUserId];
+  } else {
+    const { data: rows, error: tokenError } = await serviceClient
+      .from("user_device_tokens")
+      .select("user_id")
+      .eq("app_id", appId);
+    if (tokenError) return json({ error: "Could not find registered devices for this audience." }, 500);
+    recipientIds = [...new Set((rows ?? []).map((row) => String(row.user_id ?? "")).filter(Boolean))];
   }
 
   try {
@@ -246,7 +258,9 @@ Deno.serve(async (request: Request) => {
     const destinations: Array<{ token?: string; topic?: string }> =
       audience === "all_customers"
         ? [{ topic: "alteo_customers" }]
-        : tokens.map((token) => ({ token }));
+        : audience === "all_delivery_partners"
+          ? [{ topic: "alteo_delivery_partners" }]
+          : tokens.map((token) => ({ token }));
 
     for (let offset = 0; offset < destinations.length; offset += 20) {
       const batch = destinations.slice(offset, offset + 20);
@@ -274,12 +288,46 @@ Deno.serve(async (request: Request) => {
       }));
       sent += results.filter(Boolean).length;
     }
+    // Persist the same announcement into each recipient's in-app notification inbox.
+    // The notification table's RLS remains owner-only; serviceRole is used here
+    // after Admin was authenticated and authorized above.
+    let inboxInserted = 0;
+    if (recipientIds.length > 0) {
+      const inboxRows = recipientIds.map((userId) => ({
+        user_id: userId,
+        category: "announcement",
+        title,
+        body: messageBody,
+        payload: {
+          source: "admin",
+          audience,
+          app_id: appId,
+          ...dataPayload,
+        },
+      }));
+      for (let offset = 0; offset < inboxRows.length; offset += 500) {
+        const { error: inboxError, data: inserted } = await serviceClient
+          .from("notifications")
+          .insert(inboxRows.slice(offset, offset + 500))
+          .select("id");
+        if (inboxError) {
+          console.error("In-app notification write failed:", inboxError.message);
+          break;
+        }
+        inboxInserted += inserted?.length ?? 0;
+      }
+    }
     return json({
       sent,
       attempted: destinations.length,
       audience,
       app_id: appId,
-      delivery: audience === "all_customers" ? "submitted_to_customer_topic" : "submitted_to_registered_devices",
+      inbox_recipients: inboxInserted,
+      delivery: audience === "all_customers"
+        ? "submitted_to_customer_topic"
+        : audience === "all_delivery_partners"
+          ? "submitted_to_delivery_partner_topic"
+          : "submitted_to_registered_devices",
       failures,
     });
   } catch (error) {
