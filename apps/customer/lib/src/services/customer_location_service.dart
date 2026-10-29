@@ -83,7 +83,7 @@ class CustomerLocationService {
           timeLimit: Duration(seconds: 15),
         ),
       );
-      return resolveCoordinates(position.latitude, position.longitude);
+      return await resolveCoordinates(position.latitude, position.longitude);
     } catch (_) {
       return null;
     }
