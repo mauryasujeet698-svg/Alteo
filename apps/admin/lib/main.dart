@@ -1002,6 +1002,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               ])),
             ]),
           ),
+          const AlteoAppReleaseManager(),
+          const AlteoAppUpdateTile(appId: 'admin'),
+          const AlteoAppLegalTiles(appName: 'Alteo Admin'),
           if (requiredRole == 'seller')
             FutureBuilder<Map<String, dynamic>?>(
               future: sellerProfile,
