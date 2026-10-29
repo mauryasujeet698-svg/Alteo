@@ -476,8 +476,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   late Future<Map<String, dynamic>?> sellerProfile;
   late Future<Map<String, dynamic>?> storeProfile;
   Future<String>? _adminCatalogSellerFuture;
-  final roleUserId = TextEditingController();
-  String grantRole = 'delivery_partner';
   bool partnerOnline = false;
   int selectedTab = 0;
   final _notificationTitleController = TextEditingController();
@@ -504,7 +502,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   @override
   void dispose() {
-    roleUserId.dispose();
     _notificationTitleController.dispose();
     _notificationBodyController.dispose();
     _notificationUserIdController.dispose();
@@ -556,15 +553,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
       label: Text(partnerOnline ? 'Online' : 'Go online'),
     ),
-    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
-
-  Future<void> grantUserRole() async {
-    final id = roleUserId.text.trim();
-    if (id.isEmpty) { notice('Enter the user UUID first.'); return; }
-    await rpc('admin_grant_user_role', {'p_user_id': id, 'p_role': grantRole}, 'Role granted.');
-    roleUserId.clear();
-  }
 
   Future<void> reviewRoleRequest(Map<String, dynamic> request, {required bool approve}) async {
     final requestId = request['id']?.toString();
@@ -1169,8 +1158,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               ])),
             ]),
           ),
-          const AlteoAppReleaseManager(),
-          const AlteoAppUpdateTile(appId: 'admin'),
           const AlteoAppLegalTiles(appName: 'Alteo Admin'),
           if (requiredRole == 'seller')
             FutureBuilder<Map<String, dynamic>?>(
@@ -1338,9 +1325,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     );
   }
 
-  PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title), actions: [
-    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
-  ]);
+  PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title));
 
 
 
@@ -1732,7 +1717,21 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-            children: const [AdminServiceConfigPanel()],
+            children: const [AdminServiceConfigPanel(mode: AdminServiceConfigMode.areas)],
+          ),
+        ),
+      ),
+    ));
+  }
+
+  void _openDispatchSettings() {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: const Text('Dispatch & Automation')),
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            children: const [AdminServiceConfigPanel(mode: AdminServiceConfigMode.dispatch)],
           ),
         ),
       ),
@@ -1753,6 +1752,12 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           'Service Areas & Availability',
           'Register PIN codes, enable services per area and configure validated pricing.',
           _openServiceAreaSettings,
+        ),
+        _adminModuleTile(
+          Icons.route_rounded,
+          'Dispatch & Automation',
+          'Control automatic ride and delivery assignment separately from service-area setup.',
+          _openDispatchSettings,
         ),
         _adminModuleTile(
           Icons.inventory_2_rounded,
@@ -1836,26 +1841,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ),
       ),
       const SizedBox(height: 22),
-      const Text('Grant an app role', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      TextField(controller: roleUserId, decoration: const InputDecoration(labelText: 'Existing user UUID', border: OutlineInputBorder())),
-      const SizedBox(height: 8),
-      DropdownButtonFormField<String>(
-        value: grantRole,
-        decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
-        items: const [
-          DropdownMenuItem(value: 'customer', child: Text('Customer')),
-          DropdownMenuItem(value: 'driver_partner', child: Text('Driver Partner')),
-          DropdownMenuItem(value: 'delivery_partner', child: Text('Delivery Partner')),
-          DropdownMenuItem(value: 'seller', child: Text('Seller')),
-          DropdownMenuItem(value: 'dark_store', child: Text('Dark Store')),
-          DropdownMenuItem(value: 'admin', child: Text('Admin')),
-        ],
-        onChanged: (v) { if (v != null) setState(() => grantRole = v); },
-      ),
-      const SizedBox(height: 8),
-      FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
-      const SizedBox(height: 24),
+
       _roleRequestsSection(),
       const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
@@ -2010,9 +1996,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Catalogue management'),
-        actions: [
-          IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
-        ],
         bottom: const TabBar(
           tabs: [
             Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Items'),
@@ -2405,7 +2388,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     body: ListView(padding: const EdgeInsets.all(16), children: [
       const Text('Dispatch controls', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       const SizedBox(height: 8),
-      const AdminServiceConfigPanel(),
+      const AdminServiceConfigPanel(mode: AdminServiceConfigMode.dispatch),
       const SizedBox(height: 22),
       const Text('Customer orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
       StreamBuilder<List<Map<String, dynamic>>>(
@@ -2601,28 +2584,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   Widget _adminPartnersPage() => Scaffold(
     appBar: _appBar('Partners & approvals'),
     body: ListView(padding: const EdgeInsets.all(16), children: [
-      const AdminServiceConfigPanel(),
-      const SizedBox(height: 24),
-      const Text('Grant an app role', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      TextField(controller: roleUserId, decoration: const InputDecoration(labelText: 'Existing user UUID', border: OutlineInputBorder())),
-      const SizedBox(height: 8),
-      DropdownButtonFormField<String>(
-        value: grantRole,
-        decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
-        items: const [
-          DropdownMenuItem(value: 'customer', child: Text('Customer')),
-          DropdownMenuItem(value: 'driver_partner', child: Text('Driver Partner')),
-          DropdownMenuItem(value: 'delivery_partner', child: Text('Delivery Partner')),
-          DropdownMenuItem(value: 'seller', child: Text('Seller')),
-          DropdownMenuItem(value: 'dark_store', child: Text('Dark Store')),
-          DropdownMenuItem(value: 'admin', child: Text('Admin')),
-        ],
-        onChanged: (v) { if (v != null) setState(() => grantRole = v); },
-      ),
-      const SizedBox(height: 8),
-      FilledButton(onPressed: grantUserRole, child: const Text('Grant role')),
-      const SizedBox(height: 24),
+
       const Text('Manage partners', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
       const Text('Review applications and check live partner availability in each role section.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
       const SizedBox(height: 12),
@@ -3153,8 +3115,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 }
 
 
+enum AdminServiceConfigMode { all, areas, dispatch }
+
 class AdminServiceConfigPanel extends StatefulWidget {
-  const AdminServiceConfigPanel({super.key});
+  const AdminServiceConfigPanel({super.key, this.mode = AdminServiceConfigMode.all});
+  final AdminServiceConfigMode mode;
   @override
   State<AdminServiceConfigPanel> createState() => _AdminServiceConfigPanelState();
 }
@@ -3730,49 +3695,73 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         });
       }
       return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Service availability & pricing', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 5),
-        const Text('Control the PIN codes where Alteo operates, then choose which services are available in each area. Changes apply without releasing a new app build.', style: TextStyle(color: Color(0xFF68736D), height: 1.45)),
-        const SizedBox(height: 16),
-        _serviceAreaManager(areas),
-        const SizedBox(height: 18),
-        const Divider(),
-        const SizedBox(height: 8),
-        const Text('Configure services', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: selectedAreaCode,
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Area to configure', border: OutlineInputBorder()),
-          items: [
-            const DropdownMenuItem(value: 'DEFAULT', child: Text('DEFAULT · Global fallback')),
-            ...areas.map((area) => DropdownMenuItem(
-              value: area['pincode']?.toString(),
-              child: Text('${area['pincode']} · ${area['locality'] ?? area['district'] ?? area['state'] ?? (area['active'] == true ? 'Service area' : 'Disabled')}' ,
-                overflow: TextOverflow.ellipsis),
-            )),
-          ],
-          onChanged: (value) {
-            if (value != null) setState(() => selectedAreaCode = value);
-          },
-        ),
-        if (selectedAreaCode != 'DEFAULT' && !selectedAreaActive)
-          const Padding(
-            padding: EdgeInsets.only(top: 8),
-            child: Text('This PIN code is inactive. Activate it before enabling its services.', style: TextStyle(color: Color(0xFFB3261E), fontWeight: FontWeight.w700)),
+        if (widget.mode != AdminServiceConfigMode.dispatch) ...[
+          Text(
+            widget.mode == AdminServiceConfigMode.areas ? 'Service Areas' : 'Service availability & pricing',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
           ),
-        const SizedBox(height: 10),
-        StreamBuilder<List<Map<String, dynamic>>>(
-          stream: client.from('service_controls').stream(primaryKey: ['id']),
-          builder: (context, controlSnapshot) => StreamBuilder<List<Map<String, dynamic>>>(
-            stream: client.from('pricing_rules').stream(primaryKey: ['id']),
-            builder: (context, priceSnapshot) {
-              if (controlSnapshot.hasError || priceSnapshot.hasError) return const Text('Service settings unavailable. Try again or check admin permissions.');
-              if (!controlSnapshot.hasData || !priceSnapshot.hasData) return const LinearProgressIndicator();
-              return _serviceControls(controlSnapshot.data!, priceSnapshot.data!, selectedAreaActive);
+          const SizedBox(height: 5),
+          Text(
+            widget.mode == AdminServiceConfigMode.areas
+                ? 'Manage PIN codes and covered localities. Activate an area before enabling services there.'
+                : 'Choose where Alteo operates, then configure each service and its local pricing.',
+            style: const TextStyle(color: Color(0xFF68736D), height: 1.45),
+          ),
+          const SizedBox(height: 16),
+          _serviceAreaManager(areas),
+        ],
+        if (widget.mode != AdminServiceConfigMode.areas) ...[
+          const Divider(),
+          const SizedBox(height: 8),
+          Text(
+            widget.mode == AdminServiceConfigMode.dispatch ? 'Dispatch & automation' : 'Configure services',
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 5),
+          if (widget.mode == AdminServiceConfigMode.dispatch)
+            const Text(
+              'Automatic assignment runs only when both service availability and automation are enabled. Pending work is retried when a partner comes online or settings change.',
+              style: TextStyle(color: Color(0xFF68736D), height: 1.4),
+            ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: selectedAreaCode,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Area to configure', border: OutlineInputBorder()),
+            items: [
+              const DropdownMenuItem(value: 'DEFAULT', child: Text('DEFAULT · Global fallback')),
+              ...areas.map((area) => DropdownMenuItem(
+                value: area['pincode']?.toString(),
+                child: Text(
+                  '${area['pincode']} · ${area['locality'] ?? area['district'] ?? area['state'] ?? (area['active'] == true ? 'Service area' : 'Disabled')}',
+                  overflow: TextOverflow.ellipsis,
+                ),
+              )),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => selectedAreaCode = value);
             },
           ),
-        ),
+          if (selectedAreaCode != 'DEFAULT' && !selectedAreaActive)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text('This PIN code is inactive. Activate it before enabling its services.', style: TextStyle(color: Color(0xFFB3261E), fontWeight: FontWeight.w700)),
+            ),
+          const SizedBox(height: 10),
+          StreamBuilder<List<Map<String, dynamic>>>(
+            stream: client.from('service_controls').stream(primaryKey: ['id']),
+            builder: (context, controlSnapshot) => StreamBuilder<List<Map<String, dynamic>>>(
+              stream: client.from('pricing_rules').stream(primaryKey: ['id']),
+              builder: (context, priceSnapshot) {
+                if (controlSnapshot.hasError || priceSnapshot.hasError) {
+                  return const Text('Service settings unavailable. Try again or check admin permissions.');
+                }
+                if (!controlSnapshot.hasData || !priceSnapshot.hasData) return const LinearProgressIndicator();
+                return _serviceControls(controlSnapshot.data!, priceSnapshot.data!, selectedAreaActive);
+              },
+            ),
+          ),
+        ],
       ]);
     },
   );
