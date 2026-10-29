@@ -422,3 +422,301 @@ class AlteoDevicePermissionsPage extends StatelessWidget {
     ),
   );
 }
+
+
+class AlteoPartnerAccountCard extends StatefulWidget {
+  const AlteoPartnerAccountCard({super.key, required this.role, required this.userId});
+  final String role;
+  final String userId;
+  @override
+  State<AlteoPartnerAccountCard> createState() => _AlteoPartnerAccountCardState();
+}
+
+class _AlteoPartnerAccountCardState extends State<AlteoPartnerAccountCard> {
+  late Future<Map<String, dynamic>?> _request = _load();
+  Future<Map<String, dynamic>?> _load() async {
+    final rows = await Supabase.instance.client.from('role_requests')
+      .select('requested_role,status,display_name,email,phone,application_data,rejection_reason,needs_correction,correction_reason')
+      .eq('user_id', widget.userId).eq('requested_role', widget.role)
+      .order('requested_at', ascending: false).limit(1);
+    return rows.isEmpty ? null : Map<String, dynamic>.from(rows.first as Map);
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>?>(
+    future: _request,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()));
+      }
+      if (snapshot.hasError) return Card(elevation: 0, child: ListTile(
+        title: const Text('Partner account'),
+        subtitle: const Text('Account details could not be loaded.'),
+        trailing: IconButton(onPressed: () => setState(() => _request = _load()), icon: const Icon(Icons.refresh_rounded)),
+      ));
+      final row = snapshot.data;
+      final raw = row?['application_data'];
+      final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+      final status = (row?['status'] ?? 'not submitted').toString();
+      final statusColor = status == 'approved' ? _green : status == 'rejected' ? const Color(0xFFB3261E) : const Color(0xFF8A5A00);
+      final details = <MapEntry<String, Object?>>[
+        MapEntry('Mobile', row?['phone']),
+        if (widget.role == 'seller') MapEntry('Business', data['shop_name']),
+        if (widget.role == 'seller') MapEntry('Category', data['business_category']),
+        if (widget.role == 'dark_store') MapEntry('Store', data['store_name']),
+        if (widget.role == 'dark_store') MapEntry('Operating hours', data['operating_hours']),
+        if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') MapEntry('Vehicle', data['vehicle_type']),
+        if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') MapEntry('Registration', data['vehicle_registration']),
+        if (widget.role == 'driver_partner') MapEntry('Licence no.', data['driving_licence_number']),
+        if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') MapEntry('Service PIN', data['service_area']),
+        MapEntry('Address', data['address']),
+      ];
+      return Card(elevation: 0, margin: const EdgeInsets.only(top: 12, bottom: 6),
+        child: Padding(padding: const EdgeInsets.all(16), child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.verified_user_outlined, color: _green)),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text((row?['display_name'] ?? Supabase.instance.client.auth.currentUser?.email ?? 'Partner').toString(),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                Text(widget.role.replaceAll('_', ' '), style: const TextStyle(color: Color(0xFF68736D))),
+              ])),
+              Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(color: statusColor.withOpacity(0.12), borderRadius: BorderRadius.circular(18)),
+                child: Text(status.replaceAll('_', ' ').toUpperCase(),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: statusColor))),
+            ]),
+            const SizedBox(height: 14),
+            for (final detail in details)
+              if (detail.value != null && detail.value.toString().trim().isNotEmpty)
+                Padding(padding: const EdgeInsets.only(bottom: 8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  SizedBox(width: 112, child: Text(detail.key, style: const TextStyle(color: Color(0xFF68736D), fontSize: 12))),
+                  Expanded(child: Text(detail.value.toString(), style: const TextStyle(fontWeight: FontWeight.w700))),
+                ])),
+            if (row?['needs_correction'] == true) ...[
+              const Divider(height: 20),
+              const Text('Action required', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF8A5A00))),
+              Text((row?['correction_reason'] ?? 'Admin requested corrections to your application.').toString(), style: const TextStyle(height: 1.4)),
+            ] else if (status == 'rejected' && (row?['rejection_reason']?.toString().isNotEmpty ?? false)) ...[
+              const Divider(height: 20),
+              const Text('Admin feedback', style: TextStyle(fontWeight: FontWeight.w900, color: Color(0xFFB3261E))),
+              Text(row!['rejection_reason'].toString(), style: const TextStyle(height: 1.4)),
+            ],
+          ],
+        )),
+      );
+    },
+  );
+}
+
+class AlteoPartnerRatingCard extends StatefulWidget {
+  const AlteoPartnerRatingCard({super.key, required this.role, required this.userId});
+  final String role;
+  final String userId;
+  @override
+  State<AlteoPartnerRatingCard> createState() => _AlteoPartnerRatingCardState();
+}
+
+class _AlteoPartnerRatingCardState extends State<AlteoPartnerRatingCard> {
+  late Future<Map<String, dynamic>> _summary = _load();
+  Future<Map<String, dynamic>> _load() async {
+    final client = Supabase.instance.client;
+    var subjectId = widget.userId;
+    if (widget.role == 'seller') {
+      final row = await client.from('sellers').select('id').eq('owner_id', widget.userId).limit(1).maybeSingle();
+      subjectId = row?['id']?.toString() ?? '';
+    } else if (widget.role == 'dark_store') {
+      final row = await client.from('dark_stores').select('id').eq('owner_user_id', widget.userId).limit(1).maybeSingle();
+      subjectId = row?['id']?.toString() ?? '';
+    }
+    if (subjectId.isEmpty) return {'count': 0, 'average': 0.0, 'recent': <Map<String, dynamic>>[]};
+    final rows = await client.from('service_ratings').select('id,score,comment,reviewer_role,created_at')
+      .eq('subject_role', widget.role).eq('subject_id', subjectId).eq('status', 'published')
+      .order('created_at', ascending: false).limit(30);
+    final recent = List<Map<String, dynamic>>.from(rows as List);
+    final sum = recent.fold<double>(0, (total, row) => total + ((row['score'] as num?)?.toDouble() ?? 0));
+    return {'count': recent.length, 'average': recent.isEmpty ? 0.0 : sum / recent.length, 'recent': recent.take(3).toList()};
+  }
+  @override
+  Widget build(BuildContext context) => FutureBuilder<Map<String, dynamic>>(
+    future: _summary,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) return const Card(elevation: 0, child: Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()));
+      if (snapshot.hasError) return Card(elevation: 0, child: ListTile(
+        leading: const Icon(Icons.star_outline_rounded, color: Color(0xFF8A5A00)),
+        title: const Text('Ratings & feedback'), subtitle: const Text('Ratings could not be loaded.'),
+        trailing: IconButton(onPressed: () => setState(() => _summary = _load()), icon: const Icon(Icons.refresh_rounded)),
+      ));
+      final data = snapshot.data!;
+      final count = data['count'] as int? ?? 0;
+      final average = (data['average'] as num?)?.toDouble() ?? 0;
+      final recent = List<Map<String, dynamic>>.from(data['recent'] as List);
+      return Card(elevation: 0, margin: const EdgeInsets.only(top: 6, bottom: 8),
+        child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Ratings & feedback', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 10),
+          Row(children: [
+            const Icon(Icons.star_rounded, color: Color(0xFFE0A020), size: 30), const SizedBox(width: 6),
+            Text(count == 0 ? 'No ratings yet' : average.toStringAsFixed(1), style: const TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+            if (count > 0) Expanded(child: Padding(padding: const EdgeInsets.only(left: 8),
+              child: Text(count.toString() + ' published ratings', style: const TextStyle(color: Color(0xFF68736D))))),
+          ]),
+          if (count == 0) const Padding(padding: EdgeInsets.only(top: 5),
+            child: Text('Ratings appear after eligible work is reviewed.', style: TextStyle(color: Color(0xFF68736D), height: 1.4))),
+          for (final review in recent) ...[
+            const Divider(height: 20),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text((review['score'] ?? 0).toString() + ' ★', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF8A5A00))),
+              const SizedBox(width: 10),
+              Expanded(child: Text((review['comment']?.toString().trim().isNotEmpty ?? false)
+                ? review['comment'].toString() : 'No written feedback.', style: const TextStyle(height: 1.4))),
+            ]),
+          ],
+        ])),
+      );
+    },
+  );
+}
+
+class AlteoServiceAreaLocationCard extends StatelessWidget {
+  const AlteoServiceAreaLocationCard({
+    super.key, required this.role, required this.selectedPin, required this.activeAreas,
+    required this.isOnline, required this.locationSummary, required this.isRefreshingLocation,
+    required this.onAreaChanged, required this.onRefreshLocation, required this.onToggleAvailability,
+    required this.onOpenMap,
+  });
+  final String role;
+  final String? selectedPin;
+  final List<Map<String, dynamic>> activeAreas;
+  final bool isOnline;
+  final String locationSummary;
+  final bool isRefreshingLocation;
+  final ValueChanged<String?> onAreaChanged;
+  final VoidCallback onRefreshLocation;
+  final VoidCallback onToggleAvailability;
+  final VoidCallback onOpenMap;
+
+  String _areaLabel(Map<String, dynamic> area) {
+    final code = area['pincode']?.toString() ?? '';
+    final locality = area['locality']?.toString().trim() ?? '';
+    final district = area['district']?.toString().trim() ?? '';
+    final label = <String>[if (locality.isNotEmpty) locality, if (district.isNotEmpty) district].join(' · ');
+    return label.isEmpty ? code : code + ' · ' + label;
+  }
+  @override
+  Widget build(BuildContext context) {
+    final validPin = selectedPin != null && activeAreas.any((row) => row['pincode']?.toString() == selectedPin);
+    return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFDCE6DF))),
+      child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const CircleAvatar(backgroundColor: _paleGreen, child: Icon(Icons.location_on_rounded, color: _green)), const SizedBox(width: 10),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Service area & live location', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 17)),
+            Text(isOnline ? 'Online · eligible for assignments' : 'Offline · not receiving new work',
+              style: TextStyle(fontSize: 12, color: isOnline ? _green : const Color(0xFF68736D))),
+          ])),
+          Icon(isOnline ? Icons.wifi_tethering_rounded : Icons.wifi_off_rounded, color: isOnline ? _green : const Color(0xFF68736D)),
+        ]),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: validPin ? selectedPin : null, isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Active service PIN code *', border: OutlineInputBorder(), helperText: 'Choose where you want to receive work.'),
+          items: activeAreas.map((area) => DropdownMenuItem<String>(
+            value: area['pincode']?.toString(), child: Text(_areaLabel(area), maxLines: 2, overflow: TextOverflow.ellipsis),
+          )).toList(),
+          onChanged: activeAreas.isEmpty ? null : onAreaChanged,
+        ),
+        if (activeAreas.isEmpty) const Padding(padding: EdgeInsets.only(top: 5),
+          child: Text('No active PIN codes are configured. Contact Alteo Admin.', style: TextStyle(color: Color(0xFFB3261E), height: 1.4))),
+        const SizedBox(height: 10),
+        Container(width: double.infinity, padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: const Color(0xFFF5F7F5), borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Icon(isRefreshingLocation ? Icons.gps_not_fixed_rounded : Icons.my_location_rounded, color: _green),
+            const SizedBox(width: 10), Expanded(child: Text(locationSummary, style: const TextStyle(height: 1.4))),
+          ]),
+        ),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          OutlinedButton.icon(onPressed: isRefreshingLocation ? null : onRefreshLocation,
+            icon: isRefreshingLocation ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location_rounded),
+            label: Text(isRefreshingLocation ? 'Updating location…' : 'Refresh location')),
+          OutlinedButton.icon(onPressed: onOpenMap, icon: const Icon(Icons.map_outlined), label: const Text('Open map')),
+          FilledButton.icon(onPressed: validPin && !isRefreshingLocation ? onToggleAvailability : null,
+            icon: Icon(isOnline ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded),
+            label: Text(isOnline ? 'Go offline' : 'Go online'),
+            style: FilledButton.styleFrom(backgroundColor: isOnline ? const Color(0xFF5C6861) : _green)),
+        ]),
+      ])),
+    );
+  }
+}
+
+class AlteoRateCompletedWorkButton extends StatefulWidget {
+  const AlteoRateCompletedWorkButton({
+    super.key, required this.role, required this.transactionType, required this.transactionId, this.onSubmitted,
+  });
+  final String role;
+  final String transactionType;
+  final String transactionId;
+  final VoidCallback? onSubmitted;
+  @override
+  State<AlteoRateCompletedWorkButton> createState() => _AlteoRateCompletedWorkButtonState();
+}
+
+class _AlteoRateCompletedWorkButtonState extends State<AlteoRateCompletedWorkButton> {
+  bool _busy = false;
+  Future<void> _rate() async {
+    var score = 5;
+    final comment = TextEditingController();
+    try {
+      final chosen = await showDialog<int>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(builder: (context, setDialogState) => AlertDialog(
+          title: const Text('Rate completed work'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Rate your experience from 1 to 5 stars. Keep feedback factual and respectful.', style: TextStyle(height: 1.4)),
+            const SizedBox(height: 12),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              for (var value = 1; value <= 5; value++)
+                IconButton(tooltip: value.toString() + ' stars', onPressed: () => setDialogState(() => score = value),
+                  icon: Icon(value <= score ? Icons.star_rounded : Icons.star_outline_rounded, color: const Color(0xFFE0A020), size: 30)),
+            ]),
+            TextField(controller: comment, maxLength: 500, maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Optional comment', border: OutlineInputBorder())),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, score), child: const Text('Submit rating')),
+          ],
+        )),
+      );
+      if (chosen == null || !mounted) return;
+      setState(() => _busy = true);
+      await Supabase.instance.client.rpc('submit_service_rating', params: {
+        'p_transaction_type': widget.transactionType, 'p_transaction_id': widget.transactionId,
+        'p_reviewer_role': widget.role, 'p_score': chosen,
+        'p_comment': comment.text.trim().isEmpty ? null : comment.text.trim(),
+      }).timeout(const Duration(seconds: 15));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rating submitted. Thank you for your feedback.')));
+      widget.onSubmitted?.call();
+    } catch (error) {
+      if (!mounted) return;
+      final message = error.toString().toLowerCase().contains('already rated')
+        ? 'You have already rated this work item.'
+        : 'Rating could not be submitted. Make sure the work is complete and belongs to your account.';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      comment.dispose();
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+  @override
+  Widget build(BuildContext context) => OutlinedButton.icon(
+    onPressed: _busy ? null : _rate,
+    icon: _busy ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.star_outline_rounded),
+    label: Text(_busy ? 'Submitting…' : 'Rate completed work'),
+  );
+}
