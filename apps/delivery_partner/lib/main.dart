@@ -1428,29 +1428,33 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _deliveryDashboard() => Scaffold(
     appBar: _partnerAppBar('My deliveries'),
-    body: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
-      future: (() async {
-        final results = await Future.wait<dynamic>([
-          client.from('delivery_jobs').select('*').eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
-          client.from('delivery_assignments').select('*').eq('partner_id', user!.id).order('created_at', ascending: false),
-        ]).timeout(const Duration(seconds: 15));
-        return <String, List<Map<String, dynamic>>>{
-          'jobs': List<Map<String, dynamic>>.from(results[0] as List),
-          'assignments': List<Map<String, dynamic>>.from(results[1] as List),
-        };
-      })(),
-      builder: (context, snapshot) {
-        if (snapshot.hasError) return _loadFailure('Deliveries could not load. Check your connection and approved delivery-partner access, then retry.', () => setState(() {}));
-        if (!snapshot.hasData) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircularProgressIndicator(), SizedBox(height: 12), Text('Loading your deliveries…'),
+    body: StreamBuilder<List<Map<String, dynamic>>>(
+      stream: client.from('delivery_jobs').stream(primaryKey: ['id'])
+          .eq('delivery_partner_id', user!.id).order('created_at', ascending: false),
+      builder: (context, jobSnapshot) {
+        if (jobSnapshot.hasError) return _loadFailure(
+          'Deliveries could not load. Check your connection and approved delivery-partner access, then retry.',
+          () => setState(() {}),
+        );
+        if (!jobSnapshot.hasData) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
+          CircularProgressIndicator(), SizedBox(height: 12), Text('Waiting for assigned deliveries…'),
         ]));
-        final jobs = snapshot.data!['jobs']!;
-        final assignmentRows = snapshot.data!['assignments']!;
-        final assignments = <String, Map<String, dynamic>>{
-          for (final assignment in assignmentRows)
-            if (assignment['status'] == 'offered' || assignment['status'] == 'accepted')
-              assignment['delivery_job_id'] as String: assignment,
-        };
+        final jobs = jobSnapshot.data!;
+        return StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('delivery_assignments').stream(primaryKey: ['id'])
+              .eq('partner_id', user!.id).order('created_at', ascending: false),
+          builder: (context, assignmentSnapshot) {
+            if (assignmentSnapshot.hasError) return _loadFailure(
+              'Delivery offer details could not load. Retry or contact Admin.',
+              () => setState(() {}),
+            );
+            if (!assignmentSnapshot.hasData) return const Center(child: CircularProgressIndicator());
+            final assignmentRows = assignmentSnapshot.data!;
+            final assignments = <String, Map<String, dynamic>>{
+              for (final assignment in assignmentRows)
+                if (assignment['status'] == 'offered' || assignment['status'] == 'accepted')
+                  assignment['delivery_job_id'] as String: assignment,
+            };
         if (jobs.isEmpty) return _empty('No deliveries assigned', 'Assigned deliveries and parcels appear here.');
         return RefreshIndicator(
           onRefresh: () async { setState(() {}); },
@@ -1510,6 +1514,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             ])));
           }).toList()),
         );
+          },
+        ),
       },
     ),
   );
