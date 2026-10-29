@@ -493,6 +493,12 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   bool partnerOnline = false;
   Timer? locationUpdateTimer;
   bool locationUpdateInFlight = false;
+  String? partnerAreaCode;
+  List<Map<String, dynamic>> partnerServiceAreas = <Map<String, dynamic>>[];
+  double? lastLatitude;
+  double? lastLongitude;
+  DateTime? lastLocationAt;
+  bool refreshingLocation = false;
   int selectedTab = 0;
 
   @override
@@ -505,7 +511,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     storeProfile = requiredRole == 'dark_store' && user != null
       ? client.from('dark_stores').select('id,status,name,locality').eq('owner_user_id', user!.id).maybeSingle().timeout(const Duration(seconds: 15))
       : Future.value(null);
-    if ((requiredRole == 'driver_partner' || requiredRole == 'delivery_partner') && user != null) _loadAvailability();
+    if ((requiredRole == 'driver_partner' || requiredRole == 'delivery_partner') && user != null) {
+      _loadServiceAreas();
+      _loadAvailability();
+    }
   }
 
   @override
@@ -533,12 +542,36 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
 
+  Future<void> _loadServiceAreas() async {
+    try {
+      final rows = await client.from('service_areas').select('pincode,locality,district,state')
+        .eq('active', true).order('pincode');
+      if (!mounted) return;
+      setState(() {
+        partnerServiceAreas = List<Map<String, dynamic>>.from(rows as List);
+        if (partnerAreaCode != null && !partnerServiceAreas.any((a) => a['pincode']?.toString() == partnerAreaCode)) {
+          partnerAreaCode = null;
+        }
+      });
+    } catch (_) {
+      if (mounted) notice('Could not load active service PINs. Contact Admin if the list remains empty.');
+    }
+  }
+
   Future<void> _loadAvailability() async {
     try {
-      final row = await client.from('partner_presence').select('is_online')
+      final row = await client.from('partner_presence')
+        .select('is_online,area_code,latitude,longitude,updated_at')
         .eq('user_id', user!.id).eq('role', requiredRole).maybeSingle();
       if (!mounted) return;
-      setState(() => partnerOnline = row?['is_online'] as bool? ?? false);
+      final code = row?['area_code']?.toString();
+      setState(() {
+        partnerOnline = row?['is_online'] as bool? ?? false;
+        partnerAreaCode = code != null && RegExp(r'^[1-9][0-9]{5}$').hasMatch(code) ? code : null;
+        lastLatitude = (row?['latitude'] as num?)?.toDouble();
+        lastLongitude = (row?['longitude'] as num?)?.toDouble();
+        lastLocationAt = DateTime.tryParse(row?['updated_at']?.toString() ?? '')?.toLocal();
+      });
       if (partnerOnline) {
         _startLocationUpdates();
         unawaited(_shareCurrentLocation(showNotice: false));
@@ -548,48 +581,169 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     } catch (_) {}
   }
 
+  Future<void> _savePartnerArea(String pin) async {
+    if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)
+        || !partnerServiceAreas.any((a) => a['pincode']?.toString() == pin)) {
+      notice('Choose an active six-digit PIN from the list.');
+      return;
+    }
+    try {
+      await client.rpc('partner_set_availability', params: {
+        'p_role': requiredRole, 'p_area_code': pin, 'p_is_online': false,
+        'p_latitude': lastLatitude, 'p_longitude': lastLongitude,
+      }).timeout(const Duration(seconds: 12));
+      _stopLocationUpdates();
+      if (mounted) setState(() { partnerAreaCode = pin; partnerOnline = false; });
+      notice('Service PIN saved. Go online when you are ready for work.');
+    } catch (_) {
+      notice('Could not save that PIN. Confirm it is active in Admin > Service Areas.');
+    }
+  }
+
   Future<void> _setAvailability() async {
     final next = !partnerOnline;
     double? latitude;
     double? longitude;
+    if (next && (partnerAreaCode == null ||
+        !partnerServiceAreas.any((a) => a['pincode']?.toString() == partnerAreaCode))) {
+      notice('Choose an active service PIN before going online.');
+      return;
+    }
     try {
       if (next) {
         if (!await Geolocator.isLocationServiceEnabled()) {
-          notice('Turn on Location to go online for nearby delivery assignments.');
+          notice('Turn on Location to go online and receive nearby assignments.');
           return;
         }
         var permission = await Geolocator.checkPermission();
         if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-          notice('Allow location access to go online and receive location-relevant deliveries.');
+          notice('Allow location access to go online.');
           return;
         }
-        final position = await Geolocator.getCurrentPosition(
+        final pos = await Geolocator.getCurrentPosition(
           locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
         );
-        latitude = position.latitude;
-        longitude = position.longitude;
+        latitude = pos.latitude;
+        longitude = pos.longitude;
       }
       await client.rpc('partner_set_availability', params: {
-        'p_role': requiredRole,
-        'p_area_code': 'DEFAULT',
-        'p_is_online': next,
-        'p_latitude': latitude,
-        'p_longitude': longitude,
+        'p_role': requiredRole, 'p_area_code': partnerAreaCode ?? 'DEFAULT',
+        'p_is_online': next, 'p_latitude': latitude, 'p_longitude': longitude,
+      }).timeout(const Duration(seconds: 12));
+      if (mounted) setState(() {
+        partnerOnline = next;
+        if (latitude != null && longitude != null) {
+          lastLatitude = latitude;
+          lastLongitude = longitude;
+          lastLocationAt = DateTime.now();
+        }
       });
-      if (mounted) setState(() => partnerOnline = next);
       if (next) {
         _startLocationUpdates();
         unawaited(_shareCurrentLocation(showNotice: false));
       } else {
         _stopLocationUpdates();
       }
-      notice(next ? 'You are online. Live location sharing is active while this app is open.' : 'You are offline. Live location sharing has stopped.');
-    } catch (e) {
-      debugPrint('Availability update failed (${e.runtimeType}).');
-      notice('Availability could not be updated. Check your connection and try again.');
+      notice(next ? 'You are online in PIN ' + (partnerAreaCode ?? '') + '.' : 'You are offline. Location sharing has stopped.');
+    } catch (_) {
+      notice('Availability could not be updated. Check your service PIN and location permission.');
     }
   }
+
+  Future<void> _refreshPartnerLocation() async {
+    if (refreshingLocation) return;
+    setState(() => refreshingLocation = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        notice('Turn on Location services and try again.');
+        return;
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        notice('Allow location access to refresh your position.');
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+      );
+      if (partnerOnline) {
+        await client.rpc('partner_update_location', params: {
+          'p_role': requiredRole, 'p_latitude': pos.latitude, 'p_longitude': pos.longitude,
+        }).timeout(const Duration(seconds: 10));
+      }
+      if (!mounted) return;
+      setState(() { lastLatitude = pos.latitude; lastLongitude = pos.longitude; lastLocationAt = DateTime.now(); });
+      notice(partnerOnline ? 'Location refreshed and shared.' : 'Location refreshed. Go online to share it with dispatch.');
+    } catch (_) {
+      notice('Could not refresh location. Check GPS and app permissions.');
+    } finally {
+      if (mounted) setState(() => refreshingLocation = false);
+    }
+  }
+
+  Future<void> _openCurrentLocationMap() async {
+    final target = lastLatitude != null && lastLongitude != null
+      ? lastLatitude.toString() + ',' + lastLongitude.toString()
+      : (partnerAreaCode ?? '');
+    if (target.isEmpty) {
+      notice('Refresh your current location or choose a service PIN first.');
+      return;
+    }
+    final uri = Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': target});
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) notice('Could not open the map on this device.');
+    } catch (_) {
+      notice('Could not open the map on this device.');
+    }
+  }
+
+  String _partnerLocationSummary() {
+    if (lastLatitude == null || lastLongitude == null) {
+      return 'Current GPS location has not been checked. Tap Refresh location to get your position.';
+    }
+    final t = lastLocationAt;
+    final time = t == null ? '' : ' · updated ' + t.hour.toString().padLeft(2, '0') + ':' + t.minute.toString().padLeft(2, '0');
+    return 'GPS ' + lastLatitude!.toStringAsFixed(5) + ', ' + lastLongitude!.toStringAsFixed(5) + time;
+  }
+
+  Widget _partnerHomePage() => Scaffold(
+    appBar: _appBar(requiredRole == 'driver_partner' ? 'Driver home' : 'Delivery home'),
+    body: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 28), children: [
+      const Text('Welcome back', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 5),
+      Text(requiredRole == 'driver_partner'
+        ? 'Manage your current location, service PIN and ride availability.'
+        : 'Manage your current location, service PIN and delivery availability.',
+        style: const TextStyle(color: Color(0xFF68736D), height: 1.45)),
+      const SizedBox(height: 16),
+      AlteoServiceAreaLocationCard(
+        role: requiredRole, selectedPin: partnerAreaCode, activeAreas: partnerServiceAreas,
+        isOnline: partnerOnline, locationSummary: _partnerLocationSummary(),
+        isRefreshingLocation: refreshingLocation,
+        onAreaChanged: (pin) { if (pin != null) _savePartnerArea(pin); },
+        onRefreshLocation: _refreshPartnerLocation,
+        onToggleAvailability: _setAvailability,
+        onOpenMap: _openCurrentLocationMap,
+      ),
+      Card(elevation: 0, child: ListTile(
+        leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9),
+          child: Icon(requiredRole == 'driver_partner' ? Icons.directions_car_filled_rounded : Icons.local_shipping_rounded, color: const Color(0xFF176B57))),
+        title: Text(requiredRole == 'driver_partner' ? 'My rides' : 'My deliveries', style: const TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: const Text('Review assigned work and update its status.'),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => setState(() => selectedTab = 1),
+      )),
+      Card(elevation: 0, child: ListTile(
+        leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.account_balance_wallet_outlined, color: Color(0xFF176B57))),
+        title: const Text('Earnings', style: TextStyle(fontWeight: FontWeight.w900)),
+        subtitle: const Text('Review completed work and earnings information.'),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () => setState(() => selectedTab = 2),
+      )),
+    ]),
+  );
 
   void _startLocationUpdates() {
     locationUpdateTimer?.cancel();
@@ -699,6 +853,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             ])),
           ]),
         ),
+        AlteoPartnerAccountCard(role: requiredRole, userId: user!.id),
+        AlteoPartnerRatingCard(role: requiredRole, userId: user!.id),
         const SizedBox(height: 14),
         Card(
           elevation: 0,
@@ -827,7 +983,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final dashboard = switch (requiredRole) {
       'admin' => _adminDashboard(),
       'driver_partner' => _driverDashboard(),
-      'delivery_partner' => _deliveryDashboard(),
+      'delivery_partner' => _partnerHomePage(),
       'seller' => _sellerDashboard(),
       'dark_store' => _darkStoreDashboard(),
       _ => _emptyPage('Role not supported', 'Contact Alteo support.'),
@@ -1307,6 +1463,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             }
             if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
             if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => _confirmDeliveryComplete(job), child: const Text('Delivered')));
+          if (status == 'delivered') buttons.add(AlteoRateCompletedWorkButton(role: requiredRole, transactionType: 'delivery', transactionId: j['id'].toString()));
             return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
