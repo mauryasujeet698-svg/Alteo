@@ -677,6 +677,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               ])),
             ]),
           ),
+          AlteoPartnerAccountCard(role: requiredRole, userId: user!.id),
+          AlteoPartnerRatingCard(role: requiredRole, userId: user!.id),
           if (requiredRole == 'seller')
             FutureBuilder<Map<String, dynamic>?>(
               future: sellerProfile,
@@ -1162,12 +1164,21 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                         label: Text(actionLabel),
                       ),
                     ),
-                  ] else if (status == 'handed_over')
+                  ] else if (status == 'handed_over') ...[
                     const Padding(padding: EdgeInsets.only(top: 10), child: Row(children: [
                       Icon(Icons.check_circle_rounded, color: Colors.green),
                       SizedBox(width: 7),
                       Text('Handed over to dispatch', style: TextStyle(fontWeight: FontWeight.w800)),
                     ])),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: AlteoRateCompletedWorkButton(
+                        role: requiredRole,
+                        transactionType: 'dark_store_task',
+                        transactionId: task['id'].toString(),
+                      ),
+                    ),
+                  ],
                 ]),
               ),
             );
