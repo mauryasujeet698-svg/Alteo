@@ -861,6 +861,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ),
         AlteoPartnerAccountCard(role: requiredRole, userId: user!.id),
         AlteoPartnerRatingCard(role: requiredRole, userId: user!.id),
+        const AlteoAppUpdateTile(appId: 'delivery_partner'),
+        const AlteoAppLegalTiles(appName: 'Alteo Delivery Partner'),
         const SizedBox(height: 14),
         Card(
           elevation: 0,
