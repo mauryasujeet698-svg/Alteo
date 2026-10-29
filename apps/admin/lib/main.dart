@@ -1978,6 +1978,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final image = TextEditingController(text: existing?['image_url']?.toString() ?? '');
     var kind = existing?['kind']?.toString() ?? 'shopping';
     var status = existing?['status']?.toString() ?? 'active';
+    var availabilityMode = existing?['availability_mode']?.toString() ?? 'all';
+    var availablePincodes = List<String>.from((existing?['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
     var uploading = false;
     try {
       final saved = await showDialog<bool>(
@@ -2069,6 +2071,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                       ),
                     ],
                     const SizedBox(height: 10),
+                    AlteoPincodeCoverageSelector(
+                      initialMode: availabilityMode,
+                      initialPincodes: availablePincodes,
+                      allowAllPincodes: true,
+                      onChanged: (mode, pins) => setDialogState(() {
+                        availabilityMode = mode;
+                        availablePincodes = pins;
+                      }),
+                    ),
+                    const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
                       value: status,
                       decoration: const InputDecoration(labelText: 'Listing status', border: OutlineInputBorder()),
@@ -2111,10 +2123,16 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         notice('A product image is mandatory. Upload or select an image before saving.');
         return;
       }
+      if (availabilityMode == 'specific' && availablePincodes.isEmpty) {
+        notice('Select at least one active PIN code, or choose Available on all PIN codes.');
+        return;
+      }
 
       final payload = <String, dynamic>{
         'name': itemName,
         'kind': kind,
+        'availability_mode': availabilityMode,
+        'available_pincodes': availabilityMode == 'all' ? <String>[] : availablePincodes,
         'description': description.text.trim().isEmpty ? null : description.text.trim(),
         'price_minor': (amount * 100).round(),
         'image_url': imageUrl.isEmpty ? null : imageUrl,
