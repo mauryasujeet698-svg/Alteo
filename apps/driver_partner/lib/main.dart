@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -881,7 +883,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     if (user == null) return Scaffold(appBar: AppBar(title: const Text('Alteo')), body: const Center(child: Text('Your session ended. Return to sign-in.')));
     final dashboard = switch (requiredRole) {
       'admin' => _adminDashboard(),
-      'driver_partner' => _partnerHomePage(),
+      'driver_partner' => _driverHomeDashboard(),
       'delivery_partner' => _deliveryDashboard(),
       'seller' => _sellerDashboard(),
       'dark_store' => _darkStoreDashboard(),
@@ -1276,6 +1278,286 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
+  Widget _driverHomeDashboard() => Scaffold(
+    appBar: _partnerAppBar('Captain dashboard'),
+    body: FutureBuilder<List<Map<String, dynamic>>>(
+      future: client.from('rides').select('*').eq('driver_id', user!.id)
+          .order('created_at', ascending: false).limit(40)
+          .timeout(const Duration(seconds: 15)),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return _loadFailure('Your ride dashboard could not load. Check your connection and approved driver access, then retry.', () => setState(() {}));
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final rides = snapshot.data!;
+        final now = DateTime.now();
+        final activeRides = rides.where((ride) =>
+          !const ['completed', 'cancelled', 'rejected'].contains(ride['status']?.toString())).toList();
+        final todayCompleted = rides.where((ride) {
+          if (ride['status']?.toString() != 'completed') return false;
+          final completedAt = DateTime.tryParse(ride['updated_at']?.toString() ?? '')?.toLocal();
+          return completedAt != null && completedAt.year == now.year &&
+              completedAt.month == now.month && completedAt.day == now.day;
+        }).toList();
+        final todayFareMinor = todayCompleted.fold<int>(0,
+          (sum, ride) => sum + ((ride['fare_minor'] as num?)?.toInt() ?? 0));
+        final requests = rides.where((ride) => ride['status']?.toString() == 'requested').toList();
+
+        Widget metric(String value, String label, IconData icon) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE3E9E5)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(icon, color: const Color(0xFF2463D4), size: 22),
+              const SizedBox(height: 9),
+              Text(value, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 2),
+              Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF68736D))),
+            ]),
+          ),
+        );
+
+        return RefreshIndicator(
+          onRefresh: () async { if (mounted) setState(() {}); },
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 28),
+            children: [
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF163D83), Color(0xFF3476DC)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    const Icon(Icons.directions_car_filled_rounded, color: Colors.white, size: 30),
+                    const SizedBox(width: 10),
+                    const Expanded(child: Text('Drive with Alteo', style: TextStyle(
+                      color: Colors.white, fontSize: 21, fontWeight: FontWeight.w900))),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(color: Colors.white.withOpacity(.18), borderRadius: BorderRadius.circular(30)),
+                      child: Text(partnerOnline ? 'ONLINE' : 'OFFLINE',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 10)),
+                    ),
+                  ]),
+                  const SizedBox(height: 10),
+                  Text(
+                    partnerOnline
+                      ? 'You are available. New eligible ride requests can be assigned to you.'
+                      : 'Go online when you are ready to receive nearby ride requests.',
+                    style: const TextStyle(color: Colors.white, height: 1.45),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(partnerAreaCode == null ? 'No service PIN selected' : 'Service PIN · $partnerAreaCode',
+                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
+                ]),
+              ),
+              const SizedBox(height: 14),
+              Card(
+                elevation: 0,
+                color: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFE3E9E5))),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Operating area', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    const SizedBox(height: 7),
+                    if (partnerServiceAreas.isEmpty)
+                      const Text('No active service PINs are configured. Contact Admin before going online.',
+                        style: TextStyle(color: Color(0xFF68736D), height: 1.4))
+                    else
+                      DropdownButtonFormField<String>(
+                        value: partnerServiceAreas.any((area) => area['pincode']?.toString() == partnerAreaCode)
+                            ? partnerAreaCode : null,
+                        isExpanded: true,
+                        decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Service PIN code'),
+                        items: partnerServiceAreas.map((area) {
+                          final pin = area['pincode']?.toString() ?? '';
+                          final locality = area['locality']?.toString().trim() ?? '';
+                          final district = area['district']?.toString().trim() ?? '';
+                          return DropdownMenuItem<String>(
+                            value: pin,
+                            child: Text([pin, if (locality.isNotEmpty) locality, if (district.isNotEmpty) district].join(' · '),
+                              maxLines: 1, overflow: TextOverflow.ellipsis),
+                          );
+                        }).toList(),
+                        onChanged: partnerOnline ? null : (pin) { if (pin != null) unawaited(_savePartnerArea(pin)); },
+                      ),
+                    if (partnerOnline)
+                      const Padding(padding: EdgeInsets.only(top: 7), child: Text(
+                        'Go offline before changing your service area.', style: TextStyle(color: Color(0xFF68736D), fontSize: 12))),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Card(
+                elevation: 0,
+                clipBehavior: Clip.antiAlias,
+                color: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFE3E9E5))),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 15, 16, 4),
+                    child: Text('Live location', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                  ),
+                  if (lastLatitude != null && lastLongitude != null)
+                    SizedBox(
+                      height: 230,
+                      child: FlutterMap(
+                        options: MapOptions(
+                          initialCenter: LatLng(lastLatitude!, lastLongitude!),
+                          initialZoom: 14,
+                        ),
+                        children: [
+                          TileLayer(
+                            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            userAgentPackageName: 'com.alteo.alteo_driver_partner',
+                          ),
+                          MarkerLayer(markers: [
+                            Marker(
+                              point: LatLng(lastLatitude!, lastLongitude!),
+                              width: 54,
+                              height: 54,
+                              child: Container(
+                                decoration: BoxDecoration(color: const Color(0xFF2463D4), borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: Colors.white, width: 3)),
+                                child: const Icon(Icons.navigation_rounded, color: Colors.white, size: 26),
+                              ),
+                            ),
+                          ]),
+                        ],
+                      ),
+                    )
+                  else
+                    Container(
+                      height: 160,
+                      width: double.infinity,
+                      color: const Color(0xFFEAF1FB),
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        const Icon(Icons.my_location_rounded, color: Color(0xFF2463D4), size: 36),
+                        const SizedBox(height: 8),
+                        Text(partnerOnline ? 'Waiting for a fresh GPS position…' : 'Your live map appears when location is available.',
+                          style: const TextStyle(color: Color(0xFF40516B)), textAlign: TextAlign.center),
+                        const SizedBox(height: 5),
+                        if (partnerOnline)
+                          TextButton.icon(
+                            onPressed: () => _shareCurrentLocation(),
+                            icon: const Icon(Icons.refresh_rounded),
+                            label: const Text('Refresh location'),
+                          ),
+                      ]),
+                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
+                    child: Text(
+                      lastLocationAt == null ? 'Location has not been shared yet.'
+                        : 'Last location update · ${lastLocationAt!.toLocal().toString().substring(0, 16)}',
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF68736D)),
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(height: 14),
+              Row(children: [
+                metric('₹${(todayFareMinor / 100).toStringAsFixed(0)}', 'Today’s completed fares', Icons.account_balance_wallet_rounded),
+                const SizedBox(width: 8),
+                metric(todayCompleted.length.toString(), 'Trips completed today', Icons.task_alt_rounded),
+                const SizedBox(width: 8),
+                metric(activeRides.length.toString(), 'Open trips', Icons.route_rounded),
+              ]),
+              const Padding(
+                padding: EdgeInsets.only(top: 7, left: 3),
+                child: Text('Completed fares are an estimate of trip value, not a confirmed payout balance.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF68736D))),
+              ),
+              const SizedBox(height: 22),
+              Row(children: [
+                const Expanded(child: Text('Ride requests & active trips', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900))),
+                TextButton(onPressed: () => setState(() => selectedTab = 1), child: const Text('View all')),
+              ]),
+              if (activeRides.isEmpty)
+                _empty('No active rides', partnerOnline
+                  ? 'You are online. New eligible assignments will appear here.'
+                  : 'Go online to receive eligible requests in your configured service PIN.')
+              else
+                ...activeRides.take(4).map((ride) {
+                  final status = ride['status']?.toString() ?? 'requested';
+                  final fare = (((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0);
+                  String? action, actionLabel;
+                  if (status == 'requested') { action = 'accept'; actionLabel = 'Accept ride'; }
+                  if (status == 'accepted') { action = 'arrived'; actionLabel = 'I have arrived'; }
+                  if (status == 'arrived') { action = 'start'; actionLabel = 'Start trip'; }
+                  if (status == 'in_progress') { action = 'complete'; actionLabel = 'Complete trip'; }
+                  return Card(
+                    elevation: 0,
+                    margin: const EdgeInsets.only(bottom: 10),
+                    color: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFE3E9E5))),
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const CircleAvatar(backgroundColor: Color(0xFFEAF1FB), child: Icon(Icons.route_rounded, color: Color(0xFF2463D4))),
+                          const SizedBox(width: 10),
+                          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text((ride['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (ride['destination_label']?.toString() ?? 'Destination'),
+                              style: const TextStyle(fontWeight: FontWeight.w900)),
+                            const SizedBox(height: 5),
+                            Text('Status · ${status.replaceAll('_', ' ')} · Fare ₹$fare',
+                              style: const TextStyle(color: Color(0xFF68736D))),
+                          ])),
+                        ]),
+                        const SizedBox(height: 12),
+                        Row(children: [
+                          Expanded(child: OutlinedButton.icon(
+                            onPressed: () => _openDirections(
+                              latitude: status == 'in_progress' ? (ride['destination_latitude'] as num?)?.toDouble() : (ride['pickup_latitude'] as num?)?.toDouble(),
+                              longitude: status == 'in_progress' ? (ride['destination_longitude'] as num?)?.toDouble() : (ride['pickup_longitude'] as num?)?.toDouble(),
+                              label: status == 'in_progress' ? ride['destination_label']?.toString() : ride['pickup_label']?.toString(),
+                            ),
+                            icon: const Icon(Icons.navigation_rounded),
+                            label: Text(status == 'in_progress' ? 'Navigate to drop-off' : 'Navigate to pickup'),
+                          )),
+                          if (action != null) ...[
+                            const SizedBox(width: 8),
+                            Expanded(child: FilledButton(
+                              onPressed: () => rpc('driver_update_ride_status', {'p_ride_id': ride['id'], 'p_action': action}, '${actionLabel!.replaceAll('trip', 'Trip').replaceAll('ride', 'Ride')}.'),
+                              child: Text(actionLabel!),
+                            )),
+                          ],
+                        ]),
+                      ]),
+                    ),
+                  );
+                }),
+              if (requests.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('${requests.length} ride request(s) assigned and waiting for your response.',
+                    style: const TextStyle(color: Color(0xFF2463D4), fontWeight: FontWeight.w800)),
+                ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => setState(() => selectedTab = 2),
+                icon: const Icon(Icons.account_balance_wallet_outlined),
+                label: const Text('View earnings & completed trips'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+              ),
+            ],
+          ),
+        );
+      },
+    ),
+  );
+
   Widget _driverDashboard() => Scaffold(
     appBar: _partnerAppBar('My rides'),
     body: FutureBuilder<List<Map<String, dynamic>>>(
@@ -1629,6 +1911,13 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   final _address = TextEditingController();
   final Map<String, TextEditingController> _extra = {};
   XFile? _photo;
+  final Map<String, XFile?> _driverDocuments = <String, XFile?>{};
+  final Map<String, String> _savedDriverDocumentPaths = <String, String>{};
+  static const _driverDocumentLabels = <String>[
+    'Driving licence',
+    'Vehicle registration certificate (RC)',
+    'Identity proof (Aadhaar or PAN)',
+  ];
   bool _saving = false;
   String? _error;
   List<Map<String, dynamic>> _serviceAreas = <Map<String, dynamic>>[];
@@ -1646,6 +1935,19 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   void initState() {
     super.initState();
     final r = widget.existingRequest ?? {};
+    final rawDocuments = r['document_paths'];
+    if (rawDocuments is List) {
+      for (final raw in rawDocuments) {
+        if (raw is Map) {
+          final item = Map<String, dynamic>.from(raw);
+          final label = item['label']?.toString().trim() ?? '';
+          final path = item['path']?.toString().trim() ?? '';
+          if (label.isNotEmpty && path.isNotEmpty) _savedDriverDocumentPaths[label] = path;
+        } else if (raw is String && raw.trim().isNotEmpty) {
+          _savedDriverDocumentPaths.putIfAbsent('Existing document', () => raw.trim());
+        }
+      }
+    }
     final d = r['application_data'] is Map ? Map<String,dynamic>.from(r['application_data'] as Map) : <String,dynamic>{};
     _name.text = (r['display_name'] ?? widget.user.userMetadata?['full_name'] ?? widget.user.userMetadata?['name'] ?? '').toString();
     _phone.text = (r['phone'] ?? '').toString();
@@ -1686,7 +1988,40 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
     } catch (e) { if (mounted) setState(() => _error = 'Could not open photo gallery: $e'); }
   }
 
+  Future<void> _chooseDriverDocument(String label) async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (sheetContext) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          leading: const Icon(Icons.camera_alt_outlined),
+          title: const Text('Take a photo'),
+          onTap: () => Navigator.pop(sheetContext, ImageSource.camera),
+        ),
+        ListTile(
+          leading: const Icon(Icons.photo_library_outlined),
+          title: const Text('Choose from gallery'),
+          onTap: () => Navigator.pop(sheetContext, ImageSource.gallery),
+        ),
+      ])),
+    );
+    if (source == null) return;
+    try {
+      final file = await ImagePicker().pickImage(source: source, imageQuality: 88, maxWidth: 2000);
+      if (file != null && mounted) setState(() { _driverDocuments[label] = file; _error = null; });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Could not capture or select $label. Check camera/gallery permission and retry.');
+    }
+  }
+
   Future<void> _submit() async {
+    if (widget.role == 'driver_partner') {
+      final missingDocuments = _driverDocumentLabels.where((label) =>
+        _driverDocuments[label] == null && (_savedDriverDocumentPaths[label]?.isNotEmpty ?? false) == false).toList();
+      if (missingDocuments.isNotEmpty) {
+        setState(() => _error = 'Upload all required driver documents: ${missingDocuments.join(', ')}.');
+        return;
+      }
+    }
     if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') {
       final pin = _extra['service_area']?.text.trim() ?? '';
       if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin) ||
@@ -1710,13 +2045,161 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
         photoPath = '${widget.user.id}/${widget.role}/profile_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
         await client.storage.from('partner-onboarding').uploadBinary(photoPath, await _photo!.readAsBytes(), fileOptions: FileOptions(contentType: mime, upsert: false));
       }
+      dynamic documentPathsPayload = existing?['document_paths'] ?? <dynamic>[];
+      if (widget.role == 'driver_partner') {
+        final uploadedDocuments = <Map<String, String>>[];
+        for (final label in _driverDocumentLabels) {
+          final selectedFile = _driverDocuments[label];
+          var savedPath = _savedDriverDocumentPaths[label];
+          if (selectedFile != null) {
+            final ext0 = selectedFile.name.contains('.') ? selectedFile.name.split('.').last.toLowerCase() : 'jpg';
+            final ext = const {'jpg', 'jpeg', 'png', 'webp'}.contains(ext0) ? ext0 : 'jpg';
+            final mime = ext == 'png' ? 'image/png' : ext == 'webp' ? 'image/webp' : 'image/jpeg';
+            final safeName = label.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_').replaceAll(RegExp(r'^_+|_+      if (existing != null && (existing['status'] == 'rejected' ||
+          (existing['status'] == 'pending' && existing['needs_correction'] == true))) {
+        await client.from('role_requests').update(payload).eq('id', existing['id']);
+      } else {
+        await client.from('role_requests').insert(payload);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Onboarding request submitted. Please wait for Admin approval.')));
+      widget.onSubmitted();
+    } catch (e) {
+      debugPrint('Partner onboarding submission failed (${e.runtimeType}): $e');
+      final details = e.toString().toLowerCase();
+      if (mounted) setState(() => _error =
+        details.contains('service pin')
+          ? 'Select an active six-digit service PIN code before submitting.'
+          : details.contains('duplicate key') || details.contains('unique constraint')
+            ? 'An application already exists for this account. Refresh the app and check its review status.'
+            : details.contains('row-level security') || details.contains('permission denied')
+              ? 'Your account could not save this application. Sign out and sign in again, then retry.'
+              : details.contains('storage') || details.contains('bucket') || details.contains('upload')
+                ? 'A document could not be uploaded. Check your connection and retry the upload.'
+                : 'Could not submit onboarding. Check every required field and document, then retry.');
+    } finally { if (mounted) setState(() => _saving = false); }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text('${widget.role.replaceAll('_',' ')} onboarding'), automaticallyImplyLeading: false),
+    body: SafeArea(child: Form(key: _key, child: ListView(padding: const EdgeInsets.all(20), children: [
+      const Icon(Icons.verified_user_outlined, size: 42),
+      const SizedBox(height: 10),
+      Text('Complete your details', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900)),
+      const SizedBox(height: 8),
+      Text('This application is only for ${widget.role.replaceAll('_',' ')} access. You may use the same Google account in other Alteo partner apps and submit separate applications there.', style: const TextStyle(height: 1.45)),
+      if (widget.existingRequest?['needs_correction'] == true) ...[
+        Container(width: double.infinity, padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: const Color(0xFFFFF2D8), borderRadius: BorderRadius.circular(12)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Admin requested a correction', style: TextStyle(fontWeight: FontWeight.w900)),
+            Text((widget.existingRequest?['correction_reason'] ?? 'Please review and correct the application details.').toString()),
+          ]),
+        ),
+        const SizedBox(height: 12),
+      ],
+      const SizedBox(height: 18),
+      TextFormField(controller: _name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Full name *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 2) ? 'Enter your full name' : null),
+      const SizedBox(height: 12),
+      TextFormField(controller: _phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Mobile number *', border: OutlineInputBorder()), validator: (v) { final n = (v ?? '').replaceAll(RegExp(r'[^0-9]'), '').length; return n < 7 || n > 15 ? 'Enter a valid phone number' : null; }),
+      const SizedBox(height: 12),
+      TextFormField(controller: _address, maxLines: 2, decoration: const InputDecoration(labelText: 'Address *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 5) ? 'Enter your complete address' : null),
+      const SizedBox(height: 12),
+      for (final f in _fields) ...[
+        if (f.key == 'service_area' &&
+            (widget.role == 'driver_partner' || widget.role == 'delivery_partner')) ...[
+          if (_loadingServiceAreas)
+            const LinearProgressIndicator()
+          else
+            DropdownButtonFormField<String>(
+              value: _serviceAreas.any((area) => area['pincode']?.toString() == _extra[f.key]!.text.trim())
+                  ? _extra[f.key]!.text.trim() : null,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder(),
+                helperText: 'Choose an active PIN code. Admin controls which localities are covered.'),
+              items: _serviceAreas.map((area) {
+                final pin = area['pincode']?.toString() ?? '';
+                final locality = area['locality']?.toString().trim() ?? '';
+                final district = area['district']?.toString().trim() ?? '';
+                final parts = <String>[pin, if (locality.isNotEmpty) locality, if (district.isNotEmpty) district];
+                return DropdownMenuItem<String>(value: pin, child: Text(parts.join(' · '), maxLines: 2, overflow: TextOverflow.ellipsis));
+              }).toList(),
+              onChanged: _saving || _serviceAreas.isEmpty ? null : (value) {
+                if (value != null) setState(() { _extra[f.key]!.text = value; _error = null; });
+              },
+              validator: (value) => value != null &&
+                  RegExp(r'^[1-9][0-9]{5}$').hasMatch(value) &&
+                  _serviceAreas.any((area) => area['pincode']?.toString() == value)
+                    ? null : (_serviceAreas.isEmpty ? 'No active PIN codes are configured. Contact Admin.' : 'Select an active six-digit PIN code.'),
+            ),
+          if (!_loadingServiceAreas && _serviceAreas.isEmpty)
+            const Padding(padding: EdgeInsets.only(top: 4), child: Text('Admin must add and activate a service PIN before you can apply.', style: TextStyle(color: Color(0xFFB3261E)))),
+        ] else
+          TextFormField(controller: _extra[f.key], decoration: InputDecoration(labelText: f.value, border: const OutlineInputBorder()),
+            validator: (v) => f.value.endsWith('*') && (v == null || v.trim().isEmpty) ? 'This field is required' : null),
+        const SizedBox(height: 12),
+      ],
+      OutlinedButton.icon(onPressed: _saving ? null : _choosePhoto, icon: Icon(_photo == null ? Icons.add_a_photo_outlined : Icons.check_circle_outline), label: Text(_photo == null ? (widget.existingRequest?['profile_photo_path'] == null ? 'Upload profile photo *' : 'Replace profile photo') : 'Profile photo selected')),
+      if (widget.role == 'driver_partner') ...[
+        const SizedBox(height: 20),
+        const Text('Identity & vehicle documents', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 5),
+        const Text('Upload clear, readable photos. These files are private and available to Admin reviewers only.',
+          style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+        const SizedBox(height: 8),
+        for (final label in _driverDocumentLabels)
+          Card(
+            elevation: 0,
+            child: ListTile(
+              leading: const Icon(Icons.verified_user_outlined, color: Color(0xFF2463D4)),
+              title: Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: Text(
+                _driverDocuments[label]?.name ??
+                  ((_savedDriverDocumentPaths[label]?.isNotEmpty ?? false) ? 'Document uploaded · tap to replace' : 'Required · upload a clear photo'),
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+              ),
+              trailing: IconButton(
+                tooltip: 'Upload or replace $label',
+                onPressed: _saving ? null : () => _chooseDriverDocument(label),
+                icon: Icon(_driverDocuments[label] != null || (_savedDriverDocumentPaths[label]?.isNotEmpty ?? false)
+                  ? Icons.check_circle_rounded : Icons.upload_file_rounded,
+                  color: _driverDocuments[label] != null || (_savedDriverDocumentPaths[label]?.isNotEmpty ?? false)
+                    ? const Color(0xFF176B57) : const Color(0xFF2463D4)),
+              ),
+            ),
+          ),
+      ],
+      if (_error != null) ...[const SizedBox(height: 10), Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error))],
+      const SizedBox(height: 18),
+      FilledButton(onPressed: _saving ? null : _submit, style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)), child: _saving ? const CircularProgressIndicator() : const Text('Submit onboarding request')),
+      const SizedBox(height: 10),
+      const Text('Your details are stored securely for Admin review. Protected features stay locked until approval.', textAlign: TextAlign.center, style: TextStyle(height: 1.4)),
+    ]))),
+  );
+}
+), '');
+            savedPath = '${widget.user.id}/${widget.role}/documents/${safeName}_${DateTime.now().toUtc().millisecondsSinceEpoch}.$ext';
+            await client.storage.from('partner-onboarding').uploadBinary(
+              savedPath,
+              await selectedFile.readAsBytes(),
+              fileOptions: FileOptions(contentType: mime, upsert: false),
+            );
+          }
+          if (savedPath != null && savedPath.isNotEmpty) uploadedDocuments.add({'label': label, 'path': savedPath});
+        }
+        for (final entry in _savedDriverDocumentPaths.entries) {
+          if (!_driverDocumentLabels.contains(entry.key)) uploadedDocuments.add({'label': entry.key, 'path': entry.value});
+        }
+        documentPathsPayload = uploadedDocuments;
+      }
       final data = <String,dynamic>{'address': _address.text.trim()};
       for (final f in _fields) { final v = _extra[f.key]!.text.trim(); if (v.isNotEmpty) data[f.key] = v; }
       final payload = <String,dynamic>{
         'user_id': widget.user.id, 'requested_role': widget.role, 'status': 'pending',
         'email': widget.user.email, 'display_name': _name.text.trim(), 'phone': _phone.text.trim(),
         'profile_photo_path': photoPath, 'application_data': data,
-        'document_paths': existing?['document_paths'] ?? <dynamic>[], 'rejection_reason': null,
+        'document_paths': documentPathsPayload, 'rejection_reason': null,
         'needs_correction': false, 'correction_reason': null,
         'reviewed_at': null, 'reviewed_by': null, 'updated_at': DateTime.now().toUtc().toIso8601String(),
       };
