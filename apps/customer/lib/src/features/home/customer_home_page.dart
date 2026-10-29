@@ -30,19 +30,133 @@ class _CustomerHomePageState extends State<CustomerHomePage> {
  int get cartItemCount => cartQuantities.values.fold<int>(0, (sum, quantity) => sum + quantity);
  final Set<String> busyCartProductIds = <String>{};
  final stt.SpeechToText speech = stt.SpeechToText();
+ final ValueNotifier<String> _voiceTranscript = ValueNotifier<String>('');
  final PageController bannerController = PageController(viewportFraction: .96);
  int bannerIndex = 0;
  StreamSubscription<List<Map<String, dynamic>>>? bannerSubscription;
  StreamSubscription<List<Map<String, dynamic>>>? productSubscription;
  @override void initState(){super.initState();unawaited(_autoSelectCurrentLocation());if(widget.enableBackendQueries){content=CustomerContentService(Supabase.instance.client);refresh();unawaited(_reloadCartQuantities());}else{banners=Future.value(<CustomerBanner>[]);products=Future.value(<CustomerProduct>[]);}if(widget.enableRealtimeBanners && widget.enableBackendQueries){try{bannerSubscription=Supabase.instance.client.from('app_banners').stream(primaryKey:['id']).eq('active',true).order('priority').listen((rows){if(mounted)setState(()=>banners=Future.value(rows.map((row)=>CustomerBanner.fromMap(row)).toList()));},onError:(_){/* Keep the fallback banner visible if realtime is unavailable. */});productSubscription=Supabase.instance.client.from('seller_products').stream(primaryKey:['id']).eq('status','active').listen((_){if(mounted)setState(refresh);},onError:(_){/* Pull-to-refresh remains available if realtime is offline. */});}catch(_) {}}}
- @override void dispose(){bannerSubscription?.cancel();productSubscription?.cancel();bannerController.dispose();speech.stop();super.dispose();}
+ @override void dispose(){bannerSubscription?.cancel();productSubscription?.cancel();bannerController.dispose();_voiceTranscript.dispose();speech.stop();super.dispose();}
  Future<void> _voiceSearch() async {
+  if (!widget.enableBackendQueries) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search is unavailable in preview mode.')));
+    return;
+  }
+  if (speech.isListening) {
+    await speech.stop();
+    return;
+  }
   try {
-   final available = await speech.initialize(onError: (_) { if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voice search is not available on this device.'))); });
-   if(!available){if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enable speech recognition on your device to use voice search.')));return;}
-   await speech.listen(onResult:(result){if(result.finalResult && result.recognizedWords.trim().isNotEmpty && mounted){speech.stop();showSearch(context:context,delegate:_ProductSearch(onAdd:addToCart,pincode:_selectedPincode),query:result.recognizedWords.trim());}});
-   if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Listening… say the name of an item or product.')));
-  } catch (_) {if(mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start voice search. You can still type your search.')));}
+    final available = await speech.initialize(
+      onError: (error) {
+        _voiceTranscript.value = 'Speech recognition error: ${error.errorMsg}. Try again or type your search.';
+      },
+    ).timeout(const Duration(seconds: 12));
+    if (!available) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Speech recognition is unavailable. Enable Google speech services or type your search.'),
+          duration: Duration(seconds: 4),
+        ));
+      }
+      return;
+    }
+
+    String? localeId;
+    try {
+      final locales = await speech.locales();
+      final preferHindi = alteoPreferredLanguage.value.toLowerCase().contains('hindi') ||
+          alteoPreferredLanguage.value.contains('हिन्दी');
+      final preference = preferHindi ? <String>['hi_IN', 'hi-IN', 'hi'] : <String>['en_IN', 'en-IN', 'en_US', 'en-US'];
+      for (final preferred in preference) {
+        final match = locales.where((locale) =>
+          locale.localeId.toLowerCase().replaceAll('-', '_') == preferred.toLowerCase().replaceAll('-', '_'));
+        if (match.isNotEmpty) {
+          localeId = match.first.localeId;
+          break;
+        }
+      }
+    } catch (_) {
+      // Let Android choose the current system speech locale when locale listing is unavailable.
+    }
+
+    _voiceTranscript.value = '';
+    final dialogFuture = showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.mic_rounded, color: Color(0xFF176B57), size: 32),
+        title: const Text('Voice search'),
+        content: ValueListenableBuilder<String>(
+          valueListenable: _voiceTranscript,
+          builder: (context, transcript, _) => Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Say the name of a product, grocery or food item.'),
+              const SizedBox(height: 16),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEAF4EE),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Text(
+                  transcript.isEmpty ? 'Listening…' : transcript,
+                  style: const TextStyle(fontWeight: FontWeight.w700, height: 1.4),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(dialogContext).pop(null), child: const Text('Cancel')),
+          ValueListenableBuilder<String>(
+            valueListenable: _voiceTranscript,
+            builder: (context, transcript, _) => FilledButton(
+              onPressed: transcript.trim().isEmpty ? null : () => Navigator.of(dialogContext).pop(transcript.trim()),
+              child: const Text('Search'),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    try {
+      await speech.listen(
+        localeId: localeId,
+        onResult: (result) {
+          final words = result.recognizedWords.trim();
+          if (words.isNotEmpty) _voiceTranscript.value = words;
+        },
+        listenFor: const Duration(seconds: 15),
+        pauseFor: const Duration(seconds: 3),
+        partialResults: true,
+        cancelOnError: true,
+        listenMode: stt.ListenMode.dictation,
+      );
+    } catch (e) {
+      _voiceTranscript.value = 'Could not start the microphone. Check microphone permission and try again.';
+    }
+
+    final query = await dialogFuture;
+    await speech.stop();
+    if (!mounted || query == null || query.trim().isEmpty) return;
+    await showSearch<String>(
+      context: context,
+      delegate: _ProductSearch(onAdd: addToCart, pincode: _selectedPincode),
+      query: query.trim(),
+    );
+  } catch (e) {
+    await speech.stop();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Voice search could not start. Please check microphone permission or use text search.'),
+        duration: Duration(seconds: 4),
+      ));
+    }
+  }
  }
  void refresh(){try{content=CustomerContentService(Supabase.instance.client);banners=content!.loadBanners();final pin=_selectedPincode;products=pin==null?Future.value(<CustomerProduct>[]):content!.loadProducts(kind:kind=='all'?null:kind,pincode:pin);}catch(_){banners=Future.error(StateError('Banner unavailable'));products=Future.value(<CustomerProduct>[]);}}
  @override Widget build(BuildContext context)=>ValueListenableBuilder<String>(valueListenable:alteoPreferredLanguage,builder:(context,language,_)=>SafeArea(child: Stack(children:[Positioned.fill(child: RefreshIndicator(onRefresh:()async{setState(refresh);await Future.wait([banners,products]);},child:CustomScrollView(physics:const AlwaysScrollableScrollPhysics(),slivers:[
