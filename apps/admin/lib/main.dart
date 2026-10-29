@@ -1868,193 +1868,100 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
   Widget _adminDashboard() => Scaffold(
-    appBar: _appBar('Live operations'),
-    body: ListView(padding: const EdgeInsets.all(16), children: [
-      const Text('Operations summary', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 8),
-      FutureBuilder<dynamic>(future: metrics, builder: (context, s) {
-        if (s.hasError) return _error('Summary unavailable. Check admin permissions.');
-        if (!s.hasData) return const LinearProgressIndicator();
-        final m = Map<String, dynamic>.from(s.data as Map);
-        return Wrap(spacing: 8, runSpacing: 8, children: [
-          _metric('Orders', m['orders_total']),
-          _metric('Paid', m['orders_paid']),
-          _metric('Open deliveries', m['delivery_jobs_open']),
-          _metric('Open rides', m['rides_open']),
-          _metric('Pending sellers', m['sellers_pending']),
-        ]);
-      }),
-      const SizedBox(height: 16),
-      Card(
-        elevation: 0,
-        color: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFDCE6DF))),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.location_on_rounded, color: Color(0xFF176B57))),
-          title: const Text('Service Areas & Availability', style: TextStyle(fontWeight: FontWeight.w900)),
-          subtitle: const Text('Manage PIN codes, per-service coverage and local pricing.'),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: _openServiceAreaSettings,
-        ),
-      ),
-      const SizedBox(height: 8),
-      Card(
-        elevation: 0,
-        color: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFDCE6DF))),
-        child: ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.route_rounded, color: Color(0xFF176B57))),
-          title: const Text('Dispatch & Automation', style: TextStyle(fontWeight: FontWeight.w900)),
-          subtitle: const Text('Configure automatic ride and delivery assignments.'),
-          trailing: const Icon(Icons.chevron_right_rounded),
-          onTap: _openDispatchSettings,
-        ),
-      ),
-      const SizedBox(height: 22),
-
-      _roleRequestsSection(),
-      const Text('Orders', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('orders').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Orders unavailable. Check the admin RLS policy.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No orders yet', 'Orders appear after customer checkout is enabled.');
-          return Column(children: s.data!.take(25).map((o) => Card(elevation: 0, child: ListTile(
-            title: Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w800)),
-            subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-          ))).toList());
-        },
-      ),
-      const SizedBox(height: 22),
-      const SizedBox(height: 22),
-      const Text('Customer support requests', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('support_tickets').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Support requests are unavailable right now.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No support requests', 'Customer requests will appear here when submitted.');
-          return Column(children: s.data!.take(30).map((ticket) {
-            final status = ticket['status']?.toString() ?? 'open';
-            final created = DateTime.tryParse(ticket['created_at']?.toString() ?? '');
-            final date = created == null ? '' : created.day.toString().padLeft(2, '0') + '/' + created.month.toString().padLeft(2, '0') + '/' + created.year.toString();
-            return Card(
-              elevation: 0,
-              margin: const EdgeInsets.only(bottom: 9),
-              child: ListTile(
-                isThreeLine: true,
-                title: Text(ticket['subject']?.toString() ?? 'Support request', style: const TextStyle(fontWeight: FontWeight.w800)),
-                subtitle: Text((ticket['message']?.toString() ?? '') + '\n' + date + ' · ' + status.replaceAll('_', ' '), maxLines: 4, overflow: TextOverflow.ellipsis),
-                trailing: PopupMenuButton<String>(
-                  tooltip: 'Update request status',
-                  onSelected: (value) async {
-                    try {
-                      await client.rpc('admin_set_support_ticket_status', params: {'p_ticket_id': ticket['id'], 'p_status': value});
-                      notice('Support request marked ' + value.replaceAll('_', ' ') + '.');
-                    } catch (_) {
-                      notice('Could not update the support request. Please retry.');
-                    }
-                  },
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(value: 'open', child: Text('Open')),
-                    PopupMenuItem(value: 'in_progress', child: Text('In progress')),
-                    PopupMenuItem(value: 'resolved', child: Text('Resolved')),
-                    PopupMenuItem(value: 'closed', child: Text('Closed')),
-                  ],
-                  child: Chip(label: Text(status.replaceAll('_', ' '))),
-                ),
+    appBar: _appBar('Operations overview'),
+    body: RefreshIndicator(
+      onRefresh: () async {
+        final latest = client.rpc('admin_operations_summary');
+        setState(() => metrics = latest);
+        await latest;
+      },
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                colors: [Color(0xFF155C4B), Color(0xFF2C8B70)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-            );
-          }).toList());
-        },
-      ),
-      const SizedBox(height: 22),
-      const Text('Ride requests', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('rides').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Ride requests unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No ride requests', 'New ride requests will appear here.');
-          return Column(children: s.data!.take(20).map((r) => Card(elevation: 0, child: ListTile(
-            title: Text((r['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (r['destination_label']?.toString() ?? 'Destination')),
-            subtitle: Text('Status: ' + (r['status']?.toString() ?? 'unknown') + ' · Fare ₹' + (((r['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-            trailing: IconButton(tooltip: 'Assign driver', icon: const Icon(Icons.person_add_alt_1_rounded), onPressed: () => assignRide(r)),
-          ))).toList());
-        },
-      ),
-      const SizedBox(height: 22),
-      const Text('Delivery jobs', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('delivery_jobs').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Delivery jobs unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No delivery jobs', 'Delivery jobs will appear when orders or parcels are ready.');
-          return Column(children: s.data!.take(20).map((j) => Card(elevation: 0, child: ListTile(
-            title: Text((j['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(j['id'])),
-            subtitle: Text('Status: ' + (j['status']?.toString() ?? 'unknown')),
-            trailing: IconButton(tooltip: 'Assign delivery partner', icon: const Icon(Icons.local_shipping_rounded), onPressed: () => assignDelivery(j)),
-          ))).toList());
-        },
-      ),
-      const SizedBox(height: 22),
-      const Text('Seller approvals', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('sellers').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Seller records unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No seller applications', 'Seller applications will appear here.');
-          return Column(children: s.data!.take(15).map((seller) => Card(elevation: 0, child: ListTile(
-            title: Text(seller['display_name']?.toString() ?? 'Seller'),
-            subtitle: Text('Status: ' + (seller['status']?.toString() ?? 'pending')),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Approve seller', onPressed: () => setSellerStatus(seller, 'approved'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Suspend seller', onPressed: () => setSellerStatus(seller, 'suspended'), icon: const Icon(Icons.block_outlined)),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Alteo operations', style: TextStyle(color: Colors.white, fontSize: 23, fontWeight: FontWeight.w900)),
+              SizedBox(height: 6),
+              Text('A live overview of orders, dispatch and partner activity.',
+                style: TextStyle(color: Colors.white70, height: 1.4)),
             ]),
-          ))).toList());
-        },
+          ),
+          const SizedBox(height: 18),
+          const Text('Today at a glance', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          FutureBuilder<dynamic>(
+            future: metrics,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return _error('Summary unavailable. Check Admin permissions, then pull down to refresh.');
+              if (!snapshot.hasData) return const LinearProgressIndicator();
+              final m = Map<String, dynamic>.from(snapshot.data as Map);
+              return Wrap(spacing: 8, runSpacing: 8, children: [
+                _metric('Orders', m['orders_total']),
+                _metric('Paid orders', m['orders_paid']),
+                _metric('Open deliveries', m['delivery_jobs_open']),
+                _metric('Open rides', m['rides_open']),
+                _metric('Pending sellers', m['sellers_pending']),
+              ]);
+            },
+          ),
+          const SizedBox(height: 24),
+          const Text('Quick controls', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          _adminModuleTile(
+            Icons.route_rounded,
+            'Dispatch & Automation',
+            'Set automatic ride and delivery assignment, service availability and local pricing rules.',
+            _openDispatchSettings,
+          ),
+          _adminModuleTile(
+            Icons.location_on_rounded,
+            'Service Areas',
+            'Manage serviceable PIN codes and locality coverage.',
+            _openServiceAreaSettings,
+          ),
+          _adminModuleTile(
+            Icons.groups_rounded,
+            'Partner Management',
+            'Review applications and manage Sellers, Dark Stores, Delivery Partners and Driver Partners.',
+            () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminPartnersPage())),
+          ),
+          _adminModuleTile(
+            Icons.inventory_2_rounded,
+            'Catalogue & Content',
+            'Manage product listings, approvals, banners and homepage offers.',
+            () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminCataloguePage())),
+          ),
+          _adminModuleTile(
+            Icons.notifications_active_outlined,
+            'Notifications',
+            'Send announcements to customers or delivery partners and review send results.',
+            () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => _adminNotificationsPage())),
+          ),
+          _adminModuleTile(
+            Icons.support_agent_rounded,
+            'Support & escalations',
+            'Open the operations queue to review orders, active work and exceptions.',
+            () => setState(() => selectedTab = 1),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Changes to service availability, pricing and assignment rules are saved in Supabase and apply without releasing a new APK.',
+            style: TextStyle(color: Color(0xFF68736D), fontSize: 12, height: 1.45),
+          ),
+        ],
       ),
-
-      const SizedBox(height: 22),
-      const Text('Product approvals', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Product catalogue unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No products submitted', 'Seller product drafts will appear here for review.');
-          return Column(children: s.data!.take(20).map(_productApprovalTile).toList());
-        },
-      ),
-
-      const SizedBox(height: 22),
-      const Text('Dark stores', style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-      Align(alignment: Alignment.centerLeft, child: Padding(padding: const EdgeInsets.only(top: 8), child: FilledButton.icon(onPressed: createDarkStore, icon: const Icon(Icons.add_business_rounded), label: const Text('Create dark store')))),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('dark_stores').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Dark stores unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No dark stores', 'Create and approve dark stores from the admin tools.');
-          return Column(children: s.data!.take(15).map((store) => Card(elevation: 0, child: ListTile(
-            title: Text(store['name']?.toString() ?? 'Dark store'),
-            subtitle: Text('Status: ' + (store['status']?.toString() ?? 'pending')),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Activate', onPressed: () => setStoreStatus(store, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Suspend', onPressed: () => setStoreStatus(store, 'suspended'), icon: const Icon(Icons.block_outlined)),
-            ]),
-          ))).toList());
-        },
-      ),
-    ]),
+    ),
   );
-
-
 
   Future<String> _ensureAdminCatalogSellerId() async {
     final result = await client.rpc('admin_ensure_platform_seller');
