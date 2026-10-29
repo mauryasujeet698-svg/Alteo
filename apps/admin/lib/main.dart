@@ -1898,6 +1898,20 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           onTap: _openServiceAreaSettings,
         ),
       ),
+      const SizedBox(height: 8),
+      Card(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18), side: const BorderSide(color: Color(0xFFDCE6DF))),
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.route_rounded, color: Color(0xFF176B57))),
+          title: const Text('Dispatch & Automation', style: TextStyle(fontWeight: FontWeight.w900)),
+          subtitle: const Text('Configure automatic ride and delivery assignments.'),
+          trailing: const Icon(Icons.chevron_right_rounded),
+          onTap: _openDispatchSettings,
+        ),
+      ),
       const SizedBox(height: 22),
 
       _roleRequestsSection(),
@@ -2650,109 +2664,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       _managePartnerRoleSection(role: 'dark_store', title: 'Manage Dark Stores', icon: Icons.warehouse_rounded),
       _managePartnerRoleSection(role: 'delivery_partner', title: 'Manage Delivery Partners', icon: Icons.local_shipping_rounded),
       _managePartnerRoleSection(role: 'driver_partner', title: 'Manage Driver Partners', icon: Icons.directions_car_filled_rounded),
-      const SizedBox(height: 24),
-      const Text('Seller approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('sellers').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Seller records unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No seller applications', 'Seller applications will appear here.');
-          return Column(children: s.data!.map((seller) => Card(elevation: 0, child: ListTile(
-            title: Text(seller['display_name']?.toString() ?? 'Seller'),
-            subtitle: Text('Status: ' + (seller['status']?.toString() ?? 'pending')),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Approve seller', onPressed: () => setSellerStatus(seller, 'approved'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Suspend seller', onPressed: () => setSellerStatus(seller, 'suspended'), icon: const Icon(Icons.block_outlined)),
-            ]),
-          ))).toList());
-        },
-      ),
-      const SizedBox(height: 24),
-      const Text('Catalogue approvals', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Product catalogue unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No products submitted', 'Seller drafts appear here for review.');
-          return Column(children: s.data!.take(30).map(_productApprovalTile).toList());
-        },
-      ),
-      const SizedBox(height: 24),
-      Row(children: [
-        const Expanded(child: Text('Dark stores', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900))),
-        FilledButton.icon(onPressed: createDarkStore, icon: const Icon(Icons.add_business_rounded), label: const Text('Create')),
-      ]),
-      StreamBuilder<List<Map<String, dynamic>>>(
-        stream: client.from('dark_stores').stream(primaryKey: ['id']).order('created_at', ascending: false),
-        builder: (context, s) {
-          if (s.hasError) return _error('Dark stores unavailable.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No dark stores', 'Create and approve dark stores from these tools.');
-          return Column(children: s.data!.map((store) => Card(elevation: 0, child: ListTile(
-            title: Text(store['name']?.toString() ?? 'Dark store'),
-            subtitle: Text('Status: ' + (store['status']?.toString() ?? 'pending')),
-            trailing: Wrap(children: [
-              IconButton(tooltip: 'Activate', onPressed: () => setStoreStatus(store, 'active'), icon: const Icon(Icons.check_circle_outline, color: Colors.green)),
-              IconButton(tooltip: 'Suspend', onPressed: () => setStoreStatus(store, 'suspended'), icon: const Icon(Icons.block_outlined)),
-            ]),
-          ))).toList());
-        },
-      ),
-      const SizedBox(height: 24),
-      const Text('Ratings & quality moderation', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 5),
-      const Text('Review genuine completed-work feedback. Hidden or reported reviews are excluded from partner rating summaries.',
-        style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-      FutureBuilder<List<Map<String, dynamic>>>(
-        future: client.from('service_ratings')
-          .select('id,transaction_type,transaction_id,reviewer_role,subject_role,subject_id,score,comment,status,created_at')
-          .order('created_at', ascending: false).limit(100)
-          .then((rows) => List<Map<String, dynamic>>.from(rows as List)),
-        builder: (context, s) {
-          if (s.hasError) return _error('Ratings are unavailable. Check Admin access.');
-          if (!s.hasData) return const LinearProgressIndicator();
-          if (s.data!.isEmpty) return _empty('No ratings submitted yet', 'Real ratings will appear here after completed work is reviewed.');
-          return Column(children: s.data!.map((rating) {
-            final score = (rating['score'] as num?)?.toInt() ?? 0;
-            final status = rating['status']?.toString() ?? 'published';
-            final comment = rating['comment']?.toString().trim() ?? '';
-            return Card(elevation: 0, margin: const EdgeInsets.only(top: 8), child: ListTile(
-              isThreeLine: comment.isNotEmpty,
-              leading: CircleAvatar(
-                backgroundColor: const Color(0xFFFFF2D8),
-                child: Text(score.toString() + '★', style: const TextStyle(fontWeight: FontWeight.w900, color: Color(0xFF8A5A00))),
-              ),
-              title: Text(rating['subject_role'].toString().replaceAll('_', ' ') + ' · ' +
-                  rating['transaction_type'].toString().replaceAll('_', ' '),
-                style: const TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: Text((comment.isEmpty ? 'No written feedback.' : comment) +
-                  '\nFrom: ' + rating['reviewer_role'].toString().replaceAll('_', ' ') + ' · Status: ' + status,
-                maxLines: 4, overflow: TextOverflow.ellipsis),
-              trailing: PopupMenuButton<String>(
-                tooltip: 'Moderate rating',
-                onSelected: (value) async {
-                  try {
-                    await client.rpc('admin_moderate_service_rating', params: {
-                      'p_rating_id': rating['id'], 'p_status': value,
-                    }).timeout(const Duration(seconds: 12));
-                    notice('Rating marked ' + value + '.');
-                    if (mounted) setState(() {});
-                  } catch (_) {
-                    notice('Could not update rating moderation status.');
-                  }
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'published', child: Text('Publish')),
-                  PopupMenuItem(value: 'reported', child: Text('Mark reported')),
-                  PopupMenuItem(value: 'hidden', child: Text('Hide rating')),
-                ],
-              ),
-            ));
-          }).toList());
-        },
-      ),
+      const SizedBox(height: 8),
     ]),
   );
 
