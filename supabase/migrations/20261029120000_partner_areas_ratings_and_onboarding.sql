@@ -430,45 +430,7 @@ begin
   if p_role in ('driver_partner', 'delivery_partner') then
     v_area := coalesce(nullif(trim(v_application->>'service_area'), ''),
                        nullif(trim(v_application->>'service_area_pincode'), ''), '');
-    if v_area !~ '^[1-9][0-9]{5}
-
-  if p_role = 'seller' then
-    if exists (select 1 from public.sellers s where s.owner_id = p_user_id) then
-      update public.sellers
-         set display_name = coalesce(nullif(trim(v_application->>'shop_name'), ''), nullif(trim(v_display_name), ''), display_name),
-             phone = coalesce(nullif(trim(v_phone), ''), phone),
-             contact_email = coalesce(nullif(trim(v_email), ''), contact_email),
-             status = 'approved', updated_at = now()
-       where owner_id = p_user_id;
-    else
-      insert into public.sellers(owner_id, display_name, phone, contact_email, status)
-      values (p_user_id, coalesce(nullif(trim(v_application->>'shop_name'), ''), nullif(trim(v_display_name), ''), 'Alteo Seller'),
-              nullif(trim(v_phone), ''), nullif(trim(v_email), ''), 'approved');
-    end if;
-  elsif p_role = 'dark_store' then
-    if exists (select 1 from public.dark_stores ds where ds.owner_user_id = p_user_id) then
-      update public.dark_stores
-         set name = coalesce(nullif(trim(v_application->>'store_name'), ''), nullif(trim(v_display_name), ''), name),
-             locality = coalesce(nullif(trim(v_application->>'service_area'), ''), nullif(trim(v_application->>'address'), ''), locality),
-             status = 'active', updated_at = now()
-       where owner_user_id = p_user_id;
-    else
-      insert into public.dark_stores(owner_user_id, name, locality, status)
-      values (p_user_id, coalesce(nullif(trim(v_application->>'store_name'), ''), nullif(trim(v_display_name), ''), 'Alteo Dark Store'),
-              coalesce(nullif(trim(v_application->>'service_area'), ''), nullif(trim(v_application->>'address'), ''), 'Not specified'), 'active');
-    end if;
-  elsif p_role in ('driver_partner', 'delivery_partner') then
-    insert into public.partner_presence(user_id, role, area_code, is_online, updated_at)
-    values (p_user_id, p_role, v_area, false, now())
-    on conflict (user_id, role) do update
-      set area_code = excluded.area_code, updated_at = now();
-  end if;
-
-  insert into public.audit_events(actor_id, action, entity_type, entity_id, metadata)
-  values ((select auth.uid()), 'user.role_granted', 'user', p_user_id, jsonb_build_object('role', p_role));
-end;
-$function$;
- then
+    if v_area !~ '^[1-9][0-9]{5}$' then
       raise exception 'Select a valid 6-digit service PIN code in the applicant onboarding form before approving.' using errcode = '22023';
     end if;
     if not exists (
