@@ -863,34 +863,71 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
 
+  Future<Map<String, dynamic>?> _chooseActiveDarkStore() async {
+    List<Map<String, dynamic>> stores;
+    try {
+      final rows = await client.from('dark_stores').select('id,name,locality,status')
+        .eq('status', 'active').order('name');
+      stores = List<Map<String, dynamic>>.from(rows as List);
+    } catch (_) {
+      notice('Could not load active dark stores. Check Admin permissions and retry.');
+      return null;
+    }
+    if (!mounted) return null;
+    if (stores.isEmpty) {
+      notice('No active dark stores are available. Activate a store in Partners first.');
+      return null;
+    }
+    return showDialog<Map<String, dynamic>>(context: context, builder: (dc) => AlertDialog(
+      title: const Text('Select active dark store'),
+      content: SizedBox(width: 500, height: 400, child: ListView.separated(
+        itemCount: stores.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final store = stores[index];
+          final locality = store['locality']?.toString().trim() ?? '';
+          return ListTile(
+            leading: const CircleAvatar(backgroundColor: Color(0xFFE1F2E9),
+              child: Icon(Icons.warehouse_rounded, color: Color(0xFF176B57))),
+            title: Text(store['name']?.toString() ?? 'Dark store', style: const TextStyle(fontWeight: FontWeight.w800)),
+            subtitle: Text(locality.isEmpty ? 'Active dark store' : locality + ' · Active'),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.pop(dc, store),
+          );
+        },
+      )),
+      actions: [TextButton(onPressed: () => Navigator.pop(dc), child: const Text('Cancel'))],
+    ));
+  }
+
   Future<void> assignOrderToDarkStore(Map<String, dynamic> order) async {
-    if ((order['payment_status']?.toString() ?? 'pending') != 'paid') {
-      notice('Only paid orders can be assigned to a dark store.');
+    final paymentStatus = order['payment_status']?.toString() ?? 'pending';
+    final orderStatus = order['status']?.toString() ?? 'unknown';
+    if (!const ['paid', 'cod_pending'].contains(paymentStatus) ||
+        !const ['paid', 'cod_pending'].contains(orderStatus)) {
+      notice('Dark-store assignment is available after the order is paid or accepted as cash on delivery.');
       return;
     }
-    final storeId = TextEditingController();
+    final store = await _chooseActiveDarkStore();
+    if (store == null) return;
     try {
-      final ok = await showDialog<bool>(context: context, builder: (dc) => AlertDialog(
-        title: const Text('Assign order to dark store'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('Order ' + _short(order['id'])),
-          const SizedBox(height: 10),
-          TextField(controller: storeId, decoration: const InputDecoration(labelText: 'Active dark-store UUID', border: OutlineInputBorder())),
-          const SizedBox(height: 8),
-          const Text('The selected store must be active. The task will appear in its Picking tab.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dc, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dc, true), child: const Text('Assign')),
-        ],
-      ));
-      if (ok != true) return;
-      if (storeId.text.trim().isEmpty) { notice('Enter the active dark-store UUID.'); return; }
-      await rpc('admin_assign_order_to_dark_store', {'p_order_id': order['id'], 'p_store_id': storeId.text.trim()}, 'Order assigned to the dark store picking queue.');
-    } finally {
-      storeId.dispose();
+      await client.rpc('admin_assign_order_to_dark_store', params: {
+        'p_order_id': order['id'],
+        'p_store_id': store['id'],
+      }).timeout(const Duration(seconds: 15));
+      notice('Order assigned to ' + (store['name']?.toString() ?? 'dark store') + '.');
+    } catch (e) {
+      final error = e.toString().toLowerCase();
+      if (error.contains('quick-commerce')) {
+        notice('Only quick-commerce orders can be assigned to a dark store.');
+      } else if (error.contains('only newly paid orders')) {
+        notice('This order is no longer eligible for dark-store assignment.');
+      } else {
+        notice('Could not assign the order. Refresh its status and check that the store is active.');
+      }
     }
   }
+
 
   Future<void> assignDelivery(Map<String, dynamic> job) async {
     final partner = await _chooseAvailablePartner(role: 'delivery_partner',
@@ -2387,7 +2424,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                   subtitle: Text('Status: ' + (o['status']?.toString() ?? 'unknown') + ' · Payment: ' + (o['payment_status']?.toString() ?? 'unknown') + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
                   trailing: IconButton(
                     tooltip: 'Assign to dark store',
-                    onPressed: (o['payment_status']?.toString() ?? 'pending') == 'paid' ? () => assignOrderToDarkStore(o) : null,
+                    onPressed: const ['paid', 'cod_pending'].contains(o['payment_status']?.toString()) && const ['paid', 'cod_pending'].contains(o['status']?.toString()) ? () => assignOrderToDarkStore(o) : null,
                     icon: const Icon(Icons.warehouse_outlined),
                   ),
                 ),
