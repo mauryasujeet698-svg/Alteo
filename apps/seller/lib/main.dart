@@ -554,7 +554,6 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
       label: Text(partnerOnline ? 'Online' : 'Go online'),
     ),
-    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
   ]);
 
   Future<void> grantUserRole() async {
@@ -847,9 +846,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     );
   }
 
-  PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title), actions: [
-    IconButton(tooltip: 'Log out', onPressed: () => confirmAlteoLogout(context, onConfirm: widget.onSignOut), icon: const Icon(Icons.logout_rounded)),
-  ]);
+  PreferredSizeWidget _appBar(String title) => AppBar(title: Text(title));
 
   Widget _adminDashboard() => Scaffold(
     appBar: _appBar('Live operations'),
