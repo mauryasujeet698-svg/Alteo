@@ -536,33 +536,35 @@ jobs:
           import re
           from pathlib import Path
 
-          cache = Path.home() / ".pub-cache" / "hosted" / "pub.dev"
-          candidates = list(cache.glob("geocoding_android-*/android/build.gradle*"))
+          # Flutter may place hosted packages in a custom PUB_CACHE, so search
+          # the runner home rather than assuming one exact cache subdirectory.
+          home = Path.home()
+          candidates = [
+              path for path in home.rglob("build.gradle*")
+              if "geocoding_android-" in str(path) and path.parent.name == "android"
+          ]
           if not candidates:
-              raise SystemExit("Could not find geocoding_android Gradle file after flutter pub get.")
+              raise SystemExit("Could not locate the downloaded geocoding_android Android Gradle file.")
           patched = []
           for path in candidates:
               source = path.read_text()
               lines = source.splitlines(keepends=True)
               changed = False
               for i, line in enumerate(lines):
-                  # Change API 33 only on a Gradle line that declares compileSdk.
                   if "compileSdk" in line and re.search(r"\b33\b", line):
                       lines[i] = re.sub(r"\b33\b", "36", line)
                       changed = changed or lines[i] != line
-              updated = "".join(lines)
               if changed:
-                  path.write_text(updated)
+                  path.write_text("".join(lines))
                   patched.append(str(path))
           if patched:
               print("Aligned geocoding_android compile SDK to API 36:", ", ".join(patched))
           else:
-              content = "\n".join(p.read_text() for p in candidates)
+              content = "\n".join(path.read_text() for path in candidates)
               if re.search(r"compileSdk[^\n]*\b33\b", content):
-                  print("Gradle compileSdk declaration still contains API 33:")
                   print(content)
                   raise SystemExit("Unable to patch geocoding_android compile SDK declaration.")
-              print("geocoding_android has no compileSdk API 33 declaration; no patch needed.")
+              print("geocoding_android has no hardcoded API 33 compileSdk declaration.")
           PY
       - name: Analyze Dart
         run: flutter analyze --no-fatal-infos
