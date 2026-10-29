@@ -137,20 +137,20 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 12));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return _nativeGeocode(value);
+        return await _nativeGeocode(value);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
-      if (features.isEmpty) return _nativeGeocode(value);
+      if (features.isEmpty) return await _nativeGeocode(value);
       final center = (features.first as Map<String, dynamic>)['center'] as List<dynamic>?;
-      if (center == null || center.length < 2) return _nativeGeocode(value);
+      if (center == null || center.length < 2) return await _nativeGeocode(value);
       final longitude = (center[0] as num).toDouble();
       final latitude = (center[1] as num).toDouble();
-      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return _nativeGeocode(value);
+      if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return await _nativeGeocode(value);
       _lastError = null;
       return [longitude, latitude];
     } catch (_) {
-      return _nativeGeocode(value);
+      return await _nativeGeocode(value);
     }
   }
 
@@ -170,16 +170,16 @@ class MapboxService {
       final response = await http.get(uri).timeout(const Duration(seconds: 12));
       if (response.statusCode != 200) {
         _setHttpError(response.statusCode);
-        return _nativeReverseGeocode(longitude, latitude);
+        return await _nativeReverseGeocode(longitude, latitude);
       }
       final decoded = jsonDecode(response.body) as Map<String, dynamic>;
       final features = decoded['features'] as List<dynamic>? ?? const [];
-      if (features.isEmpty) return _nativeReverseGeocode(longitude, latitude);
+      if (features.isEmpty) return await _nativeReverseGeocode(longitude, latitude);
       final name = (features.first as Map<String, dynamic>)['place_name']?.toString().trim();
       _lastError = null;
       return name?.isNotEmpty == true ? name : await _nativeReverseGeocode(longitude, latitude);
     } catch (_) {
-      return _nativeReverseGeocode(longitude, latitude);
+      return await _nativeReverseGeocode(longitude, latitude);
     }
   }
 
