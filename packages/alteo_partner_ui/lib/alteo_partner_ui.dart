@@ -643,7 +643,7 @@ class AlteoServiceAreaLocationCard extends StatelessWidget {
             icon: isRefreshingLocation ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location_rounded),
             label: Text(isRefreshingLocation ? 'Updating location…' : 'Refresh location')),
           OutlinedButton.icon(onPressed: onOpenMap, icon: const Icon(Icons.map_outlined), label: const Text('Open map')),
-          FilledButton.icon(onPressed: validPin && !isRefreshingLocation ? onToggleAvailability : null,
+          FilledButton.icon(onPressed: (validPin || isOnline) && !isRefreshingLocation ? onToggleAvailability : null,
             icon: Icon(isOnline ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded),
             label: Text(isOnline ? 'Go offline' : 'Go online'),
             style: FilledButton.styleFrom(backgroundColor: isOnline ? const Color(0xFF5C6861) : _green)),
