@@ -967,6 +967,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final status = product['status']?.toString() ?? 'draft';
     final price = (((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2);
     final kind = (product['kind']?.toString() ?? 'shopping').toUpperCase();
+    final availabilityMode = product['availability_mode']?.toString() ?? 'all';
+    final availablePincodes = List<String>.from((product['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+    final coverageLabel = availabilityMode == 'specific' ? 'Available on PINs: ' + availablePincodes.join(', ') : 'Available on all PIN codes';
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 10),
@@ -992,6 +995,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               Text(description.isEmpty ? 'Description missing — review before publishing.' : description, maxLines: 3, overflow: TextOverflow.ellipsis),
               const SizedBox(height: 4),
               Text('₹$price · $kind · ${status.toUpperCase()}'),
+              const SizedBox(height: 3),
+              Text(coverageLabel, style: const TextStyle(fontSize: 11, color: Color(0xFF176B57))),
               const SizedBox(height: 3),
               Text(hasImage ? 'Image attached' : 'Image required before publishing',
                 style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: hasImage ? const Color(0xFF176B57) : const Color(0xFFB3261E))),
@@ -1527,7 +1532,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         'title': title,
         'body': body,
         'data': <String, String>{
-          'screen': 'notifications',
+          'screen': 'home',
           'source': 'admin_broadcast',
           'audience': _notificationAudience,
         },
