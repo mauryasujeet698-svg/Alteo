@@ -1280,10 +1280,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _driverHomeDashboard() => Scaffold(
     appBar: _partnerAppBar('Captain dashboard'),
-    body: FutureBuilder<List<Map<String, dynamic>>>(
-      future: client.from('rides').select('*').eq('driver_id', user!.id)
-          .order('created_at', ascending: false).limit(40)
-          .timeout(const Duration(seconds: 15)),
+    body: StreamBuilder<List<Map<String, dynamic>>>(
+      stream: client.from('rides').stream(primaryKey: ['id']).eq('driver_id', user!.id)
+          .order('created_at', ascending: false),
       builder: (context, snapshot) {
         if (snapshot.hasError) return _loadFailure('Your ride dashboard could not load. Check your connection and approved driver access, then retry.', () => setState(() {}));
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
@@ -1565,9 +1564,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
 
   Widget _driverDashboard() => Scaffold(
     appBar: _partnerAppBar('My rides'),
-    body: FutureBuilder<List<Map<String, dynamic>>>(
-      future: client.from('rides').select('*').eq('driver_id', user!.id)
-          .order('created_at', ascending: false).timeout(const Duration(seconds: 15)),
+    body: StreamBuilder<List<Map<String, dynamic>>>(
+      stream: client.from('rides').stream(primaryKey: ['id']).eq('driver_id', user!.id)
+          .order('created_at', ascending: false),
       builder: (context, s) {
         if (s.hasError) return _loadFailure('Rides could not load. Check your connection and approved driver access, then retry.', () => setState(() {}));
         if (!s.hasData) return const Center(child: Column(mainAxisSize: MainAxisSize.min, children: [
