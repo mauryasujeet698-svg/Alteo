@@ -544,7 +544,10 @@ jobs:
               if "geocoding_android-" in str(path) and path.parent.name == "android"
           ]
           if not candidates:
-              raise SystemExit("Could not locate the downloaded geocoding_android Android Gradle file.")
+              # Not every app uses the geocoding plugin. Only the Customer app
+              # currently needs this compatibility patch; unrelated apps must continue.
+              print("geocoding_android is not a dependency of this app; no SDK patch needed.")
+              raise SystemExit(0)
           patched = []
           for path in candidates:
               source = path.read_text()
