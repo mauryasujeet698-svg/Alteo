@@ -1469,7 +1469,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             }
             if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
             if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => _confirmDeliveryComplete(job), child: const Text('Delivered')));
-          if (status == 'delivered') buttons.add(AlteoRateCompletedWorkButton(role: requiredRole, transactionType: 'delivery', transactionId: j['id'].toString()));
+          if (status == 'delivered') buttons.add(AlteoRateCompletedWorkButton(role: requiredRole, transactionType: 'delivery', transactionId: job['id'].toString()));
             return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 12), child: Padding(padding: const EdgeInsets.all(14), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text((job['job_type']?.toString() ?? 'order').toUpperCase() + ' · ' + _short(job['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 6),
