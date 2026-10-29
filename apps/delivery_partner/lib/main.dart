@@ -1478,6 +1478,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               Text('Status: ' + status.replaceAll('_', ' ') + (assignmentStatus.isEmpty ? '' : ' · Offer: ' + assignmentStatus)),
               if ((job['pickup_label']?.toString() ?? '').isNotEmpty) Text('Pickup: ' + job['pickup_label'].toString()),
               if ((job['destination_label']?.toString() ?? '').isNotEmpty) Text('Drop: ' + job['destination_label'].toString()),
+              AlteoOrderItemsSection(
+                orderId: job['order_id']?.toString(),
+                fallbackDescription: job['item_description']?.toString(),
+              ),
               if (status == 'accepted' || status == 'assigned' || status == 'picked_up' || status == 'in_transit')
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
