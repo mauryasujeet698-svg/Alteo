@@ -46,7 +46,43 @@ class _RideBookingPageState extends State<RideBookingPage> {
   void dispose() {
     pickupController.dispose();
     destinationController.dispose();
+    mapController.dispose();
     super.dispose();
+  }
+
+  void _fitMapToSelectedLocations() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final points = <LatLng>[];
+      void add(List<double>? pair) {
+        if (pair == null || pair.length < 2) return;
+        final point = LatLng(pair[1], pair[0]);
+        if (!points.any((p) => (p.latitude - point.latitude).abs() < 0.00001 && (p.longitude - point.longitude).abs() < 0.00001)) {
+          points.add(point);
+        }
+      }
+      add(currentCoordinates);
+      add(pickupCoordinates);
+      add(destinationCoordinates);
+      if (routeCoordinates.isNotEmpty) {
+        points.add(routeCoordinates.first);
+        points.add(routeCoordinates.last);
+      }
+      try {
+        if (points.length >= 2) {
+          mapController.fitCamera(CameraFit.coordinates(
+            coordinates: points,
+            padding: const EdgeInsets.fromLTRB(44, 56, 44, 56),
+            maxZoom: 16,
+            minZoom: 10,
+          ));
+        } else if (points.length == 1) {
+          mapController.move(points.first, 15);
+        }
+      } catch (_) {
+        // The map may not have attached yet; a later location or route update retries.
+      }
+    });
   }
 
   void _message(String text) {
@@ -82,7 +118,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         routeResult = null;
         routeCoordinates = <LatLng>[];
       });
-      try { mapController.move(LatLng(position.latitude, position.longitude), 15); } catch (_) {}
+      _fitMapToSelectedLocations();
       await _refreshQuote();
     } catch (_) {
       if (!silent) _message('We could not detect your location. Try again or enter your pickup address.');
@@ -112,7 +148,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         routeResult = null;
         routeCoordinates = <LatLng>[];
       });
-      try { mapController.move(LatLng(coords[1], coords[0]), 15); } catch (_) {}
+      _fitMapToSelectedLocations();
       await _refreshQuote();
     } catch (_) {
       _message('We could not search for that pickup. Select the point on the map or try another address.');
@@ -140,10 +176,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
         routeResult = null;
         routeCoordinates = <LatLng>[];
       });
-      try {
-        final focus = pickupCoordinates ?? coords;
-        mapController.move(LatLng(focus[1], focus[0]), 13.5);
-      } catch (_) {}
+      _fitMapToSelectedLocations();
       await _refreshQuote();
     } catch (_) {
       _message('We could not search for that destination. Try a nearby landmark or select it on the map.');
@@ -217,6 +250,7 @@ class _RideBookingPageState extends State<RideBookingPage> {
       routeCoordinates = result?.coordinates.map((p) => LatLng(p[1], p[0])).toList() ?? <LatLng>[];
       calculatingRoute = false;
     });
+    _fitMapToSelectedLocations();
   }
 
   Widget _etaSummary() {
