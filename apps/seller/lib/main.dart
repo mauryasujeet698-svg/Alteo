@@ -984,7 +984,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ]),
         const SizedBox(height: 8),
         StreamBuilder<List<Map<String, dynamic>>>(
-          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).order('created_at', ascending: false),
+          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).is('archived_at', null).order('created_at', ascending: false),
           builder: (context, s) {
             if (s.hasError) return _error('Catalogue unavailable. Check seller permissions.');
             if (!s.hasData) return const LinearProgressIndicator();
@@ -999,7 +999,14 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                 '\n' + ((p['availability_mode']?.toString() ?? 'all') == 'specific'
                   ? 'Available on PINs: ' + List<String>.from((p['available_pincodes'] as List? ?? const []).map((v) => v.toString())).join(', ')
                   : 'Available on all PIN codes')) ,
-              trailing: IconButton(tooltip: 'Edit product', onPressed: () => _editSellerProduct(sellerId, p), icon: const Icon(Icons.edit_outlined)),
+              trailing: Wrap(spacing: 0, children: [
+                IconButton(tooltip: 'Edit product', onPressed: () => _editSellerProduct(sellerId, p), icon: const Icon(Icons.edit_outlined)),
+                IconButton(
+                  tooltip: 'Remove product',
+                  onPressed: () => _archiveSellerProduct(p),
+                  icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFB3261E)),
+                ),
+              ]),
             ))).toList());
           },
         ),
@@ -1043,6 +1050,34 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     } on StorageException catch (e) {
       debugPrint('Seller image upload failed (${e.runtimeType}).');
       throw StateError('Image upload unavailable.');
+    }
+  }
+
+  Future<void> _archiveSellerProduct(Map<String, dynamic> product) async {
+    final productName = product['name']?.toString() ?? 'this product';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove product?'),
+        content: Text('Remove "$productName" from your active catalogue? It will no longer be visible to customers. Historical orders are retained.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep product')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
+            child: const Text('Remove product'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await client.rpc('seller_archive_product', params: {'p_product_id': product['id']});
+      notice('Product removed from your active catalogue. Existing orders remain unchanged.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      debugPrint('Seller product archive failed: $detail');
+      notice('Could not remove this product: $detail');
     }
   }
 
