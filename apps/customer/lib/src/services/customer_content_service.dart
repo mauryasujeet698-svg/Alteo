@@ -102,6 +102,8 @@ class CustomerContentService {
     var query = client.from('seller_products')
         .select('id,name,description,price_minor,image_url,kind,category,subcategory,brand,sku,mrp_minor,unit_label,availability_mode,available_pincodes')
         .eq('status', 'active')
+        .is('archived_at', null)
+        .is('archived_at', null)
         .not('image_url', 'is', null)
         .neq('image_url', '');
     if (kind != null) query = query.eq('kind', kind);
