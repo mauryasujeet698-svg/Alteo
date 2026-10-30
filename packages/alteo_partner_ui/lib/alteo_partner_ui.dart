@@ -923,7 +923,7 @@ class _AlteoOrderItemsSectionState extends State<AlteoOrderItemsSection> {
     if (orderId == null || orderId.isEmpty) return <Map<String, dynamic>>[];
     final client = Supabase.instance.client;
     final rows = await client.from('order_items')
-      .select('product_id,product_name_snapshot,quantity,unit_price_minor,line_total_minor')
+      .select('product_id,product_name_snapshot,quantity,unit_price_minor,line_total_minor,status')
       .eq('order_id', orderId).order('created_at');
     final items = List<Map<String, dynamic>>.from(rows as List);
     final productIds = items.map((row) => row['product_id']?.toString() ?? '').where((id) => id.isNotEmpty).toSet().toList();
@@ -970,9 +970,18 @@ class _AlteoOrderItemsSectionState extends State<AlteoOrderItemsSection> {
             else for (final item in items) ...[
               ListTile(
                 leading: _thumbnail(item['image_url']?.toString() ?? ''),
-                title: Text(item['product_name_snapshot']?.toString() ?? 'Item', maxLines: 2, overflow: TextOverflow.ellipsis),
+                title: Text(
+                  item['product_name_snapshot']?.toString() ?? 'Item',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    decoration: item['status'] == 'cancelled' ? TextDecoration.lineThrough : null,
+                    color: item['status'] == 'cancelled' ? const Color(0xFF858D87) : null,
+                  ),
+                ),
                 subtitle: Text('Qty ' + (item['quantity'] ?? 0).toString() + ' · ₹' +
-                  (((item['unit_price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0) + ' each'),
+                  (((item['unit_price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0) + ' each' +
+                  (item['status'] == 'cancelled' ? ' · Cancelled' : '')),
                 trailing: Text('₹' + (((item['line_total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0),
                   style: const TextStyle(fontWeight: FontWeight.w900)),
               ),
