@@ -3459,8 +3459,12 @@ class _AdminServiceConfigPanelState extends State<AdminServiceConfigPanel> {
         'p_automatic_assignment': automatic,
       });
       message('${services[service]} settings saved for ${selectedAreaCode == 'DEFAULT' ? 'the default area' : 'PIN code $selectedAreaCode'}.');
-    } catch (_) {
-      message('Could not update service settings. Check that the PIN code is active and try again.');
+    } catch (e) {
+      debugPrint('Admin service-control update failed: $e');
+      final detail = e.toString().replaceFirst(RegExp(r'^Exception: '), '').trim();
+      message(detail.isEmpty
+          ? 'Could not update service settings. Check administrator access and the active PIN code, then try again.'
+          : 'Could not update service settings: ${detail.length > 220 ? detail.substring(0, 220) : detail}');
     }
   }
 
