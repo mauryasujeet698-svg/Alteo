@@ -562,7 +562,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         }
       });
     } catch (_) {
-      if (mounted) notice('Could not load active service PINs. Contact Admin if the list remains empty.');
+      if (mounted) notice(requiredRole == 'driver_partner' ? 'Could not load service areas. Rides remain unavailable until GPS area verification succeeds.' : 'Could not load active service PINs. Contact Admin if the list remains empty.');
     }
   }
 
@@ -677,7 +677,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       return null;
     } catch (e) {
       debugPrint('Driver service-area lookup failed (${e.runtimeType}).');
-      lastServiceAreaMessage = 'Location verification is temporarily unavailable';
+      lastServiceAreaMessage = 'GPS area verification is not configured. Contact Alteo support';
       return null;
     }
   }
@@ -713,7 +713,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               lastLongitude = longitude;
               lastLocationAt = DateTime.now();
             });
-            notice('Unavailable area. Rides cannot be accepted from your current location. Move into an Alteo service area and refresh GPS.');
+            notice(lastServiceAreaMessage?.contains('not configured') == true ? 'GPS area verification is not configured. Rides are unavailable until Alteo support fixes the service-area setup.' : lastServiceAreaMessage?.contains('temporarily unavailable') == true ? 'Could not verify your GPS area right now. You remain offline; retry when location verification is available.' : 'Unavailable area. Rides cannot be accepted from your current location. Move into an Alteo service area and refresh GPS.');
             return;
           }
         } else if (resolvedAreaCode == null ||
@@ -900,7 +900,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       const Text('Welcome back', style: TextStyle(fontSize: 25, fontWeight: FontWeight.w900)),
       const SizedBox(height: 5),
       Text(requiredRole == 'driver_partner'
-        ? 'Manage your current location, service PIN and ride availability.'
+        ? 'Manage your live GPS location, detected service area and ride availability.'
         : 'Manage your current location, service PIN and delivery availability.',
         style: const TextStyle(color: Color(0xFF68736D), height: 1.45)),
       const SizedBox(height: 16),
