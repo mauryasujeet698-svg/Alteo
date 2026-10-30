@@ -791,6 +791,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (showNotice) notice('We could not update your location. Check location access and try again.');
     } finally {
       locationUpdateInFlight = false;
+      if (mounted && partnerOnline) setState(() {});
     }
   }
 
@@ -819,18 +820,22 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     }
   }
 
-  PreferredSizeWidget _partnerAppBar(String title) => AppBar(title: Text(title), actions: [
-    IconButton(
-      tooltip: 'Update live location',
-      onPressed: partnerOnline ? () => _shareCurrentLocation() : null,
-      icon: const Icon(Icons.my_location_rounded),
-    ),
-    TextButton.icon(
-      onPressed: _setAvailability,
-      icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
-      label: Text(partnerOnline ? 'Online' : 'Go online'),
-    ),
-  ]);
+  PreferredSizeWidget _partnerAppBar(String title) {
+    final locationFresh = lastLocationAt != null &&
+        DateTime.now().difference(lastLocationAt!) <= const Duration(minutes: 10);
+    return AppBar(title: Text(title), actions: [
+      IconButton(
+        tooltip: 'Update live location',
+        onPressed: partnerOnline ? () => _shareCurrentLocation() : null,
+        icon: const Icon(Icons.my_location_rounded),
+      ),
+      TextButton.icon(
+        onPressed: _setAvailability,
+        icon: Icon(partnerOnline ? Icons.toggle_on_rounded : Icons.toggle_off_rounded),
+        label: Text(!partnerOnline ? 'Go online' : (locationFresh ? 'Online' : 'Location stale')),
+      ),
+    ]);
+  }
 
   Widget _deliveryPartnerProfile() => Scaffold(
     appBar: _appBar('Profile'),
