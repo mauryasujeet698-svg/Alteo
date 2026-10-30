@@ -695,8 +695,16 @@ Widget productCard(CustomerProduct p) {
             padding: const EdgeInsets.fromLTRB(11, 10, 11, 12),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(p.name, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800, height: 1.25)),
+              if (p.category.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 3), child: Text(p.category, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF68736D)))),
               const SizedBox(height: 5),
-              Text(p.priceLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+              Row(children: [
+                Text(p.priceLabel, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: Color(0xFF176B57))),
+                if (p.mrpLabel != null) ...[
+                  const SizedBox(width: 6),
+                  Text(p.mrpLabel!, style: const TextStyle(fontSize: 11, color: Color(0xFF68736D), decoration: TextDecoration.lineThrough)),
+                ],
+              ]),
+              if (p.unitLabel.isNotEmpty) Text(p.unitLabel, style: const TextStyle(fontSize: 10, color: Color(0xFF68736D))),
               const SizedBox(height: 8),
               Align(
                 alignment: Alignment.centerRight,
@@ -749,7 +757,7 @@ class _ProductSearch extends SearchDelegate<String>{
  Widget _results(BuildContext context){
   if(query.trim().isEmpty)return const Center(child:Text('Type or say an item name to search.'));
   return FutureBuilder<List<Map<String,dynamic>>>(
-   future:CustomerContentService(Supabase.instance.client).searchProducts(query:query.trim(),pincode:pincode).then((products)=>products.map((item)=><String,dynamic>{'id':item.id,'name':item.name,'description':item.description,'price_minor':item.priceMinor,'image_url':item.imageUrl,'kind':item.kind}).toList()),
+   future:CustomerContentService(Supabase.instance.client).searchProducts(query:query.trim(),pincode:pincode).then((products)=>products.map((item)=><String,dynamic>{'id':item.id,'name':item.name,'description':item.description,'price_minor':item.priceMinor,'image_url':item.imageUrl,'kind':item.kind,'category':item.category,'subcategory':item.subcategory,'brand':item.brand,'sku':item.sku,'mrp_minor':item.mrpMinor,'unit_label':item.unitLabel}).toList()),
    builder:(context,s){
     if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
     if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Search is temporarily unavailable. Pull down on Home to retry.',textAlign:TextAlign.center)));
@@ -785,6 +793,14 @@ class CustomerProductDetailsPage extends StatelessWidget {
    Text(product.name,style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),
    const SizedBox(height:8),
    Text(product.priceLabel,style:const TextStyle(fontSize:25,fontWeight:FontWeight.w900,color:Color(0xFF176B57))),
+   if (product.mrpLabel != null || product.unitLabel.isNotEmpty || product.category.isNotEmpty) ...[
+    const SizedBox(height:6),
+    Text([
+      if (product.category.isNotEmpty) product.category,
+      if (product.unitLabel.isNotEmpty) product.unitLabel,
+      if (product.mrpLabel != null) 'MRP ${product.mrpLabel}',
+    ].join(' · '),style:const TextStyle(fontSize:12,color:Color(0xFF68736D))),
+   ],
    const SizedBox(height:18),
    const Text('Description',style:TextStyle(fontSize:18,fontWeight:FontWeight.w800)),
    const SizedBox(height:7),
