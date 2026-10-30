@@ -1426,6 +1426,32 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     );
   }
 
+  Future<void> _cancelDelivery(Map<String, dynamic> job) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel this delivery?'),
+        content: const Text(
+          'You can release this delivery only before pickup. Alteo will return it to the dispatch queue for another available partner.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep delivery')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
+            child: const Text('Cancel delivery'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    await rpc(
+      'partner_update_delivery_status',
+      {'p_delivery_job_id': job['id'], 'p_action': 'cancel'},
+      'Delivery released before pickup. It has returned to dispatch for reassignment.',
+    );
+  }
+
   Widget _deliveryDashboard() => Scaffold(
     appBar: _partnerAppBar('My deliveries'),
     body: FutureBuilder<Map<String, List<Map<String, dynamic>>>>(
@@ -1465,6 +1491,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             }
             if (status == 'accepted' || (status == 'assigned' && assignmentStatus == 'accepted')) {
               buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
+              buttons.add(OutlinedButton(
+                onPressed: () => _cancelDelivery(job),
+                child: const Text('Cancel delivery'),
+              ));
             }
             if (status == 'picked_up') buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'in_transit'}, 'Delivery is in transit.'), child: const Text('Start route')));
             if (status == 'in_transit') buttons.add(FilledButton(onPressed: () => _confirmDeliveryComplete(job), child: const Text('Delivered')));
