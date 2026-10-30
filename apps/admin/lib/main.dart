@@ -2690,32 +2690,71 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   );
 
   Future<String> _partnerOperationalStatus(String userId, String role) async {
-    if (role == 'delivery_partner') {
+    if (role == 'delivery_partner' || role == 'driver_partner') {
+      final access = await client.from('partner_access_controls').select('status')
+        .eq('user_id', userId).eq('role', role).maybeSingle();
+      final accessStatus = access?['status']?.toString() ?? 'active';
+      if (accessStatus == 'paused') return 'Paused by Admin';
+      if (accessStatus == 'removed') return 'Removed by Admin';
       final row = await client.from('partner_presence').select('is_online,area_code,updated_at')
         .eq('user_id', userId).eq('role', role).maybeSingle();
       if (row == null || row['is_online'] != true) return 'Offline';
       final updated = DateTime.tryParse(row['updated_at']?.toString() ?? '');
       if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > const Duration(minutes: 10)) return 'Location stale';
-      final active = await client.from('delivery_jobs').select('id')
-        .eq('delivery_partner_id', userId).inFilter('status', ['assigned','accepted','picked_up','in_transit']).limit(1).maybeSingle();
-      return active == null ? 'Available · PIN ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · delivery in progress';
-    }
-    if (role == 'driver_partner') {
-      final row = await client.from('partner_presence').select('is_online,area_code,updated_at')
-        .eq('user_id', userId).eq('role', role).maybeSingle();
-      if (row == null || row['is_online'] != true) return 'Offline';
-      final updated = DateTime.tryParse(row['updated_at']?.toString() ?? '');
-      if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > const Duration(minutes: 10)) return 'Location stale';
+      if (role == 'delivery_partner') {
+        final active = await client.from('delivery_jobs').select('id')
+          .eq('delivery_partner_id', userId).inFilter('status', ['assigned','accepted','picked_up','in_transit']).limit(1).maybeSingle();
+        return active == null ? 'Available · PIN ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · delivery in progress';
+      }
       final active = await client.from('rides').select('id')
         .eq('driver_id', userId).inFilter('status', ['requested','accepted','arrived','in_progress']).limit(1).maybeSingle();
-      return active == null ? 'Available · PIN ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · ride in progress';
+      return active == null ? 'Available · GPS service area ' + (row['area_code']?.toString() ?? 'unknown') : 'Busy · ride in progress';
     }
     if (role == 'seller') {
       final row = await client.from('sellers').select('status,display_name').eq('owner_id', userId).limit(1).maybeSingle();
-      return row == null ? 'Approved access · seller profile not linked' : 'Seller ' + (row['status']?.toString() ?? 'unknown');
+      return row == null ? 'Seller profile not linked' : 'Seller ' + (row['status']?.toString() ?? 'unknown');
     }
     final store = await client.from('dark_stores').select('status,name,locality').eq('owner_user_id', userId).limit(1).maybeSingle();
-    return store == null ? 'Approved access · dark-store profile not linked' : 'Dark store ' + (store['status']?.toString() ?? 'unknown');
+    return store == null ? 'Dark-store profile not linked' : 'Dark store ' + (store['status']?.toString() ?? 'unknown');
+  }
+
+  Future<void> _setManagedAccountStatus(Map<String, dynamic> request, String role, String action) async {
+    final userId = request['user_id']?.toString() ?? '';
+    if (userId.isEmpty) {
+      notice('This account is missing its user reference.');
+      return;
+    }
+    try {
+      if (role == 'seller') {
+        final seller = await client.from('sellers').select('id').eq('owner_id', userId).maybeSingle();
+        if (seller == null) throw StateError('Seller profile not found.');
+        final target = action == 'pause' ? 'suspended' : action == 'remove' ? 'rejected' : 'approved';
+        await client.rpc('admin_set_seller_status', params: {'p_seller_id': seller['id'], 'p_status': target});
+      } else if (role == 'dark_store') {
+        final store = await client.from('dark_stores').select('id').eq('owner_user_id', userId).maybeSingle();
+        if (store == null) throw StateError('Dark-store profile not found.');
+        final target = action == 'pause' ? 'suspended' : action == 'remove' ? 'removed' : 'active';
+        await client.rpc('admin_set_dark_store_status', params: {'p_store_id': store['id'], 'p_status': target});
+      } else {
+        final target = action == 'pause' ? 'paused' : action == 'remove' ? 'removed' : 'active';
+        await client.rpc('admin_set_partner_access', params: {
+          'p_user_id': userId,
+          'p_role': role,
+          'p_status': target,
+          'p_admin_note': null,
+        });
+      }
+      notice(action == 'pause'
+        ? 'Account paused. It cannot receive new work.'
+        : action == 'remove'
+          ? 'Account access removed. The underlying user account and historical records are retained.'
+          : 'Account access reactivated.');
+      if (mounted) setState(() {});
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      debugPrint('Admin account status change failed: $detail');
+      notice('Could not update this account: $detail');
+    }
   }
 
   Widget _managePartnerRoleSection({required String role, required String title, required IconData icon}) => Card(
@@ -2794,7 +2833,28 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                           subtitle: Text(status + (pin.isEmpty ? '' : ' · onboarding PIN ' + pin) +
                             (request['phone']?.toString().trim().isNotEmpty == true ? ' · ' + request['phone'].toString() : ''),
                             maxLines: 3, overflow: TextOverflow.ellipsis),
-                          trailing: const Icon(Icons.chevron_right_rounded),
+                          trailing: PopupMenuButton<String>(
+                            tooltip: 'Manage account access',
+                            onSelected: (action) => _setManagedAccountStatus(request, role, action),
+                            itemBuilder: (_) {
+                              final statusText = status.toLowerCase();
+                              final inactive = statusText.contains('paused') || statusText.contains('suspended') ||
+                                statusText.contains('removed') || statusText.contains('rejected');
+                              final removed = statusText.contains('removed') || statusText.contains('rejected');
+                              return [
+                                if (!inactive)
+                                  const PopupMenuItem(value: 'pause', child: ListTile(
+                                    leading: Icon(Icons.pause_circle_outline), title: Text('Pause access'), contentPadding: EdgeInsets.zero)),
+                                if (inactive)
+                                  const PopupMenuItem(value: 'reactivate', child: ListTile(
+                                    leading: Icon(Icons.play_circle_outline), title: Text('Reactivate access'), contentPadding: EdgeInsets.zero)),
+                                if (!removed)
+                                  const PopupMenuItem(value: 'remove', child: ListTile(
+                                    leading: Icon(Icons.person_remove_outlined, color: Color(0xFFB3261E)),
+                                    title: Text('Remove access'), contentPadding: EdgeInsets.zero)),
+                              ];
+                            },
+                          ),
                         ));
                       },
                     ),
