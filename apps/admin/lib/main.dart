@@ -1987,13 +1987,15 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   }
 
   Widget _adminCataloguePage() => DefaultTabController(
-    length: 2,
+    length: 3,
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Catalogue management'),
         bottom: const TabBar(
+          isScrollable: true,
           tabs: [
             Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Items'),
+            Tab(icon: Icon(Icons.pending_actions_outlined), text: 'Dark Store approvals'),
             Tab(icon: Icon(Icons.view_carousel_outlined), text: 'Banners'),
           ],
         ),
@@ -2001,6 +2003,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       body: TabBarView(
         children: [
           _adminItemsBody(),
+          _adminDarkStoreProductSubmissionsBody(),
           ListView(
             padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
             children: [
@@ -2018,6 +2021,135 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
     ),
   );
+
+  Widget _adminDarkStoreProductSubmissionsBody() => StreamBuilder<List<Map<String, dynamic>>>(
+    stream: client.from('dark_store_product_submissions').stream(primaryKey: ['id'])
+        .eq('status', 'pending_review').order('created_at', ascending: false),
+    builder: (context, snapshot) {
+      if (snapshot.hasError) return _error('Dark Store product approvals unavailable. Check Admin access and retry.');
+      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+      final rows = snapshot.data!;
+      if (rows.isEmpty) return _empty('No pending product approvals', 'New non-food items submitted by active Dark Stores will appear here.');
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          const Text('Dark Store product approvals', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 5),
+          const Text('Review every product before it enters the customer catalogue. Food-category submissions are blocked by the database.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+          const SizedBox(height: 14),
+          for (final item in rows) _darkStoreProductApprovalCard(item),
+        ],
+      );
+    },
+  );
+
+  Widget _darkStoreProductApprovalCard(Map<String, dynamic> item) {
+    final imageUrl = item['image_url']?.toString() ?? '';
+    final price = ((item['price_minor'] as num?)?.toInt() ?? 0) / 100;
+    final mrp = ((item['mrp_minor'] as num?)?.toInt() ?? 0) / 100;
+    final stock = item['proposed_stock'] ?? 0;
+    final pins = List<String>.from((item['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
+    final coverage = item['availability_mode'] == 'all' ? 'All active PIN codes' : 'PIN codes: ${pins.join(', ')}';
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 94, height: 100,
+                child: imageUrl.startsWith('https://')
+                  ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, size: 34))
+                  : const Icon(Icons.image_outlined, size: 34),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(item['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text('${item['category'] ?? ''} · ${item['subcategory'] ?? ''}', style: const TextStyle(color: Color(0xFF68736D), fontSize: 12)),
+              const SizedBox(height: 4),
+              Text('SKU: ${item['sku']}', style: const TextStyle(fontSize: 12)),
+              Text('Brand: ${(item['brand']?.toString().trim().isNotEmpty ?? false) ? item['brand'] : 'Not specified'}', style: const TextStyle(fontSize: 12)),
+              const SizedBox(height: 5),
+              Text('Selling ₹${price.toStringAsFixed(2)} · MRP ₹${mrp.toStringAsFixed(2)}', style: const TextStyle(fontWeight: FontWeight.w800)),
+              Text('Unit: ${item['unit_label']} · Proposed stock: $stock', style: const TextStyle(fontSize: 12)),
+            ])),
+          ]),
+          const SizedBox(height: 10),
+          Text(item['description']?.toString() ?? '', style: const TextStyle(height: 1.4)),
+          const SizedBox(height: 7),
+          Text('$coverage · Submitted by store ${_short(item['store_id'])}', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+          const Divider(height: 20),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            FilledButton.icon(
+              onPressed: () => _reviewDarkStoreProduct(item, 'approve'),
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Approve'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _reviewDarkStoreProduct(item, 'request_correction'),
+              icon: const Icon(Icons.edit_note_rounded),
+              label: const Text('Request correction'),
+            ),
+            TextButton.icon(
+              onPressed: () => _reviewDarkStoreProduct(item, 'reject'),
+              icon: const Icon(Icons.close_rounded),
+              label: const Text('Reject'),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFFB3261E)),
+            ),
+          ]),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> _reviewDarkStoreProduct(Map<String, dynamic> item, String action) async {
+    final note = TextEditingController();
+    final isApprove = action == 'approve';
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(isApprove ? 'Approve product?' : action == 'reject' ? 'Reject product?' : 'Request product correction'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(item['name']?.toString() ?? 'This product'),
+            const SizedBox(height: 10),
+            if (!isApprove) TextField(
+              controller: note,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: action == 'reject' ? 'Reason (optional)' : 'Required correction note *',
+                border: const OutlineInputBorder(),
+              ),
+            ) else const Text('Approval publishes this product in the Alteo customer catalogue and creates its initial Dark Store stock record.'),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: Text(isApprove ? 'Approve and publish' : action == 'reject' ? 'Reject' : 'Send correction')),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await client.rpc('admin_review_dark_store_product', params: {
+        'p_submission_id': item['id'],
+        'p_action': action,
+        'p_admin_note': note.text.trim().isEmpty ? null : note.text.trim(),
+      });
+      notice(isApprove
+        ? 'Product approved and published. Its stock record was created.'
+        : action == 'reject' ? 'Product submission rejected.' : 'Correction request sent to the Dark Store.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      debugPrint('Dark-store product review failed: $detail');
+      notice('Could not review this product: $detail');
+    } finally {
+      note.dispose();
+    }
+  }
 
   Widget _adminItemsBody() => FutureBuilder<String>(
     future: _adminCatalogSellerFuture ??= _ensureAdminCatalogSellerId(),
