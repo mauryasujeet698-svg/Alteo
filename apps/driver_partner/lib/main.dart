@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -13,6 +15,7 @@ import 'package:alteo_partner_ui/alteo_partner_ui.dart';
 const appName = 'Alteo Driver Partner';
 const requiredRole = 'driver_partner';
 const googleWebClientId = String.fromEnvironment('GOOGLE_WEB_CLIENT_ID');
+const mapboxPublicToken = String.fromEnvironment('MAPBOX_PUBLIC_TOKEN');
 Future<void>? _googleSignInInitialization;
 const supabaseUrl = String.fromEnvironment('SUPABASE_URL', defaultValue: 'https://nkerkoptbrcadlpxffkn.supabase.co');
 const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: 'sb_publishable_lM6ttzw8KMPH2BNXgMAJVA_3y1h51YD');
@@ -500,6 +503,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   double? lastLongitude;
   DateTime? lastLocationAt;
   bool refreshingLocation = false;
+  DateTime? lastServiceAreaCheckAt;
+  double? lastServiceAreaCheckLatitude;
+  double? lastServiceAreaCheckLongitude;
+  String? lastServiceAreaMessage;
   int selectedTab = 0;
 
   @override
@@ -582,22 +589,96 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     } catch (_) {}
   }
 
-  Future<void> _savePartnerArea(String pin) async {
-    if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin)
-        || !partnerServiceAreas.any((a) => a['pincode']?.toString() == pin)) {
-      notice('Choose an active six-digit PIN from the list.');
-      return;
+  Map<String, dynamic>? _serviceAreaForPin(String? pin) {
+    if (pin == null || pin.isEmpty) return null;
+    for (final area in partnerServiceAreas) {
+      if (area['pincode']?.toString() == pin) return area;
     }
+    return null;
+  }
+
+  String _driverAreaLabel() {
+    if (lastServiceAreaMessage != null) return 'Unavailable area · $lastServiceAreaMessage';
+    final area = _serviceAreaForPin(partnerAreaCode);
+    if (area == null) return 'Alteo checks your service area automatically using GPS.';
+    final locality = (area['locality']?.toString() ?? '').trim();
+    final district = (area['district']?.toString() ?? '').trim();
+    return 'Detected area · ${[locality, district].where((v) => v.isNotEmpty).join(' · ')}'.replaceAll(RegExp(r' · $'), '');
+  }
+
+  Future<String?> _resolveDriverServicePin(double latitude, double longitude) async {
+    if (mapboxPublicToken.trim().isEmpty) {
+      lastServiceAreaMessage = 'Mapbox location verification is not configured';
+      return null;
+    }
+    if (partnerServiceAreas.isEmpty) {
+      lastServiceAreaMessage = 'Admin has not activated any service areas';
+      return null;
+    }
+    final uri = Uri.https(
+      'api.mapbox.com',
+      '/geocoding/v5/mapbox.places/$longitude,$latitude.json',
+      {
+        'types': 'postcode,place,locality,neighborhood',
+        'country': 'IN',
+        'limit': '6',
+        'access_token': mapboxPublicToken.trim(),
+      },
+    );
     try {
-      await client.rpc('partner_set_availability', params: {
-        'p_role': requiredRole, 'p_area_code': pin, 'p_is_online': false,
-        'p_latitude': lastLatitude, 'p_longitude': lastLongitude,
-      }).timeout(const Duration(seconds: 12));
-      _stopLocationUpdates();
-      if (mounted) setState(() { partnerAreaCode = pin; partnerOnline = false; });
-      notice('Service PIN saved. Go online when you are ready for work.');
-    } catch (_) {
-      notice('Could not save that PIN. Confirm it is active in Admin > Service Areas.');
+      final response = await http.get(uri).timeout(const Duration(seconds: 12));
+      if (response.statusCode != 200) {
+        lastServiceAreaMessage = 'Could not verify this location with the map service';
+        return null;
+      }
+      final decoded = jsonDecode(response.body);
+      if (decoded is! Map) {
+        lastServiceAreaMessage = 'Location response was invalid';
+        return null;
+      }
+      final features = decoded['features'];
+      if (features is! List) {
+        lastServiceAreaMessage = 'No service area could be identified from GPS';
+        return null;
+      }
+      final pinPattern = RegExp(r'\b[1-9][0-9]{5}\b');
+      for (final raw in features) {
+        if (raw is! Map) continue;
+        final feature = Map<String, dynamic>.from(raw);
+        final placeName = (feature['place_name']?.toString() ?? feature['text']?.toString() ?? '').trim();
+        final candidates = <String>{};
+        final context = feature['context'];
+        if (context is List) {
+          for (final entry in context) {
+            if (entry is Map && (entry['id']?.toString() ?? '').startsWith('postcode.')) {
+              final candidate = (entry['text']?.toString() ?? '').trim();
+              if (pinPattern.hasMatch(candidate)) candidates.add(pinPattern.firstMatch(candidate)!.group(0)!);
+            }
+          }
+        }
+        final featureText = (feature['text']?.toString() ?? '').trim();
+        if (pinPattern.hasMatch(featureText)) candidates.add(pinPattern.firstMatch(featureText)!.group(0)!);
+        for (final match in pinPattern.allMatches(placeName)) {
+          candidates.add(match.group(0)!);
+        }
+        for (final pin in candidates) {
+          if (_serviceAreaForPin(pin) == null) continue;
+          final serviceable = await client.rpc('is_serviceable_location', params: {
+            'p_pincode': pin,
+            'p_location_text': placeName.isEmpty ? featureText : placeName,
+          }).timeout(const Duration(seconds: 8));
+          if (serviceable == true) {
+            lastServiceAreaMessage = null;
+            return pin;
+          }
+        }
+      }
+      lastServiceAreaMessage = 'Your current location is outside Alteo serviceable areas';
+      return null;
+    } catch (e) {
+      debugPrint('Driver service-area lookup failed (${e.runtimeType}).');
+      lastServiceAreaMessage = 'Location verification is temporarily unavailable';
+      return null;
     }
   }
 
@@ -605,35 +686,57 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     final next = !partnerOnline;
     double? latitude;
     double? longitude;
-    if (next && (partnerAreaCode == null ||
-        !partnerServiceAreas.any((a) => a['pincode']?.toString() == partnerAreaCode))) {
-      notice('Choose an active service PIN before going online.');
-      return;
-    }
+    String? resolvedAreaCode = partnerAreaCode;
     try {
       if (next) {
         if (!await Geolocator.isLocationServiceEnabled()) {
-          notice('Turn on Location to go online and receive nearby assignments.');
+          notice('Turn on Location to check whether rides are available here.');
           return;
         }
         var permission = await Geolocator.checkPermission();
         if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
         if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-          notice('Allow location access to go online.');
+          notice('Allow location access to check your service area and go online.');
           return;
         }
         final pos = await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 15)),
         );
         latitude = pos.latitude;
         longitude = pos.longitude;
+        if (requiredRole == 'driver_partner') {
+          resolvedAreaCode = await _resolveDriverServicePin(latitude, longitude);
+          if (resolvedAreaCode == null) {
+            if (mounted) setState(() {
+              partnerOnline = false;
+              lastLatitude = latitude;
+              lastLongitude = longitude;
+              lastLocationAt = DateTime.now();
+            });
+            notice('Unavailable area. Rides cannot be accepted from your current location. Move into an Alteo service area and refresh GPS.');
+            return;
+          }
+        } else if (resolvedAreaCode == null ||
+            !partnerServiceAreas.any((a) => a['pincode']?.toString() == resolvedAreaCode)) {
+          notice('Choose an active service PIN before going online.');
+          return;
+        }
       }
       await client.rpc('partner_set_availability', params: {
-        'p_role': requiredRole, 'p_area_code': partnerAreaCode ?? 'DEFAULT',
-        'p_is_online': next, 'p_latitude': latitude, 'p_longitude': longitude,
+        'p_role': requiredRole,
+        'p_area_code': resolvedAreaCode ?? 'DEFAULT',
+        'p_is_online': next,
+        'p_latitude': latitude,
+        'p_longitude': longitude,
       }).timeout(const Duration(seconds: 12));
       if (mounted) setState(() {
         partnerOnline = next;
+        if (requiredRole == 'driver_partner') {
+          partnerAreaCode = next ? resolvedAreaCode : partnerAreaCode;
+          lastServiceAreaCheckAt = next ? DateTime.now() : lastServiceAreaCheckAt;
+          lastServiceAreaCheckLatitude = next ? latitude : lastServiceAreaCheckLatitude;
+          lastServiceAreaCheckLongitude = next ? longitude : lastServiceAreaCheckLongitude;
+        }
         if (latitude != null && longitude != null) {
           lastLatitude = latitude;
           lastLongitude = longitude;
@@ -642,18 +745,35 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       });
       if (next) {
         _startLocationUpdates();
-        unawaited(_shareCurrentLocation(showNotice: false));
+        unawaited(_shareCurrentLocation(showNotice: false, forceAreaCheck: true));
       } else {
         _stopLocationUpdates();
       }
-      notice(next ? 'You are online in PIN ' + (partnerAreaCode ?? '') + '.' : 'You are offline. Location sharing has stopped.');
-    } catch (_) {
-      notice('Availability could not be updated. Check your service PIN and location permission.');
+      notice(next
+        ? (requiredRole == 'driver_partner'
+          ? 'You are online. Alteo has verified your current service area.'
+          : 'You are online in PIN ' + (resolvedAreaCode ?? '') + '.')
+        : 'You are offline. Location sharing has stopped.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      debugPrint('Partner availability update failed: $detail');
+      notice(detail.toLowerCase().contains('unavailable') || detail.toLowerCase().contains('service area')
+        ? 'Unavailable area. You cannot go online or receive rides at this location.'
+        : 'Availability could not be updated. Check your GPS and account access, then retry.');
     }
   }
 
   Future<void> _refreshPartnerLocation() async {
     if (refreshingLocation) return;
+    if (requiredRole == 'driver_partner' && partnerOnline) {
+      setState(() => refreshingLocation = true);
+      try {
+        await _shareCurrentLocation(showNotice: true, forceAreaCheck: true);
+      } finally {
+        if (mounted) setState(() => refreshingLocation = false);
+      }
+      return;
+    }
     setState(() => refreshingLocation = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
@@ -667,8 +787,25 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         return;
       }
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
+        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: const Duration(seconds: 12)),
       );
+      if (requiredRole == 'driver_partner') {
+        final pin = await _resolveDriverServicePin(pos.latitude, pos.longitude);
+        if (!mounted) return;
+        setState(() {
+          lastLatitude = pos.latitude;
+          lastLongitude = pos.longitude;
+          lastLocationAt = DateTime.now();
+          partnerAreaCode = pin;
+          lastServiceAreaCheckAt = DateTime.now();
+          lastServiceAreaCheckLatitude = pos.latitude;
+          lastServiceAreaCheckLongitude = pos.longitude;
+        });
+        notice(pin == null
+          ? 'Unavailable area. Rides are not offered from this GPS location.'
+          : 'Service area verified: ${_serviceAreaForPin(pin)?['locality'] ?? pin}.');
+        return;
+      }
       if (partnerOnline) {
         await client.rpc('partner_update_location', params: {
           'p_role': requiredRole, 'p_latitude': pos.latitude, 'p_longitude': pos.longitude,
@@ -677,7 +814,8 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (!mounted) return;
       setState(() { lastLatitude = pos.latitude; lastLongitude = pos.longitude; lastLocationAt = DateTime.now(); });
       notice(partnerOnline ? 'Location refreshed and shared.' : 'Location refreshed. Go online to share it with dispatch.');
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Partner location refresh failed (${e.runtimeType}).');
       notice('Could not refresh location. Check GPS and app permissions.');
     } finally {
       if (mounted) setState(() => refreshingLocation = false);
@@ -687,9 +825,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   Future<void> _openCurrentLocationMap() async {
     final target = lastLatitude != null && lastLongitude != null
       ? lastLatitude.toString() + ',' + lastLongitude.toString()
-      : (partnerAreaCode ?? '');
+      : '';
     if (target.isEmpty) {
-      notice('Refresh your current location or choose a service PIN first.');
+      notice('Refresh your current GPS location before opening the map.');
       return;
     }
     final uri = Uri.https('www.google.com', '/maps/search/', {'api': '1', 'query': target});
@@ -709,6 +847,53 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     return 'GPS ' + lastLatitude!.toStringAsFixed(5) + ', ' + lastLongitude!.toStringAsFixed(5) + time;
   }
 
+  Widget _driverServiceAreaCard() => Card(
+    elevation: 0,
+    color: Colors.white,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFE3E9E5))),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          const CircleAvatar(backgroundColor: Color(0xFFE1F2E9), child: Icon(Icons.radar_rounded, color: Color(0xFF176B57))),
+          const SizedBox(width: 10),
+          const Expanded(child: Text('Automatic service-area detection', style: TextStyle(fontWeight: FontWeight.w900))),
+          Text(partnerOnline ? 'ONLINE' : 'OFFLINE', style: TextStyle(fontWeight: FontWeight.w900, color: partnerOnline ? const Color(0xFF176B57) : const Color(0xFF68736D))),
+        ]),
+        const SizedBox(height: 10),
+        Text(_driverAreaLabel(), style: const TextStyle(height: 1.4, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 5),
+        const Text('No PIN selection is needed. Alteo checks your live GPS against the active service areas configured by Admin. Rides are offered only inside those areas.',
+          style: TextStyle(color: Color(0xFF68736D), height: 1.4, fontSize: 12)),
+        if (partnerServiceAreas.isEmpty) ...[
+          const SizedBox(height: 8),
+          const Text('No active service areas are configured yet. Contact Admin before going online.',
+            style: TextStyle(color: Color(0xFFB3261E), fontWeight: FontWeight.w700)),
+        ],
+        const SizedBox(height: 12),
+        Row(children: [
+          Expanded(child: OutlinedButton.icon(
+            onPressed: refreshingLocation ? null : _refreshPartnerLocation,
+            icon: refreshingLocation ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.my_location_rounded),
+            label: const Text('Check GPS area'),
+          )),
+          const SizedBox(width: 8),
+          Expanded(child: FilledButton.icon(
+            onPressed: _setAvailability,
+            icon: Icon(partnerOnline ? Icons.toggle_off_rounded : Icons.toggle_on_rounded),
+            label: Text(partnerOnline ? 'Go offline' : 'Go online'),
+          )),
+        ]),
+        const SizedBox(height: 6),
+        Align(alignment: Alignment.centerLeft, child: TextButton.icon(
+          onPressed: _openCurrentLocationMap,
+          icon: const Icon(Icons.map_outlined),
+          label: const Text('Open current location'),
+        )),
+      ]),
+    ),
+  );
+
   Widget _partnerHomePage() => Scaffold(
     appBar: _appBar(requiredRole == 'driver_partner' ? 'Driver home' : 'Delivery home'),
     body: ListView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 28), children: [
@@ -719,15 +904,18 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         : 'Manage your current location, service PIN and delivery availability.',
         style: const TextStyle(color: Color(0xFF68736D), height: 1.45)),
       const SizedBox(height: 16),
-      AlteoServiceAreaLocationCard(
-        role: requiredRole, selectedPin: partnerAreaCode, activeAreas: partnerServiceAreas,
-        isOnline: partnerOnline, locationSummary: _partnerLocationSummary(),
-        isRefreshingLocation: refreshingLocation,
-        onAreaChanged: (pin) { if (pin != null) _savePartnerArea(pin); },
-        onRefreshLocation: _refreshPartnerLocation,
-        onToggleAvailability: _setAvailability,
-        onOpenMap: _openCurrentLocationMap,
-      ),
+      if (requiredRole == 'driver_partner')
+        _driverServiceAreaCard()
+      else
+        AlteoServiceAreaLocationCard(
+          role: requiredRole, selectedPin: partnerAreaCode, activeAreas: partnerServiceAreas,
+          isOnline: partnerOnline, locationSummary: _partnerLocationSummary(),
+          isRefreshingLocation: refreshingLocation,
+          onAreaChanged: (pin) { if (pin != null) _savePartnerArea(pin); },
+          onRefreshLocation: _refreshPartnerLocation,
+          onToggleAvailability: _setAvailability,
+          onOpenMap: _openCurrentLocationMap,
+        ),
       Card(elevation: 0, child: ListTile(
         leading: CircleAvatar(backgroundColor: const Color(0xFFE1F2E9),
           child: Icon(requiredRole == 'driver_partner' ? Icons.directions_car_filled_rounded : Icons.local_shipping_rounded, color: const Color(0xFF176B57))),
@@ -758,7 +946,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     locationUpdateTimer = null;
   }
 
-  Future<void> _shareCurrentLocation({bool showNotice = true}) async {
+  Future<void> _shareCurrentLocation({bool showNotice = true, bool forceAreaCheck = false}) async {
     if (locationUpdateInFlight || !partnerOnline || user == null) return;
     locationUpdateInFlight = true;
     try {
@@ -775,6 +963,77 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(accuracy: LocationAccuracy.high, timeLimit: Duration(seconds: 12)),
       );
+
+      if (requiredRole == 'driver_partner') {
+        final now = DateTime.now();
+        final movedMeters = lastServiceAreaCheckLatitude == null || lastServiceAreaCheckLongitude == null
+          ? double.infinity
+          : Geolocator.distanceBetween(
+              lastServiceAreaCheckLatitude!, lastServiceAreaCheckLongitude!,
+              position.latitude, position.longitude,
+            );
+        final shouldCheckArea = forceAreaCheck ||
+          lastServiceAreaCheckAt == null ||
+          now.difference(lastServiceAreaCheckAt!) >= const Duration(minutes: 2) ||
+          movedMeters >= 600;
+        var areaCode = partnerAreaCode;
+        if (shouldCheckArea) {
+          areaCode = await _resolveDriverServicePin(position.latitude, position.longitude);
+          if (areaCode == null) {
+            await client.rpc('partner_set_availability', params: {
+              'p_role': requiredRole,
+              'p_area_code': partnerAreaCode ?? 'DEFAULT',
+              'p_is_online': false,
+              'p_latitude': position.latitude,
+              'p_longitude': position.longitude,
+            }).timeout(const Duration(seconds: 10));
+            if (!mounted) return;
+            setState(() {
+              partnerOnline = false;
+              partnerAreaCode = null;
+              lastLatitude = position.latitude;
+              lastLongitude = position.longitude;
+              lastLocationAt = now;
+              lastServiceAreaCheckAt = now;
+              lastServiceAreaCheckLatitude = position.latitude;
+              lastServiceAreaCheckLongitude = position.longitude;
+            });
+            _stopLocationUpdates();
+            notice('You entered an unavailable area. Alteo has taken you offline; rides are not available here.');
+            return;
+          }
+        }
+        if (shouldCheckArea && areaCode != partnerAreaCode) {
+          await client.rpc('partner_set_availability', params: {
+            'p_role': requiredRole,
+            'p_area_code': areaCode,
+            'p_is_online': true,
+            'p_latitude': position.latitude,
+            'p_longitude': position.longitude,
+          }).timeout(const Duration(seconds: 10));
+        } else {
+          await client.rpc('partner_update_location', params: {
+            'p_role': requiredRole,
+            'p_latitude': position.latitude,
+            'p_longitude': position.longitude,
+          }).timeout(const Duration(seconds: 10));
+        }
+        if (mounted) setState(() {
+          partnerAreaCode = areaCode;
+          lastLatitude = position.latitude;
+          lastLongitude = position.longitude;
+          lastLocationAt = now;
+          if (shouldCheckArea) {
+            lastServiceAreaCheckAt = now;
+            lastServiceAreaCheckLatitude = position.latitude;
+            lastServiceAreaCheckLongitude = position.longitude;
+            lastServiceAreaMessage = null;
+          }
+        });
+        if (showNotice) notice('GPS location shared. Your service area is verified automatically.');
+        return;
+      }
+
       await client.rpc('partner_update_location', params: {
         'p_role': requiredRole,
         'p_latitude': position.latitude,
@@ -1355,44 +1614,30 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                     style: const TextStyle(color: Colors.white, height: 1.45),
                   ),
                   const SizedBox(height: 12),
-                  Text(partnerAreaCode == null ? 'No service PIN selected' : 'Service PIN · $partnerAreaCode',
+                  Text(_driverAreaLabel(),
                     style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w700)),
                 ]),
               ),
               const SizedBox(height: 14),
               Card(
                 elevation: 0,
-                color: Colors.white,
+                color: const Color(0xFFF2F7F4),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: const BorderSide(color: Color(0xFFE3E9E5))),
                 child: Padding(
                   padding: const EdgeInsets.all(14),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Operating area', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+                    const Text('Service availability', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
                     const SizedBox(height: 7),
-                    if (partnerServiceAreas.isEmpty)
-                      const Text('No active service PINs are configured. Contact Admin before going online.',
-                        style: TextStyle(color: Color(0xFF68736D), height: 1.4))
-                    else
-                      DropdownButtonFormField<String>(
-                        value: partnerServiceAreas.any((area) => area['pincode']?.toString() == partnerAreaCode)
-                            ? partnerAreaCode : null,
-                        isExpanded: true,
-                        decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Service PIN code'),
-                        items: partnerServiceAreas.map((area) {
-                          final pin = area['pincode']?.toString() ?? '';
-                          final locality = area['locality']?.toString().trim() ?? '';
-                          final district = area['district']?.toString().trim() ?? '';
-                          return DropdownMenuItem<String>(
-                            value: pin,
-                            child: Text([pin, if (locality.isNotEmpty) locality, if (district.isNotEmpty) district].join(' · '),
-                              maxLines: 1, overflow: TextOverflow.ellipsis),
-                          );
-                        }).toList(),
-                        onChanged: partnerOnline ? null : (pin) { if (pin != null) unawaited(_savePartnerArea(pin)); },
-                      ),
-                    if (partnerOnline)
-                      const Padding(padding: EdgeInsets.only(top: 7), child: Text(
-                        'Go offline before changing your service area.', style: TextStyle(color: Color(0xFF68736D), fontSize: 12))),
+                    Text(_driverAreaLabel(), style: const TextStyle(height: 1.4)),
+                    const SizedBox(height: 5),
+                    const Text('GPS is checked automatically. If you move outside a serviceable area, Alteo takes you offline and stops new ride assignments.',
+                      style: TextStyle(color: Color(0xFF68736D), height: 1.4, fontSize: 12)),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: refreshingLocation ? null : _refreshPartnerLocation,
+                      icon: const Icon(Icons.my_location_rounded),
+                      label: const Text('Recheck my area'),
+                    ),
                   ]),
                 ),
               ),
@@ -1930,7 +2175,7 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
   List<MapEntry<String, String>> get _fields => switch (widget.role) {
     'seller' => const [MapEntry('shop_name','Shop / business name *'), MapEntry('business_category','Business category *'), MapEntry('gstin','GSTIN (if applicable)')],
     'dark_store' => const [MapEntry('store_name','Dark store name *'), MapEntry('operating_hours','Operating hours *'), MapEntry('facility_details','Facility details (optional)')],
-    'driver_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('driving_licence_number','Driving licence number *'), MapEntry('service_area','Service PIN code *')],
+    'driver_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('driving_licence_number','Driving licence number *')],
     'delivery_partner' => const [MapEntry('vehicle_type','Vehicle type *'), MapEntry('vehicle_registration','Vehicle registration number *'), MapEntry('service_area','Service PIN code *')],
     _ => const [],
   };
@@ -2027,7 +2272,7 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
         return;
       }
     }
-    if (widget.role == 'driver_partner' || widget.role == 'delivery_partner') {
+    if (widget.role == 'delivery_partner') {
       final pin = _extra['service_area']?.text.trim() ?? '';
       if (!RegExp(r'^[1-9][0-9]{5}$').hasMatch(pin) ||
           !_serviceAreas.any((area) => area['pincode']?.toString() == pin)) {
@@ -2169,8 +2414,7 @@ class _PartnerOnboardingPageState extends State<PartnerOnboardingPage> {
       TextFormField(controller: _address, maxLines: 2, decoration: const InputDecoration(labelText: 'Address *', border: OutlineInputBorder()), validator: (v) => (v == null || v.trim().length < 5) ? 'Enter your complete address' : null),
       const SizedBox(height: 12),
       for (final f in _fields) ...[
-        if (f.key == 'service_area' &&
-            (widget.role == 'driver_partner' || widget.role == 'delivery_partner')) ...[
+        if (f.key == 'service_area' && widget.role == 'delivery_partner') ...[
           if (_loadingServiceAreas)
             const LinearProgressIndicator()
           else
