@@ -2483,7 +2483,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           final orders = snapshot.data!;
           return TabBarView(children: [
             _adminOrderList(orders),
-            _adminOrderList(orders, statuses: const {'cod_pending', 'paid'}),
+            _adminOrderList(orders, statuses: const {'pending_payment', 'cod_pending', 'paid'}),
             _adminOrderList(orders, statuses: const {'accepted', 'preparing'}),
             _adminOrderList(orders, statuses: const {'ready_for_pickup'}),
             _adminOrderList(orders, statuses: const {'out_for_delivery'}),
