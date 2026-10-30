@@ -23,10 +23,53 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
   Future<List<Map<String, dynamic>>> _loadItems() async {
     final rows = await Supabase.instance.client
         .from('order_items')
-        .select('id,product_name_snapshot,quantity,unit_price_minor,line_total_minor,status')
+        .select('id,product_id,product_name_snapshot,quantity,unit_price_minor,line_total_minor,status')
         .eq('order_id', widget.order['id'])
         .order('created_at');
-    return List<Map<String, dynamic>>.from(rows as List);
+    final items = List<Map<String, dynamic>>.from(rows as List);
+    final productIds = items
+        .map((item) => item['product_id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (productIds.isNotEmpty) {
+      try {
+        final products = await Supabase.instance.client
+            .from('seller_products')
+            .select('id,image_url')
+            .inFilter('id', productIds);
+        final urls = <String, String>{
+          for (final product in (products as List).map((row) => Map<String, dynamic>.from(row as Map)))
+            product['id'].toString(): (product['image_url'] ?? '').toString(),
+        };
+        for (final item in items) {
+          item['image_url'] = urls[item['product_id']?.toString()] ?? '';
+        }
+      } catch (_) {}
+    }
+    return items;
+  }
+
+  Widget _thumbnail(String url) {
+    if (!url.startsWith('https://')) {
+      return const CircleAvatar(
+        backgroundColor: Color(0xFFE3F2E9),
+        child: Icon(Icons.inventory_2_outlined, color: Color(0xFF176B57)),
+      );
+    }
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.network(
+        url,
+        width: 54,
+        height: 54,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => const CircleAvatar(
+          backgroundColor: Color(0xFFE3F2E9),
+          child: Icon(Icons.inventory_2_outlined, color: Color(0xFF176B57)),
+        ),
+      ),
+    );
   }
 
   Future<void> _cancelItem(Map<String, dynamic> item) async {
@@ -122,6 +165,7 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
                 return Column(children: [
                   for (final item in snapshot.data!) ...[
                     ListTile(
+                      leading: _thumbnail(item['image_url']?.toString() ?? ''),
                       title: Text(
                         item['product_name_snapshot']?.toString() ?? 'Item',
                         style: TextStyle(
