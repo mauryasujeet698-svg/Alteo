@@ -22,7 +22,10 @@ class CustomerLiveTrackingPage extends StatefulWidget {
 }
 
 class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
+  final MapController _mapController = MapController();
   Timer? _poller;
+  bool _mapReady = false;
+  String? _lastCameraFitKey;
   Map<String, dynamic>? _snapshot;
   String? _error;
   bool _loading = true;
@@ -49,7 +52,54 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
   @override
   void dispose() {
     _poller?.cancel();
+    _mapController.dispose();
     super.dispose();
+  }
+
+  void _fitTrackingCamera(Map<String, dynamic> data) {
+    final points = <LatLng>[];
+    void add(double? latitude, double? longitude) {
+      if (latitude == null || longitude == null) return;
+      final point = LatLng(latitude, longitude);
+      if (!points.any((p) => (p.latitude - point.latitude).abs() < 0.00001 && (p.longitude - point.longitude).abs() < 0.00001)) {
+        points.add(point);
+      }
+    }
+
+    add((data['partner_latitude'] as num?)?.toDouble(), (data['partner_longitude'] as num?)?.toDouble());
+    add((data['pickup_latitude'] as num?)?.toDouble(), (data['pickup_longitude'] as num?)?.toDouble());
+    add((data['destination_latitude'] as num?)?.toDouble(), (data['destination_longitude'] as num?)?.toDouble());
+    if (_routePoints.length >= 2) {
+      add(_routePoints.first.latitude, _routePoints.first.longitude);
+      add(_routePoints.last.latitude, _routePoints.last.longitude);
+    }
+    if (points.isEmpty) return;
+
+    final fitKey = [
+      data['status']?.toString() ?? '',
+      data['next_stop']?.toString() ?? '',
+      ...points.map((p) => '${p.latitude.toStringAsFixed(3)},${p.longitude.toStringAsFixed(3)}'),
+    ].join('|');
+    if (_lastCameraFitKey == fitKey) return;
+    _lastCameraFitKey = fitKey;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_mapReady) return;
+      try {
+        if (points.length >= 2) {
+          _mapController.fitCamera(CameraFit.coordinates(
+            coordinates: points,
+            padding: const EdgeInsets.fromLTRB(44, 48, 44, 56),
+            maxZoom: 16,
+            minZoom: 4.5,
+          ));
+        } else {
+          _mapController.move(points.first, 15);
+        }
+      } catch (_) {
+        // Keep the current camera; the next location/route update can retry.
+      }
+    });
   }
 
   double? _number(String key) => (_snapshot?[key] as num?)?.toDouble();
@@ -85,6 +135,7 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
         _loading = false;
         _error = null;
       });
+      _fitTrackingCamera(result);
       await _maybeLoadRoadRoute(result);
     } catch (e) {
       if (!mounted) return;
@@ -153,6 +204,8 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
           _routeDistanceMeters = null;
           _routeIsPartnerToStop = hasLivePartnerLocation;
         });
+        _lastCameraFitKey = null;
+        _fitTrackingCamera(data);
         return;
       }
       setState(() {
@@ -161,6 +214,8 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
         _routeDistanceMeters = route.distanceMeters;
         _routeIsPartnerToStop = hasLivePartnerLocation;
       });
+      _lastCameraFitKey = null;
+      _fitTrackingCamera(data);
     } finally {
       _routeInFlight = false;
     }
@@ -296,7 +351,17 @@ class _CustomerLiveTrackingPageState extends State<CustomerLiveTrackingPage> {
             child: SizedBox(
               height: 320,
               child: FlutterMap(
-                options: MapOptions(initialCenter: focus, initialZoom: locationAvailable ? 14 : pickupLat == null ? 4.4 : 12.5),
+                mapController: _mapController,
+                options: MapOptions(
+                  initialCenter: focus,
+                  initialZoom: locationAvailable ? 14 : pickupLat == null ? 4.4 : 12.5,
+                  onMapReady: () {
+                    _mapReady = true;
+                    _lastCameraFitKey = null;
+                    final latest = _snapshot;
+                    if (latest != null) _fitTrackingCamera(latest);
+                  },
+                ),
                 children: [
                   TileLayer(
                     urlTemplate: tileUrl,
