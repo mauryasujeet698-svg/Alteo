@@ -1197,21 +1197,78 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       if (store['status'] != 'active') return _empty('Store not active', 'Your store status is ' + (store['status']?.toString() ?? 'pending') + '. Admin activation is required before stock changes.');
       final storeId = store['id'] as String;
       return ListView(padding: const EdgeInsets.all(16), children: [
-        Text(store['name']?.toString() ?? 'Your dark store', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-        const SizedBox(height: 10),
+        Row(children: [
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(store['name']?.toString() ?? 'Your dark store', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            const Text('Submit non-food essentials for Admin approval. Approved items join the Alteo catalogue.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+          ])),
+          const SizedBox(width: 8),
+          FilledButton.icon(
+            onPressed: () => _submitStoreProduct(storeId),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add item'),
+          ),
+        ]),
+        const SizedBox(height: 18),
+        const Text('My product submissions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        StreamBuilder<List<Map<String, dynamic>>>(
+          stream: client.from('dark_store_product_submissions').stream(primaryKey: ['id']).eq('store_id', storeId).order('created_at', ascending: false),
+          builder: (context, submissions) {
+            if (submissions.hasError) return _error('Product submissions unavailable. Please refresh or check your connection.');
+            if (!submissions.hasData) return const LinearProgressIndicator();
+            if (submissions.data!.isEmpty) return _empty('No submissions yet', 'Use Add item to submit your first non-food product for review.');
+            return Column(children: submissions.data!.map((submission) {
+              final status = submission['status']?.toString() ?? 'pending_review';
+              final imageUrl = submission['image_url']?.toString() ?? '';
+              final note = submission['admin_note']?.toString() ?? '';
+              final price = ((submission['price_minor'] as num?)?.toInt() ?? 0) / 100;
+              final mrp = ((submission['mrp_minor'] as num?)?.toInt() ?? 0) / 100;
+              final statusColor = status == 'approved' ? const Color(0xFF176B57)
+                : status == 'rejected' ? const Color(0xFFB3261E)
+                : status == 'needs_correction' ? const Color(0xFF8A5A16)
+                : const Color(0xFF476C9B);
+              return Card(elevation: 0, margin: const EdgeInsets.only(bottom: 10), child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(
+                    width: 70, height: 76,
+                    child: imageUrl.startsWith('https://')
+                      ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined))
+                      : const Icon(Icons.image_outlined),
+                  )),
+                  const SizedBox(width: 11),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(submission['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 3),
+                    Text('${submission['category']} · SKU ${submission['sku']}', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+                    const SizedBox(height: 3),
+                    Text('₹${price.toStringAsFixed(0)} · MRP ₹${mrp.toStringAsFixed(0)} · Stock proposed: ${submission['proposed_stock'] ?? 0}', style: const TextStyle(fontSize: 12)),
+                    const SizedBox(height: 6),
+                    Text(status.replaceAll('_', ' ').toUpperCase(), style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: statusColor)),
+                    if (note.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 4), child: Text('Admin note: $note', style: const TextStyle(fontSize: 12, color: Color(0xFF8A5A16)))),
+                    if (status == 'approved') Text('Published product ID: ${_short(submission['product_id'])}', style: const TextStyle(fontSize: 11, color: Color(0xFF176B57))),
+                  ])),
+                ]),
+              ));
+            }).toList());
+          },
+        ),
+        const SizedBox(height: 22),
         const Text('Active catalogue products', style: TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
         const SizedBox(height: 8),
         StreamBuilder<List<Map<String, dynamic>>>(
-          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('status', 'active').order('created_at', ascending: false),
+          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('status', 'active').eq('kind', 'quick').order('created_at', ascending: false),
           builder: (context, productsSnapshot) {
             if (productsSnapshot.hasError) return _error('Active products unavailable.');
             if (!productsSnapshot.hasData) return const LinearProgressIndicator();
-            if (productsSnapshot.data!.isEmpty) return _empty('No active products', 'Admin must activate products before they can be stocked.');
+            if (productsSnapshot.data!.isEmpty) return _empty('No active products', 'Admin must approve product listings before they can be stocked.');
             return Column(children: productsSnapshot.data!.take(30).map((product) => Card(
               elevation: 0,
               child: ListTile(
                 title: Text(product['name']?.toString() ?? 'Product'),
-                subtitle: Text('SKU ' + _short(product['id'])),
+                subtitle: Text('${product['category'] ?? 'Quick commerce'} · SKU ${product['sku'] ?? _short(product['id'])}'),
                 trailing: IconButton(
                   tooltip: 'Add or update stock',
                   icon: const Icon(Icons.add_box_outlined),
@@ -1229,7 +1286,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           builder: (context, s) {
             if (s.hasError) return _error('Inventory unavailable. Check dark-store RLS policies.');
             if (!s.hasData) return const LinearProgressIndicator();
-            if (s.data!.isEmpty) return _empty('No inventory records', 'Add stock records after products are activated in the public catalogue.');
+            if (s.data!.isEmpty) return _empty('No inventory records', 'Set stock for an approved product to make it available to customers.');
             return Column(children: s.data!.map((item) {
               final product = item['seller_products'] as Map? ?? {};
               final pinMode = item['availability_mode']?.toString() ?? 'all';
@@ -1247,6 +1304,161 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ]);
     }),
   );
+
+  Future<String> _uploadStoreSubmissionImage(XFile file) async {
+    final extension = file.name.contains('.') ? file.name.split('.').last.toLowerCase() : 'jpg';
+    const allowed = {'jpg','jpeg','png','webp','gif'};
+    if (!allowed.contains(extension)) throw StateError('Choose a JPG, PNG, WEBP or GIF image.');
+    final bytes = await file.readAsBytes();
+    if (bytes.isEmpty || bytes.length > 5 * 1024 * 1024) throw StateError('Choose an image no larger than 5 MB.');
+    final contentType = switch (extension) {
+      'png' => 'image/png',
+      'webp' => 'image/webp',
+      'gif' => 'image/gif',
+      _ => 'image/jpeg',
+    };
+    final safeExtension = extension == 'jpeg' ? 'jpg' : extension;
+    final path = 'items/${user!.id}/${DateTime.now().toUtc().microsecondsSinceEpoch}.$safeExtension';
+    await client.storage.from('app-media').uploadBinary(
+      path, bytes, fileOptions: FileOptions(contentType: contentType, upsert: false),
+    );
+    return client.storage.from('app-media').getPublicUrl(path);
+  }
+
+  Future<void> _submitStoreProduct(String storeId) async {
+    final name = TextEditingController();
+    final sku = TextEditingController();
+    final brand = TextEditingController();
+    final subcategory = TextEditingController();
+    final description = TextEditingController();
+    final price = TextEditingController();
+    final mrp = TextEditingController();
+    final unit = TextEditingController();
+    final quantity = TextEditingController(text: '0');
+    final imageUrl = TextEditingController();
+    const categories = ['Personal Care','Home Cleaning','Stationery','Electronics Accessories','Kitchen & Home'];
+    var category = categories.first;
+    var availabilityMode = 'specific';
+    var availablePincodes = <String>['230502'];
+    XFile? selectedImage;
+    var uploading = false;
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Submit product for approval'),
+            content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: name, maxLength: 180, decoration: const InputDecoration(labelText: 'Product name *')),
+                const SizedBox(height: 8),
+                TextField(controller: sku, maxLength: 64, decoration: const InputDecoration(labelText: 'SKU *')),
+                const SizedBox(height: 8),
+                DropdownButtonFormField<String>(
+                  value: category,
+                  decoration: const InputDecoration(labelText: 'Non-food category *'),
+                  items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                  onChanged: (v) { if (v != null) setDialogState(() => category = v); },
+                ),
+                const SizedBox(height: 8),
+                TextField(controller: subcategory, decoration: const InputDecoration(labelText: 'Subcategory')),
+                const SizedBox(height: 8),
+                TextField(controller: brand, decoration: const InputDecoration(labelText: 'Brand (optional)')),
+                const SizedBox(height: 8),
+                TextField(controller: description, maxLength: 4000, maxLines: 4, decoration: const InputDecoration(labelText: 'Description *')),
+                const SizedBox(height: 8),
+                TextField(controller: unit, decoration: const InputDecoration(labelText: 'Unit / pack size *')),
+                const SizedBox(height: 8),
+                TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Selling price (₹) *')),
+                const SizedBox(height: 8),
+                TextField(controller: mrp, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'MRP (₹) *')),
+                const SizedBox(height: 8),
+                TextField(controller: quantity, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Proposed stock quantity *')),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: uploading ? null : () async {
+                    try {
+                      final picked = await ImagePicker().pickImage(source: ImageSource.gallery, imageQuality: 86, maxWidth: 1800);
+                      if (picked == null) return;
+                      setDialogState(() => uploading = true);
+                      final url = await _uploadStoreSubmissionImage(picked);
+                      selectedImage = picked;
+                      setDialogState(() => imageUrl.text = url);
+                    } catch (e) {
+                      notice('Image upload failed: $e');
+                    } finally {
+                      if (context.mounted) setDialogState(() => uploading = false);
+                    }
+                  },
+                  icon: uploading ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.photo_library_outlined),
+                  label: Text(uploading ? 'Uploading…' : selectedImage == null ? 'Upload product image *' : 'Image uploaded'),
+                ),
+                if (imageUrl.text.startsWith('https://')) Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(imageUrl.text, height: 120, width: double.infinity, fit: BoxFit.cover)),
+                ),
+                const SizedBox(height: 10),
+                AlteoPincodeCoverageSelector(
+                  initialMode: availabilityMode,
+                  initialPincodes: availablePincodes,
+                  allowAllPincodes: true,
+                  onChanged: (mode, pins) { availabilityMode = mode; availablePincodes = pins; },
+                ),
+                const SizedBox(height: 8),
+                const Text('This listing stays hidden from customers until an Admin approves it.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+              ],
+            ))),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: uploading ? null : () => Navigator.pop(dialogContext, true), child: const Text('Submit for review')),
+            ],
+          ),
+        ),
+      );
+      if (saved != true) return;
+      final amount = double.tryParse(price.text.trim());
+      final listAmount = double.tryParse(mrp.text.trim());
+      final stock = int.tryParse(quantity.text.trim());
+      final code = sku.text.trim().isEmpty ? 'ALT-DS-${DateTime.now().microsecondsSinceEpoch}' : sku.text.trim();
+      if (name.text.trim().length < 2 || description.text.trim().length < 10 || unit.text.trim().isEmpty ||
+          amount == null || amount <= 0 || listAmount == null || listAmount < amount || stock == null || stock < 0) {
+        notice('Check product name, description, unit, price, MRP and stock quantity.');
+        return;
+      }
+      if (imageUrl.text.trim().isEmpty) { notice('A product image is required.'); return; }
+      if (availabilityMode == 'specific' && availablePincodes.isEmpty) {
+        notice('Select at least one PIN code or choose all PIN codes.');
+        return;
+      }
+      await client.from('dark_store_product_submissions').insert({
+        'store_id': storeId,
+        'submitted_by': user!.id,
+        'sku': code,
+        'name': name.text.trim(),
+        'category': category,
+        'subcategory': subcategory.text.trim().isEmpty ? null : subcategory.text.trim(),
+        'brand': brand.text.trim().isEmpty ? null : brand.text.trim(),
+        'description': description.text.trim(),
+        'kind': 'quick',
+        'price_minor': (amount * 100).round(),
+        'mrp_minor': (listAmount * 100).round(),
+        'unit_label': unit.text.trim(),
+        'image_url': imageUrl.text.trim(),
+        'proposed_stock': stock,
+        'availability_mode': availabilityMode,
+        'available_pincodes': availablePincodes,
+        'status': 'pending_review',
+      });
+      notice('Product submitted. It will appear to customers only after Admin approval and stock is available.');
+    } catch (e) {
+      debugPrint('Dark-store product submission failed: $e');
+      notice('Could not submit the product: $e');
+    } finally {
+      name.dispose(); sku.dispose(); brand.dispose(); subcategory.dispose(); description.dispose();
+      price.dispose(); mrp.dispose(); unit.dispose(); quantity.dispose(); imageUrl.dispose();
+    }
+  }
 
   Future<void> _setStoreStock(String storeId, String productId, String name, int current, [Map<String, dynamic>? existing]) async {
     Map<String, dynamic>? saved = existing;
