@@ -14,10 +14,17 @@ class CustomerBanner {
 }
 
 class CustomerProduct {
-  const CustomerProduct(this.id, this.name, this.description, this.priceMinor, this.imageUrl, this.kind);
+  const CustomerProduct(
+    this.id, this.name, this.description, this.priceMinor, this.imageUrl, this.kind, {
+    this.category = '', this.subcategory = '', this.brand = '', this.sku = '',
+    this.mrpMinor, this.unitLabel = '',
+  });
   final String id, name, description, imageUrl, kind;
+  final String category, subcategory, brand, sku, unitLabel;
   final int priceMinor;
+  final int? mrpMinor;
   String get priceLabel => '₹${(priceMinor / 100).toStringAsFixed(0)}';
+  String? get mrpLabel => mrpMinor == null ? null : '₹${(mrpMinor! / 100).toStringAsFixed(0)}';
 
   factory CustomerProduct.fromMap(Map<String, dynamic> m) => CustomerProduct(
     m['id'] as String,
@@ -26,6 +33,12 @@ class CustomerProduct {
     (m['price_minor'] as num?)?.toInt() ?? 0,
     (m['image_url'] as String?) ?? '',
     (m['kind'] as String?) ?? 'shopping',
+    category: (m['category'] as String?) ?? '',
+    subcategory: (m['subcategory'] as String?) ?? '',
+    brand: (m['brand'] as String?) ?? '',
+    sku: (m['sku'] as String?) ?? '',
+    mrpMinor: (m['mrp_minor'] as num?)?.toInt(),
+    unitLabel: (m['unit_label'] as String?) ?? '',
   );
 }
 
@@ -87,7 +100,7 @@ class CustomerContentService {
     final inventory = await _loadQuickInventoryAvailability(pin);
 
     var query = client.from('seller_products')
-        .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
+        .select('id,name,description,price_minor,image_url,kind,category,subcategory,brand,sku,mrp_minor,unit_label,availability_mode,available_pincodes')
         .eq('status', 'active')
         .not('image_url', 'is', null)
         .neq('image_url', '');
