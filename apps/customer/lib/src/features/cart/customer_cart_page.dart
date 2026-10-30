@@ -52,7 +52,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
  Future<void> checkout() async {
   final userAtStart = Supabase.instance.client.auth.currentUser;
   final recipient = TextEditingController(text: userAtStart?.userMetadata?['full_name']?.toString() ?? '');
-  final phone = TextEditingController(text: userAtStart?.phone ?? '');
+  final phone = TextEditingController();
   final addressLine = TextEditingController();
   final city = TextEditingController();
   final stateName = TextEditingController();
@@ -65,7 +65,7 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
   String selectedPaymentMethod = 'cod';
   List<Map<String, dynamic>> savedAddresses = [];
   Map<String, dynamic>? selectedAddress;
-  Map<String, dynamic>? selectedLocation = alteoLocationSelection.value;
+  Map<String, dynamic>? selectedLocation;
   try {
    // When checkout opens, use the latest GPS address if the customer has not
    // chosen a saved or manual address. No extra tap is required.
@@ -99,57 +99,121 @@ class _CustomerCartPageState extends State<CustomerCartPage>{
      savedAddresses = (rows as List).map((row) => Map<String, dynamic>.from(row as Map)).toList();
     } catch (_) { /* Manual entry remains available if saved addresses cannot load. */ }
    }
-   if (selectedLocation?['source'] == 'saved' && selectedLocation?['id'] != null) {
-    for (final address in savedAddresses) {
-     if (address['id'].toString() == (selectedLocation?['id']?.toString() ?? '')) {
-      selectedAddress = address;
-      break;
+   final addressChoice = await showDialog<String>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+     title: const Text('Choose delivery address'),
+     content: SizedBox(
+      width: 420,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+       if (savedAddresses.isNotEmpty) ...[
+        const Align(alignment: Alignment.centerLeft, child: Text('Saved addresses', style: TextStyle(fontWeight: FontWeight.w800))),
+        const SizedBox(height: 6),
+        for (final address in savedAddresses)
+         ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.home_outlined, color: Color(0xFF176B57)),
+          title: Text((address['label'] ?? 'Saved address').toString(), style: const TextStyle(fontWeight: FontWeight.w700)),
+          subtitle: Text([
+           address['address_line1'], address['locality'], address['city'], address['postal_code'],
+          ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', '), maxLines: 2, overflow: TextOverflow.ellipsis),
+          onTap: () => Navigator.pop(dialogContext, 'saved:${address['id']}'),
+         ),
+        const Divider(),
+       ],
+       ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.my_location_rounded, color: Color(0xFF176B57)),
+        title: const Text('Use current location', style: TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: const Text('Automatically fill your address details'),
+        onTap: () => Navigator.pop(dialogContext, 'current'),
+       ),
+       ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.add_location_alt_outlined, color: Color(0xFF176B57)),
+        title: const Text('Add a new address', style: TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: const Text('Enter a different delivery address'),
+        onTap: () => Navigator.pop(dialogContext, 'new'),
+       ),
+      ]),
+     ),
+     actions: [TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel'))],
+    ),
+   );
+   if (addressChoice == null) return;
+   if (addressChoice.startsWith('saved:')) {
+    final id = addressChoice.substring('saved:'.length);
+    final matches = savedAddresses.where((address) => address['id'].toString() == id).toList();
+    if (matches.isEmpty) return;
+    final match = matches.first;
+    selectedAddress = match;
+    final full = [
+     match['address_line1'], match['address_line2'], match['locality'],
+     match['city'], match['state'], match['postal_code'], 'India',
+    ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+    final display = [match['locality'], match['city'], match['postal_code']]
+      .where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
+    selectedLocation = {
+     ...match,
+     'formatted_address': full,
+     'display_address': display.isNotEmpty ? display : (match['label']?.toString() ?? 'Saved address'),
+     'source': 'saved',
+    };
+    selectedLatitude = (match['latitude'] as num?)?.toDouble();
+    selectedLongitude = (match['longitude'] as num?)?.toDouble();
+    recipient.text = (match['recipient_name'] ?? recipient.text).toString();
+    addressLine.text = (match['address_line1'] ?? '').toString();
+    if (addressLine.text.trim().isEmpty) addressLine.text = full;
+    city.text = (match['city'] ?? '').toString();
+    stateName.text = (match['state'] ?? '').toString();
+    postalCode.text = (match['postal_code'] ?? '').toString();
+    phone.clear();
+    await setAlteoDeliveryLocation(selectedLocation!['display_address'].toString(), details: selectedLocation, source: 'saved');
+   } else if (addressChoice == 'current') {
+    try {
+     if (!await Geolocator.isLocationServiceEnabled()) {
+      throw StateError('Turn on Location services and try again.');
      }
+     var permission = await Geolocator.checkPermission();
+     if (permission == LocationPermission.denied) permission = await Geolocator.requestPermission();
+     if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      throw StateError('Allow location access to fill the address automatically.');
+     }
+     final live = await CustomerLocationService.currentLocationIfPermitted();
+     if (live == null) throw StateError('We could not detect your address. Please try again or add a new address.');
+     selectedLocation = live;
+     selectedAddress = null;
+     selectedLatitude = (live['latitude'] as num?)?.toDouble();
+     selectedLongitude = (live['longitude'] as num?)?.toDouble();
+     addressLine.text = [
+      live['address_line1'], live['locality'],
+     ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
+     if (addressLine.text.trim().isEmpty) addressLine.text = live['formatted_address']?.toString() ?? '';
+     city.text = live['city']?.toString() ?? '';
+     stateName.text = live['state']?.toString() ?? '';
+     postalCode.text = live['postal_code']?.toString() ?? '';
+     phone.clear();
+     final display = (live['display_address']?.toString() ?? '').trim();
+     final full = (live['formatted_address']?.toString() ?? '').trim();
+     await setAlteoDeliveryLocation(display.isNotEmpty ? display : full, details: live, source: 'current');
+    } catch (e) {
+     if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Bad state: ', ''))));
+     return;
     }
+   } else {
+    selectedAddress = null;
+    selectedLocation = null;
+    selectedLatitude = null;
+    selectedLongitude = null;
+    addressLine.clear();
+    city.clear();
+    stateName.clear();
+    postalCode.clear();
+    phone.clear();
    }
    final confirmed = await showDialog<bool>(context: context, builder: (dialogContext) => StatefulBuilder(builder: (dialogContext, setDialogState) => AlertDialog(
     title: const Text('Delivery details'),
     content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-     if (savedAddresses.isNotEmpty) DropdownButtonFormField<String>(
-      value: selectedAddress?['id']?.toString(),
-      decoration: const InputDecoration(labelText: 'Use a saved address'),
-      items: savedAddresses.map((address) => DropdownMenuItem<String>(
-       value: address['id'].toString(),
-       child: Text('${address['label'] ?? 'Saved address'}', overflow: TextOverflow.ellipsis),
-      )).toList(),
-      onChanged: (id) async {
-       final matches = savedAddresses.where((address) => address['id'].toString() == id).toList();
-       if (matches.isEmpty) return;
-       final match = matches.first;
-       final full = [
-        match['address_line1'], match['address_line2'], match['locality'],
-        match['city'], match['state'], match['postal_code'], 'India',
-       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(', ');
-       final display = [
-        match['locality'], match['city'], match['postal_code'],
-       ].where((part) => part != null && part.toString().trim().isNotEmpty).join(' · ');
-       final selection = <String, dynamic>{
-        ...match,
-        'formatted_address': full,
-        'display_address': display.isNotEmpty ? display : (match['label']?.toString() ?? 'Saved address'),
-        'source': 'saved',
-       };
-       selectedLocation = selection;
-       setDialogState(() {
-        selectedAddress = match;
-        selectedLatitude = (match['latitude'] as num?)?.toDouble();
-        selectedLongitude = (match['longitude'] as num?)?.toDouble();
-        recipient.text = (match['recipient_name'] ?? '').toString();
-        phone.text = (match['phone'] ?? '').toString();
-        addressLine.text = (match['address_line1'] ?? '').toString();
-        city.text = (match['city'] ?? '').toString();
-        stateName.text = (match['state'] ?? '').toString();
-        postalCode.text = (match['postal_code'] ?? '').toString();
-       });
-       final showAddress = selection['display_address'].toString();
-       await setAlteoDeliveryLocation(showAddress, details: selection, source: 'saved');
-      },
-     ),
      Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
