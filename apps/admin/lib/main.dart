@@ -2898,7 +2898,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ]),
         const SizedBox(height: 8),
         StreamBuilder<List<Map<String, dynamic>>>(
-          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).order('created_at', ascending: false),
+          stream: client.from('seller_products').stream(primaryKey: ['id']).eq('seller_id', sellerId).is('archived_at', null).order('created_at', ascending: false),
           builder: (context, s) {
             if (s.hasError) return _error('Catalogue unavailable. Check seller permissions.');
             if (!s.hasData) return const LinearProgressIndicator();
@@ -2919,6 +2919,32 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ]);
     }),
   );
+
+  Future<void> _archiveAdminSellerProduct(Map<String, dynamic> product) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove product?'),
+        content: Text('Remove "${product['name'] ?? 'this product'}" from your active catalogue? Historical orders will be retained.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep product')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove product'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await client.rpc('seller_archive_product', params: {'p_product_id': product['id']});
+      notice('Product removed from your active catalogue. Historical orders remain unchanged.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      notice('Could not remove this product: $detail');
+    }
+  }
 
   Future<void> _editSellerProduct(String sellerId, [Map<String, dynamic>? existing]) async {
     final name = TextEditingController(text: existing?['name']?.toString() ?? '');
