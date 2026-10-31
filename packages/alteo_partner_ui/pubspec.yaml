@@ -9,6 +9,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_svg: ^2.0.17
   supabase_flutter: ^2.8.0
   shared_preferences: ^2.5.3
   geolocator: ^13.0.2
