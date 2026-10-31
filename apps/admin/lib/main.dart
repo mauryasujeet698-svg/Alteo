@@ -1075,7 +1075,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             width: 68,
             height: 76,
             child: hasImage
-              ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, size: 30))
+              ? AlteoNetworkImage(url: imageUrl, fit: BoxFit.cover, fallback: const Icon(Icons.image_not_supported_outlined, size: 30))
               : Container(color: const Color(0xFFFFF4E5), child: const Icon(Icons.add_photo_alternate_outlined, color: Color(0xFF9A5C13), size: 30)),
           ),
         ),
@@ -2062,7 +2062,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               child: SizedBox(
                 width: 94, height: 100,
                 child: imageUrl.startsWith('https://')
-                  ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined, size: 34))
+                  ? AlteoNetworkImage(url: imageUrl, fit: BoxFit.cover, fallback: const Icon(Icons.image_not_supported_outlined, size: 34))
                   : const Icon(Icons.image_outlined, size: 34),
               ),
             ),
