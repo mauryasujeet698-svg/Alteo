@@ -168,10 +168,10 @@ class _CustomerAccountPageState extends State<CustomerAccountPage> {
             ),
           ],
           const SizedBox(height: 18),
-          _item(context, Icons.receipt_long_rounded, 'My orders', 'Shopping, food and parcel orders', () {
+          _item(context, Icons.receipt_long_rounded, 'My orders', 'Shopping and food orders', () {
             Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage()));
           }),
-          _item(context, Icons.directions_car_filled_rounded, 'My rides', 'Ride history and trip details', () { Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerOrdersPage())); }),
+          _item(context, Icons.directions_car_filled_rounded, 'My rides & parcels', 'Choose Rides or Parcels at the top', () { Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerTripsPage())); }),
           _item(context, Icons.location_on_outlined, 'Saved addresses', 'Home, work and other locations', () async {
             if (client?.auth.currentUser == null) { await _signIn(); if (!mounted || client?.auth.currentUser == null) return; }
             await Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const CustomerAddressesPage()));
