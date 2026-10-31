@@ -991,7 +991,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
             if (s.data!.isEmpty) return _empty('No products yet', 'Add products as drafts; Admin must approve them before they appear to customers.');
             return Column(children: s.data!.map((p) => Card(elevation: 0, child: ListTile(
               leading: (p['image_url']?.toString().startsWith('https://') ?? false)
-                ? ClipRRect(borderRadius: BorderRadius.circular(9), child: Image.network(p['image_url'].toString(), width: 48, height: 48, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.inventory_2_outlined)))
+                ? ClipRRect(borderRadius: BorderRadius.circular(9), child: AlteoNetworkImage(url: p['image_url'].toString(), width: 48, height: 48, fit: BoxFit.cover, fallback: const Icon(Icons.inventory_2_outlined)))
                 : const Icon(Icons.inventory_2_outlined),
               title: Text(p['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w800)),
               isThreeLine: true,
