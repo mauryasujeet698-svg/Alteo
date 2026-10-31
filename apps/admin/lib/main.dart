@@ -476,6 +476,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
   late Future<Map<String, dynamic>?> sellerProfile;
   late Future<Map<String, dynamic>?> storeProfile;
   Future<String>? _adminCatalogSellerFuture;
+  bool _showApprovedDarkStoreItems = false;
   bool partnerOnline = false;
   int selectedTab = 0;
   final _notificationTitleController = TextEditingController();
@@ -1994,54 +1995,162 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         bottom: const TabBar(
           isScrollable: true,
           tabs: [
-            Tab(icon: Icon(Icons.inventory_2_outlined), text: 'Items'),
-            Tab(icon: Icon(Icons.pending_actions_outlined), text: 'Dark Store approvals'),
-            Tab(icon: Icon(Icons.view_carousel_outlined), text: 'Banners'),
+            Tab(icon: Icon(Icons.warehouse_outlined), text: 'Dark Store'),
+            Tab(icon: Icon(Icons.storefront_outlined), text: 'Admin Items'),
+            Tab(icon: Icon(Icons.shopping_bag_outlined), text: 'Seller Items'),
           ],
         ),
       ),
       body: TabBarView(
         children: [
-          _adminItemsBody(),
           _adminDarkStoreProductSubmissionsBody(),
-          ListView(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            children: [
-              const Text('Customer homepage banners', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 6),
-              const Text(
-                'Upload banner images, then create, edit, reorder, publish or remove banners. Published changes appear automatically in the Customer app.',
-                style: TextStyle(color: Color(0xFF68736D), height: 1.45),
-              ),
-              const SizedBox(height: 18),
-              _bannerManagement(),
-            ],
-          ),
+          _adminItemsBody(),
+          _adminSellerItemsBody(),
         ],
       ),
     ),
   );
 
-  Widget _adminDarkStoreProductSubmissionsBody() => StreamBuilder<List<Map<String, dynamic>>>(
-    stream: client.from('dark_store_product_submissions').stream(primaryKey: ['id'])
-        .eq('status', 'pending_review').order('created_at', ascending: false),
-    builder: (context, snapshot) {
-      if (snapshot.hasError) return _error('Dark Store product approvals unavailable. Check Admin access and retry.');
-      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-      final rows = snapshot.data!;
-      if (rows.isEmpty) return _empty('No pending product approvals', 'New non-food items submitted by active Dark Stores will appear here.');
-      return ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-        children: [
-          const Text('Dark Store product approvals', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
-          const SizedBox(height: 5),
-          const Text('Review every product before it enters the customer catalogue. Food-category submissions are blocked by the database.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
-          const SizedBox(height: 14),
-          for (final item in rows) _darkStoreProductApprovalCard(item),
-        ],
-      );
-    },
-  );
+  Widget _adminDarkStoreProductSubmissionsBody() => Column(children: [
+    Padding(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      child: Row(children: [
+        Expanded(
+          child: ChoiceChip(
+            label: const Text('Pending approval'),
+            selected: !_showApprovedDarkStoreItems,
+            onSelected: (_) => setState(() => _showApprovedDarkStoreItems = false),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: ChoiceChip(
+            label: const Text('Approved items'),
+            selected: _showApprovedDarkStoreItems,
+            onSelected: (_) => setState(() => _showApprovedDarkStoreItems = true),
+          ),
+        ),
+      ]),
+    ),
+    Expanded(
+      child: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: client.from('dark_store_product_submissions').stream(primaryKey: ['id'])
+          .eq('status', _showApprovedDarkStoreItems ? 'approved' : 'pending_review')
+          .order('created_at', ascending: false),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return _error('Dark Store products unavailable. Check Admin access and retry.');
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final rows = snapshot.data!;
+          if (rows.isEmpty) return _empty(
+            _showApprovedDarkStoreItems ? 'No approved Dark Store items yet' : 'No pending product approvals',
+            _showApprovedDarkStoreItems
+              ? 'Items move here automatically after Admin approval.'
+              : 'New non-food items submitted by active Dark Stores will appear here.',
+          );
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+            children: [
+              Text(
+                _showApprovedDarkStoreItems ? 'Approved Dark Store items' : 'Pending Dark Store approvals',
+                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 5),
+              const Text(
+                'Food-category submissions are blocked. Approved products appear in the Customer catalogue; set real stock in the Dark Store before customers can order.',
+                style: TextStyle(color: Color(0xFF68736D), height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              for (final item in rows)
+                _showApprovedDarkStoreItems
+                  ? _approvedDarkStoreProductCard(item)
+                  : _darkStoreProductApprovalCard(item),
+            ],
+          );
+        },
+      ),
+    ),
+  ]);
+
+  Widget _approvedDarkStoreProductCard(Map<String, dynamic> item) {
+    final imageUrl = item['image_url']?.toString() ?? '';
+    final price = ((item['price_minor'] as num?)?.toInt() ?? 0) / 100;
+    final stock = (item['proposed_stock'] as num?)?.toInt() ?? 0;
+    return Card(
+      elevation: 0,
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(10),
+            child: AlteoNetworkImage(url: imageUrl, width: 76, height: 82, fit: BoxFit.cover),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(item['name']?.toString() ?? 'Product', style: const TextStyle(fontWeight: FontWeight.w900)),
+            const SizedBox(height: 3),
+            Text('${item['category'] ?? ''} · SKU ${item['sku'] ?? ''}', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+            const SizedBox(height: 3),
+            Text('₹${price.toStringAsFixed(0)} · Proposed stock $stock', style: const TextStyle(fontSize: 12)),
+            Text('Published · Product ${_short(item['product_id'])}', style: const TextStyle(fontSize: 11, color: Color(0xFF176B57))),
+            const SizedBox(height: 8),
+            Wrap(spacing: 6, runSpacing: 4, children: [
+              OutlinedButton.icon(
+                onPressed: () => _editApprovedDarkStoreProduct(item),
+                icon: const Icon(Icons.edit_outlined, size: 17),
+                label: const Text('Edit'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => _changeApprovedDarkStoreProductStatus(item, 'paused'),
+                icon: const Icon(Icons.pause_rounded, size: 17),
+                label: const Text('Pause'),
+              ),
+              TextButton.icon(
+                onPressed: () => _removeApprovedDarkStoreProduct(item),
+                icon: const Icon(Icons.delete_outline_rounded, size: 17),
+                label: const Text('Remove'),
+                style: TextButton.styleFrom(foregroundColor: const Color(0xFFB3261E)),
+              ),
+            ]),
+          ])),
+        ]),
+      ),
+    );
+  }
+
+  Future<Map<String, dynamic>> _loadPublishedDarkStoreProduct(Map<String, dynamic> item) async {
+    final productId = item['product_id']?.toString() ?? '';
+    if (productId.isEmpty) throw StateError('The approved product has no catalogue record.');
+    final row = await client.from('seller_products').select('*').eq('id', productId).single();
+    return Map<String, dynamic>.from(row as Map);
+  }
+
+  Future<void> _editApprovedDarkStoreProduct(Map<String, dynamic> item) async {
+    try {
+      final product = await _loadPublishedDarkStoreProduct(item);
+      await _editAdminProduct(product['seller_id'].toString(), product);
+    } catch (e) {
+      notice('Could not open the approved item: ${e is PostgrestException ? e.message : e}');
+    }
+  }
+
+  Future<void> _changeApprovedDarkStoreProductStatus(Map<String, dynamic> item, String status) async {
+    try {
+      final product = await _loadPublishedDarkStoreProduct(item);
+      await _setAdminProductStatus(product, status);
+    } catch (e) {
+      notice('Could not update the approved item: ${e is PostgrestException ? e.message : e}');
+    }
+  }
+
+  Future<void> _removeApprovedDarkStoreProduct(Map<String, dynamic> item) async {
+    try {
+      final product = await _loadPublishedDarkStoreProduct(item);
+      await _archiveAdminCatalogueProduct(product);
+    } catch (e) {
+      notice('Could not remove the approved item: ${e is PostgrestException ? e.message : e}');
+    }
+  }
 
   Widget _darkStoreProductApprovalCard(Map<String, dynamic> item) {
     final imageUrl = item['image_url']?.toString() ?? '';
