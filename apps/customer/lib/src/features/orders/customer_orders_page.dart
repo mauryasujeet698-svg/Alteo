@@ -15,6 +15,18 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
   Future<List<Map<String, dynamic>>>? _itemsFuture;
   Future<String>? _deliveryCodeFuture;
 
+  @override
+  void didUpdateWidget(covariant CustomerOrderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldStatus = oldWidget.order['status']?.toString();
+    if (_status == 'out_for_delivery' && oldStatus != 'out_for_delivery') {
+      _deliveryCodeFuture = Supabase.instance.client.rpc(
+        'customer_get_delivery_verification_code',
+        params: {'p_order_id': widget.order['id']},
+      ).then((value) => value.toString());
+    }
+  }
+
   String get _status => widget.order['status']?.toString() ?? 'unknown';
   bool get _canCancelItems =>
       const ['cod_pending', 'accepted', 'preparing', 'ready_for_pickup'].contains(_status) &&
