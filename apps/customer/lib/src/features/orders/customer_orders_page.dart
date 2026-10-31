@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:alteo_partner_ui/alteo_partner_ui.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../auth/customer_auth_page.dart';
 import 'customer_live_tracking_page.dart';
@@ -72,12 +73,12 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
     }
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: Image.network(
-        url,
+      child: AlteoNetworkImage(
+        url: url,
         width: 54,
         height: 54,
         fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const CircleAvatar(
+        fallback: const CircleAvatar(
           backgroundColor: Color(0xFFE3F2E9),
           child: Icon(Icons.inventory_2_outlined, color: Color(0xFF176B57)),
         ),
