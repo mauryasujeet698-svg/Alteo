@@ -73,6 +73,10 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
     );
   }
 
+  String _month(int month) => const [
+    'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec',
+  ][month - 1];
+
   Future<void> _cancelItem(Map<String, dynamic> item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -118,6 +122,25 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
     final payment = method == 'cod'
         ? (paymentStatus == 'paid' ? 'Cash on delivery · collected' : 'Cash on delivery · pay when it arrives')
         : paymentStatus.replaceAll('_', ' ');
+    final createdAt = DateTime.tryParse(widget.order['created_at']?.toString() ?? '')?.toLocal();
+    final placedLabel = createdAt == null
+        ? 'Order placed'
+        : 'Placed ${createdAt.day.toString().padLeft(2, '0')} ${_month(createdAt.month)} ${createdAt.year}';
+    final progress = switch (rawStatus) {
+      'cod_pending' || 'paid' => 0,
+      'accepted' || 'preparing' => 1,
+      'ready_for_pickup' => 2,
+      'out_for_delivery' => 3,
+      'completed' => 4,
+      _ => -1,
+    };
+    final address = widget.order['delivery_address_snapshot'] is Map
+        ? Map<String, dynamic>.from(widget.order['delivery_address_snapshot'] as Map)
+        : <String, dynamic>{};
+    final addressLabel = [
+      address['address_line1'], address['locality'], address['city'],
+      address['state'], address['postal_code'],
+    ].where((v) => v != null && v.toString().trim().isNotEmpty).join(', ');
 
     return Card(
       elevation: 0,
@@ -144,6 +167,19 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
           }
         },
         children: [
+          if (progress >= 0)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('ORDER TRACKING', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1, color: Color(0xFF68736D))),
+                const SizedBox(height: 7),
+                LinearProgressIndicator(value: (progress + 1) / 5, minHeight: 6, backgroundColor: const Color(0xFFE7ECE8), color: const Color(0xFF176B57), borderRadius: BorderRadius.circular(8)),
+                const SizedBox(height: 6),
+                Text(const ['Order placed','Seller accepted','Ready for pickup','Out for delivery','Delivered'][progress], style: const TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF176B57))),
+              ]),
+            )
+          else if (rawStatus == 'cancelled' || rawStatus == 'refunded')
+            const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 8), child: Text('This order is no longer active.', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFFB3261E)))),
           if (_itemsFuture == null)
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
@@ -202,6 +238,24 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
                       ),
                     ),
                     const Divider(height: 1, indent: 16),
+                  ],
+                  if (addressLabel.isNotEmpty) ...[
+                    Container(
+                      margin: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFF7F9F7), borderRadius: BorderRadius.circular(12)),
+                      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Icon(Icons.home_outlined, color: Color(0xFF176B57)),
+                        const SizedBox(width: 9),
+                        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          const Text('DELIVERY ADDRESS', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: .7, color: Color(0xFF68736D))),
+                          const SizedBox(height: 3),
+                          Text(addressLabel, style: const TextStyle(fontWeight: FontWeight.w700, height: 1.35)),
+                          if ((address['recipient_name']?.toString() ?? '').isNotEmpty || (address['phone']?.toString() ?? '').isNotEmpty)
+                            Text([address['recipient_name'], address['phone']].where((v) => v != null && v.toString().isNotEmpty).join(' · '), style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
+                        ])),
+                      ]),
+                    ),
                   ],
                   if (_status == 'out_for_delivery') ...[
                     const SizedBox(height: 8),
