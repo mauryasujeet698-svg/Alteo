@@ -103,7 +103,6 @@ class CustomerContentService {
         .select('id,name,description,price_minor,image_url,kind,category,subcategory,brand,sku,mrp_minor,unit_label,availability_mode,available_pincodes')
         .eq('status', 'active')
         .isFilter('archived_at', null)
-        .isFilter('archived_at', null)
         .not('image_url', 'is', null)
         .neq('image_url', '');
     if (kind != null) query = query.eq('kind', kind);
