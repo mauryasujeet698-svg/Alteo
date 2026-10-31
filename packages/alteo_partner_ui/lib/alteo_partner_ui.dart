@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -1204,4 +1205,62 @@ class AlteoAppLegalTiles extends StatelessWidget {
       },
     )),
   ]);
+}
+
+
+/// Displays raster images and SVG catalogue artwork from HTTPS URLs.
+/// Flutter's Image.network cannot decode SVG responses; catalogue-item-image
+/// is the public Edge Function that returns image/svg+xml.
+class AlteoNetworkImage extends StatelessWidget {
+  const AlteoNetworkImage({
+    super.key,
+    required this.url,
+    this.width,
+    this.height,
+    this.fit = BoxFit.cover,
+    this.fallback,
+  });
+
+  final String url;
+  final double? width;
+  final double? height;
+  final BoxFit fit;
+  final Widget? fallback;
+
+  Widget _fallback(BuildContext context) => fallback ?? Container(
+    width: width,
+    height: height,
+    color: const Color(0xFFEAF2EC),
+    alignment: Alignment.center,
+    child: const Icon(Icons.image_not_supported_outlined, color: Color(0xFF176B57)),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    if (!url.startsWith('https://')) return _fallback(context);
+    final parsed = Uri.tryParse(url);
+    final isSvg = (parsed?.path.toLowerCase().endsWith('.svg') ?? false) ||
+        (parsed?.path.contains('/functions/v1/catalogue-item-image') ?? false);
+    if (isSvg) {
+      return SvgPicture.network(
+        url,
+        width: width,
+        height: height,
+        fit: fit,
+        placeholderBuilder: (_) => SizedBox(
+          width: width,
+          height: height,
+          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+        errorBuilder: (_, __, ___) => _fallback(context),
+      );
+    }
+    return Image.network(
+      url,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, __, ___) => _fallback(context),
+    );
+  }
 }
