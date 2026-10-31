@@ -911,7 +911,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           role: requiredRole, selectedPin: partnerAreaCode, activeAreas: partnerServiceAreas,
           isOnline: partnerOnline, locationSummary: _partnerLocationSummary(),
           isRefreshingLocation: refreshingLocation,
-          onAreaChanged: (pin) { if (pin != null) _savePartnerArea(pin); },
+          onAreaChanged: (_) {},
           onRefreshLocation: _refreshPartnerLocation,
           onToggleAvailability: _setAvailability,
           onOpenMap: _openCurrentLocationMap,
