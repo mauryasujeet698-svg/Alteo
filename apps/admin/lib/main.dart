@@ -2933,7 +2933,10 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         .eq('user_id', userId).eq('role', role).maybeSingle();
       if (row == null || row['is_online'] != true) return 'Offline';
       final updated = DateTime.tryParse(row['updated_at']?.toString() ?? '');
-      if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > const Duration(minutes: 10)) return 'Location stale';
+      final inactivityLimit = role == 'delivery_partner' ? const Duration(minutes: 30) : const Duration(minutes: 10);
+      if (updated == null || DateTime.now().toUtc().difference(updated.toUtc()) > inactivityLimit) {
+        return role == 'delivery_partner' ? 'Inactive · no location update for 30 minutes' : 'Location stale';
+      }
       if (role == 'delivery_partner') {
         final active = await client.from('delivery_jobs').select('id')
           .eq('delivery_partner_id', userId).inFilter('status', ['assigned','accepted','picked_up','in_transit']).limit(1).maybeSingle();
@@ -2949,6 +2952,54 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     }
     final store = await client.from('dark_stores').select('status,name,locality').eq('owner_user_id', userId).limit(1).maybeSingle();
     return store == null ? 'Dark-store profile not linked' : 'Dark store ' + (store['status']?.toString() ?? 'unknown');
+  }
+
+  Widget _approvedManagedAccountCard(
+    Map<String, dynamic> request,
+    String role,
+    AsyncSnapshot<String> statusSnapshot,
+  ) {
+    final raw = request['application_data'];
+    final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
+    final pin = (data['service_area'] ?? data['service_area_pincode'] ?? '').toString();
+    final status = statusSnapshot.connectionState == ConnectionState.waiting ? 'Checking status…'
+      : statusSnapshot.hasError ? 'Status unavailable' : (statusSnapshot.data ?? 'Status unknown');
+    return Card(elevation: 0, child: ListTile(
+      onTap: () => showPartnerApplication(request),
+      leading: Icon(status.startsWith('Available') ? Icons.check_circle_outline_rounded
+        : status.startsWith('Busy') ? Icons.local_shipping_rounded
+        : status.toLowerCase().contains('offline') || status.toLowerCase().contains('inactive')
+          ? Icons.wifi_off_rounded : Icons.person_outline_rounded,
+        color: status.startsWith('Available') ? const Color(0xFF176B57) : const Color(0xFF68736D)),
+      title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
+        ? request['display_name'].toString() : (request['email']?.toString() ?? 'Approved account'),
+        style: const TextStyle(fontWeight: FontWeight.w800)),
+      subtitle: Text(status + (role == 'driver_partner' || pin.isEmpty ? '' : ' · onboarding PIN ' + pin) +
+        (request['phone']?.toString().trim().isNotEmpty == true ? ' · ' + request['phone'].toString() : ''),
+        maxLines: 3, overflow: TextOverflow.ellipsis),
+      trailing: PopupMenuButton<String>(
+        tooltip: 'Manage account access',
+        onSelected: (action) => _setManagedAccountStatus(request, role, action),
+        itemBuilder: (_) {
+          final statusText = status.toLowerCase();
+          final inactive = statusText.contains('paused') || statusText.contains('suspended') ||
+            statusText.contains('removed') || statusText.contains('rejected');
+          final removed = statusText.contains('removed') || statusText.contains('rejected');
+          return [
+            if (!inactive)
+              const PopupMenuItem(value: 'pause', child: ListTile(
+                leading: Icon(Icons.pause_circle_outline), title: Text('Pause access'), contentPadding: EdgeInsets.zero)),
+            if (inactive)
+              const PopupMenuItem(value: 'reactivate', child: ListTile(
+                leading: Icon(Icons.play_circle_outline), title: Text('Reactivate access'), contentPadding: EdgeInsets.zero)),
+            if (!removed)
+              const PopupMenuItem(value: 'remove', child: ListTile(
+                leading: Icon(Icons.person_remove_outlined, color: Color(0xFFB3261E)),
+                title: Text('Remove access'), contentPadding: EdgeInsets.zero)),
+          ];
+        },
+      ),
+    ));
   }
 
   Future<void> _setManagedAccountStatus(Map<String, dynamic> request, String role, String action) async {
@@ -3046,51 +3097,20 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                   const SizedBox(height: 10),
                   const Text('Approved accounts', style: TextStyle(fontWeight: FontWeight.w900)),
                   for (final request in approved)
-                    FutureBuilder<String>(
-                      future: _partnerOperationalStatus(request['user_id'].toString(), role),
-                      builder: (context, statusSnapshot) {
-                        final raw = request['application_data'];
-                        final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
-                        final pin = (data['service_area'] ?? data['service_area_pincode'] ?? '').toString();
-                        final status = statusSnapshot.connectionState == ConnectionState.waiting ? 'Checking status…'
-                          : statusSnapshot.hasError ? 'Status unavailable' : (statusSnapshot.data ?? 'Status unknown');
-                        return Card(elevation: 0, child: ListTile(
-                          onTap: () => showPartnerApplication(request),
-                          leading: Icon(status.startsWith('Available') ? Icons.check_circle_outline_rounded
-                            : status.startsWith('Busy') ? Icons.local_shipping_rounded
-                            : status.toLowerCase().contains('offline') ? Icons.wifi_off_rounded : Icons.person_outline_rounded,
-                            color: status.startsWith('Available') ? const Color(0xFF176B57) : const Color(0xFF68736D)),
-                          title: Text((request['display_name']?.toString().trim().isNotEmpty ?? false)
-                            ? request['display_name'].toString() : (request['email']?.toString() ?? 'Approved account'),
-                            style: const TextStyle(fontWeight: FontWeight.w800)),
-                          subtitle: Text(status + (pin.isEmpty ? '' : ' · onboarding PIN ' + pin) +
-                            (request['phone']?.toString().trim().isNotEmpty == true ? ' · ' + request['phone'].toString() : ''),
-                            maxLines: 3, overflow: TextOverflow.ellipsis),
-                          trailing: PopupMenuButton<String>(
-                            tooltip: 'Manage account access',
-                            onSelected: (action) => _setManagedAccountStatus(request, role, action),
-                            itemBuilder: (_) {
-                              final statusText = status.toLowerCase();
-                              final inactive = statusText.contains('paused') || statusText.contains('suspended') ||
-                                statusText.contains('removed') || statusText.contains('rejected');
-                              final removed = statusText.contains('removed') || statusText.contains('rejected');
-                              return [
-                                if (!inactive)
-                                  const PopupMenuItem(value: 'pause', child: ListTile(
-                                    leading: Icon(Icons.pause_circle_outline), title: Text('Pause access'), contentPadding: EdgeInsets.zero)),
-                                if (inactive)
-                                  const PopupMenuItem(value: 'reactivate', child: ListTile(
-                                    leading: Icon(Icons.play_circle_outline), title: Text('Reactivate access'), contentPadding: EdgeInsets.zero)),
-                                if (!removed)
-                                  const PopupMenuItem(value: 'remove', child: ListTile(
-                                    leading: Icon(Icons.person_remove_outlined, color: Color(0xFFB3261E)),
-                                    title: Text('Remove access'), contentPadding: EdgeInsets.zero)),
-                              ];
-                            },
-                          ),
-                        ));
-                      },
-                    ),
+                    if (role == 'delivery_partner' || role == 'driver_partner')
+                      StreamBuilder<List<Map<String, dynamic>>>(
+                        stream: client.from('partner_presence').stream(primaryKey: ['user_id','role'])
+                          .eq('user_id', request['user_id'].toString()).eq('role', role),
+                        builder: (context, presenceSnapshot) => FutureBuilder<String>(
+                          future: _partnerOperationalStatus(request['user_id'].toString(), role),
+                          builder: (context, statusSnapshot) => _approvedManagedAccountCard(request, role, statusSnapshot),
+                        ),
+                      )
+                    else
+                      FutureBuilder<String>(
+                        future: _partnerOperationalStatus(request['user_id'].toString(), role),
+                        builder: (context, statusSnapshot) => _approvedManagedAccountCard(request, role, statusSnapshot),
+                      ),
                 ],
               ]),
             );
