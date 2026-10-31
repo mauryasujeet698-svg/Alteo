@@ -17,12 +17,13 @@ class CustomerProduct {
   const CustomerProduct(
     this.id, this.name, this.description, this.priceMinor, this.imageUrl, this.kind, {
     this.category = '', this.subcategory = '', this.brand = '', this.sku = '',
-    this.mrpMinor, this.unitLabel = '',
+    this.mrpMinor, this.unitLabel = '', this.availableToOrder = true,
   });
   final String id, name, description, imageUrl, kind;
   final String category, subcategory, brand, sku, unitLabel;
   final int priceMinor;
   final int? mrpMinor;
+  final bool availableToOrder;
   String get priceLabel => '₹${(priceMinor / 100).toStringAsFixed(0)}';
   String? get mrpLabel => mrpMinor == null ? null : '₹${(mrpMinor! / 100).toStringAsFixed(0)}';
 
@@ -39,6 +40,7 @@ class CustomerProduct {
     sku: (m['sku'] as String?) ?? '',
     mrpMinor: (m['mrp_minor'] as num?)?.toInt(),
     unitLabel: (m['unit_label'] as String?) ?? '',
+    availableToOrder: m['available_to_order'] as bool? ?? true,
   );
 }
 
@@ -81,16 +83,34 @@ class CustomerContentService {
     }
   }
 
-  bool _productAvailableForPin(Map<String, dynamic> row, String pin, Map<String, Map<String, dynamic>> inventory) {
+  bool _productForPin(Map<String, dynamic> row, String pin) {
     final mode = row['availability_mode']?.toString() ?? 'all';
     final pins = List<String>.from((row['available_pincodes'] as List? ?? const []).map((v) => v.toString()));
-    if (mode != 'all' && !pins.contains(pin)) return false;
-    if (row['kind']?.toString() == 'quick') {
-      final stock = inventory[row['id']?.toString() ?? ''];
-      if (stock != null && stock['inventory_managed'] == true && stock['available'] != true) return false;
-    }
-    return true;
+    return mode == 'all' || pins.contains(pin);
   }
+
+  bool _productInStock(Map<String, dynamic> row, Map<String, Map<String, dynamic>> inventory) {
+    if (row['kind']?.toString() != 'quick') return true;
+    final stock = inventory[row['id']?.toString() ?? ''];
+    // Keep zero-stock approved listings visible, but prevent customers ordering them.
+    if (stock == null) return false;
+    if (stock['inventory_managed'] != true) return true;
+    return stock['available'] == true;
+  }
+
+  List<CustomerProduct> _toCustomerProducts(
+    List<Map<String, dynamic>> rows,
+    String pin,
+    Map<String, Map<String, dynamic>> inventory,
+  ) => rows
+      .where((row) => _productForPin(row, pin))
+      .map((row) => <String, dynamic>{
+        ...row,
+        'available_to_order': _productInStock(row, inventory),
+      })
+      .map(CustomerProduct.fromMap)
+      .where((product) => product.imageUrl.startsWith('https://'))
+      .toList();
 
   Future<List<CustomerProduct>> loadProducts({String? kind, String? pincode}) async {
     final pin = pincode?.trim() ?? '';
@@ -107,12 +127,8 @@ class CustomerContentService {
         .neq('image_url', '');
     if (kind != null) query = query.eq('kind', kind);
     final rows = await query.order('created_at', ascending: false).limit(100);
-    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map))
-        .where((row) => _productAvailableForPin(row, pin, inventory));
-    return availableRows
-        .map(CustomerProduct.fromMap)
-        .where((p) => p.imageUrl.startsWith('https://'))
-        .toList();
+    final records = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return _toCustomerProducts(records, pin, inventory);
   }
 
   Future<List<CustomerProduct>> searchProducts({required String query, String? pincode}) async {
@@ -122,19 +138,16 @@ class CustomerContentService {
     if (area['serviceable'] != true) return <CustomerProduct>[];
     final inventory = await _loadQuickInventoryAvailability(pin);
     final rows = await client.from('seller_products')
-        .select('id,name,description,price_minor,image_url,kind,availability_mode,available_pincodes')
+        .select('id,name,description,price_minor,image_url,kind,category,subcategory,brand,sku,mrp_minor,unit_label,availability_mode,available_pincodes')
         .eq('status', 'active')
+        .isFilter('archived_at', null)
         .not('image_url', 'is', null)
         .neq('image_url', '')
         .ilike('name', '%${query.trim()}%')
         .order('created_at', ascending: false)
         .limit(100);
-    final availableRows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map))
-        .where((row) => _productAvailableForPin(row, pin, inventory));
-    return availableRows
-        .map(CustomerProduct.fromMap)
-        .where((p) => p.imageUrl.startsWith('https://'))
-        .toList();
+    final records = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+    return _toCustomerProducts(records, pin, inventory);
   }
 
   Future<Map<String, int>> loadCartQuantities() async {
