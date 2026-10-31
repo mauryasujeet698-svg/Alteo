@@ -2085,6 +2085,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           Text('$coverage · Submitted by store ${_short(item['store_id'])}', style: const TextStyle(fontSize: 12, color: Color(0xFF68736D))),
           const Divider(height: 20),
           Wrap(spacing: 8, runSpacing: 8, children: [
+            OutlinedButton.icon(
+              onPressed: () => _editDarkStoreSubmission(item),
+              icon: const Icon(Icons.edit_outlined),
+              label: const Text('Edit'),
+            ),
             FilledButton.icon(
               onPressed: () => _reviewDarkStoreProduct(item, 'approve'),
               icon: const Icon(Icons.check_rounded),
@@ -2105,6 +2110,91 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
         ]),
       ),
     );
+  }
+
+  Future<void> _editDarkStoreSubmission(Map<String, dynamic> item) async {
+    final name = TextEditingController(text: item['name']?.toString() ?? '');
+    final sku = TextEditingController(text: item['sku']?.toString() ?? '');
+    final subcategory = TextEditingController(text: item['subcategory']?.toString() ?? '');
+    final brand = TextEditingController(text: item['brand']?.toString() ?? '');
+    final description = TextEditingController(text: item['description']?.toString() ?? '');
+    final price = TextEditingController(text: (((item['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2));
+    final mrp = TextEditingController(text: (((item['mrp_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(2));
+    final unit = TextEditingController(text: item['unit_label']?.toString() ?? '');
+    final stock = TextEditingController(text: item['proposed_stock']?.toString() ?? '0');
+    final image = TextEditingController(text: item['image_url']?.toString() ?? '');
+    const categories = ['Personal Care','Home Cleaning','Stationery','Electronics Accessories','Kitchen & Home'];
+    var category = categories.contains(item['category']) ? item['category'].toString() : categories.first;
+    try {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Edit Dark Store submission'),
+            content: SizedBox(width: 520, child: SingleChildScrollView(child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(controller: name, decoration: const InputDecoration(labelText: 'Product name *')),
+                TextField(controller: sku, decoration: const InputDecoration(labelText: 'SKU *')),
+                DropdownButtonFormField<String>(
+                  value: category,
+                  decoration: const InputDecoration(labelText: 'Non-food category *'),
+                  items: categories.map((v) => DropdownMenuItem(value: v, child: Text(v))).toList(),
+                  onChanged: (v) { if (v != null) setDialogState(() => category = v); },
+                ),
+                TextField(controller: subcategory, decoration: const InputDecoration(labelText: 'Subcategory')),
+                TextField(controller: brand, decoration: const InputDecoration(labelText: 'Brand')),
+                TextField(controller: description, maxLines: 3, decoration: const InputDecoration(labelText: 'Description *')),
+                TextField(controller: price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Selling price ₹ *')),
+                TextField(controller: mrp, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'MRP ₹ *')),
+                TextField(controller: unit, decoration: const InputDecoration(labelText: 'Unit / pack size *')),
+                TextField(controller: stock, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Proposed stock')),
+                TextField(controller: image, decoration: const InputDecoration(labelText: 'Image URL *')),
+              ],
+            ))),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Save changes')),
+            ],
+          ),
+        ),
+      );
+      if (saved != true) return;
+      final selling = double.tryParse(price.text.trim());
+      final list = double.tryParse(mrp.text.trim());
+      final quantity = int.tryParse(stock.text.trim());
+      if (name.text.trim().length < 2 || sku.text.trim().length < 2 ||
+          description.text.trim().length < 10 || unit.text.trim().isEmpty ||
+          selling == null || selling <= 0 || list == null || list < selling ||
+          quantity == null || quantity < 0 || !image.text.trim().startsWith('https://')) {
+        notice('Check the product name, SKU, description, image, unit, stock and pricing.');
+        return;
+      }
+      await client.rpc('admin_update_dark_store_product_submission', params: {
+        'p_submission_id': item['id'],
+        'p_updates': {
+          'name': name.text.trim(),
+          'sku': sku.text.trim(),
+          'category': category,
+          'subcategory': subcategory.text.trim(),
+          'brand': brand.text.trim(),
+          'description': description.text.trim(),
+          'price_minor': (selling * 100).round(),
+          'mrp_minor': (list * 100).round(),
+          'unit_label': unit.text.trim(),
+          'proposed_stock': quantity,
+          'image_url': image.text.trim(),
+        },
+      });
+      notice('Dark Store product updated. It remains pending Admin approval.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      notice('Could not update this product: $detail');
+    } finally {
+      name.dispose(); sku.dispose(); subcategory.dispose(); brand.dispose();
+      description.dispose(); price.dispose(); mrp.dispose(); unit.dispose();
+      stock.dispose(); image.dispose();
+    }
   }
 
   Future<void> _reviewDarkStoreProduct(Map<String, dynamic> item, String action) async {
@@ -2208,7 +2298,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ),
           const SizedBox(height: 14),
           StreamBuilder<List<Map<String, dynamic>>>(
-            stream: client.from('seller_products').stream(primaryKey: ['id']).order('created_at', ascending: false),
+            stream: client.from('seller_products').stream(primaryKey: ['id']).is('archived_at', null).order('created_at', ascending: false),
             builder: (context, s) {
               if (s.hasError) return _error('Items unavailable. Check the admin catalogue permissions.');
               if (!s.hasData) return const LinearProgressIndicator();
@@ -2287,6 +2377,11 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                             onPressed: () => _editAdminProduct(platformSellerId, product),
                             icon: const Icon(Icons.edit_outlined),
                           ),
+                          IconButton(
+                            tooltip: 'Remove item',
+                            onPressed: () => _archiveAdminCatalogueProduct(product),
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFB3261E)),
+                          ),
                         ],
                       ),
                     ),
@@ -2299,6 +2394,32 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       );
     },
   );
+
+  Future<void> _archiveAdminCatalogueProduct(Map<String, dynamic> product) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove catalogue item?'),
+        content: Text('Remove "${product['name'] ?? 'this item'}" from the customer catalogue? Existing orders and order history will be retained.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep item')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Remove item'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await client.rpc('admin_archive_catalogue_product', params: {'p_product_id': product['id']});
+      notice('Item removed from the customer catalogue. Historical orders remain intact.');
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      notice('Could not remove this item: $detail');
+    }
+  }
 
   Future<void> _setAdminProductStatus(Map<String, dynamic> product, String status) async {
     try {
