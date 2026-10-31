@@ -2407,7 +2407,9 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
           ),
           const SizedBox(height: 14),
           StreamBuilder<List<Map<String, dynamic>>>(
-            stream: client.from('seller_products').stream(primaryKey: ['id']).isFilter('archived_at', null).order('created_at', ascending: false),
+            stream: client.from('seller_products').stream(primaryKey: ['id'])
+              .eq('seller_id', platformSellerId).eq('catalogue_source', 'admin')
+              .isFilter('archived_at', null).order('created_at', ascending: false),
             builder: (context, s) {
               if (s.hasError) return _error('Items unavailable. Check the admin catalogue permissions.');
               if (!s.hasData) return const LinearProgressIndicator();
@@ -2714,6 +2716,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       };
       if (existing == null) {
         payload['seller_id'] = platformSellerId;
+        payload['catalogue_source'] = 'admin';
         payload['status'] = status;
         payload['currency'] = 'INR';
         await client.from('seller_products').insert(payload);
