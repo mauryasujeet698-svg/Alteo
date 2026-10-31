@@ -710,12 +710,17 @@ Widget productCard(CustomerProduct p) {
               Align(
                 alignment: Alignment.centerRight,
                 child: quantity == 0
-                  ? IconButton.filledTonal(
-                      tooltip: 'Add one to cart',
-                      onPressed: busy ? null : () => _changeQuantity(p, 1),
-                      icon: busy ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_rounded),
-                      style: IconButton.styleFrom(backgroundColor: const Color(0xFFD8F1E5), foregroundColor: const Color(0xFF176B57)),
-                    )
+                  ? (p.availableToOrder
+                    ? IconButton.filledTonal(
+                        tooltip: 'Add one to cart',
+                        onPressed: busy ? null : () => _changeQuantity(p, 1),
+                        icon: busy ? const SizedBox(width: 17, height: 17, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.add_rounded),
+                        style: IconButton.styleFrom(backgroundColor: const Color(0xFFD8F1E5), foregroundColor: const Color(0xFF176B57)),
+                      )
+                    : const Padding(
+                        padding: EdgeInsets.only(right: 8, top: 8),
+                        child: Text('Out of stock', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFFB3261E))),
+                      ))
                   : Container(
                       decoration: BoxDecoration(color: const Color(0xFFE2F4EA), borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFB8DDCB))),
                       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -758,7 +763,7 @@ class _ProductSearch extends SearchDelegate<String>{
  Widget _results(BuildContext context){
   if(query.trim().isEmpty)return const Center(child:Text('Type or say an item name to search.'));
   return FutureBuilder<List<Map<String,dynamic>>>(
-   future:CustomerContentService(Supabase.instance.client).searchProducts(query:query.trim(),pincode:pincode).then((products)=>products.map((item)=><String,dynamic>{'id':item.id,'name':item.name,'description':item.description,'price_minor':item.priceMinor,'image_url':item.imageUrl,'kind':item.kind,'category':item.category,'subcategory':item.subcategory,'brand':item.brand,'sku':item.sku,'mrp_minor':item.mrpMinor,'unit_label':item.unitLabel}).toList()),
+   future:CustomerContentService(Supabase.instance.client).searchProducts(query:query.trim(),pincode:pincode).then((products)=>products.map((item)=><String,dynamic>{'id':item.id,'name':item.name,'description':item.description,'price_minor':item.priceMinor,'image_url':item.imageUrl,'kind':item.kind,'category':item.category,'subcategory':item.subcategory,'brand':item.brand,'sku':item.sku,'mrp_minor':item.mrpMinor,'unit_label':item.unitLabel,'available_to_order':item.availableToOrder}).toList()),
    builder:(context,s){
     if(s.connectionState==ConnectionState.waiting)return const Center(child:CircularProgressIndicator());
     if(s.hasError)return const Center(child:Padding(padding:EdgeInsets.all(24),child:Text('Search is temporarily unavailable. Pull down on Home to retry.',textAlign:TextAlign.center)));
@@ -770,7 +775,7 @@ class _ProductSearch extends SearchDelegate<String>{
       leading:ClipRRect(borderRadius:BorderRadius.circular(10),child:SizedBox(width:54,height:54,child:p.imageUrl.isEmpty?const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined)):AlteoNetworkImage(url:p.imageUrl,fit:BoxFit.cover,fallback:const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined))))),
       title:Text(p.name,style:const TextStyle(fontWeight:FontWeight.w800)),
       subtitle:Text(p.priceLabel),
-      trailing:IconButton(tooltip:'Add to cart',onPressed:()=>onAdd(p),icon:const Icon(Icons.add_shopping_cart_rounded)),
+      trailing:IconButton(tooltip:p.availableToOrder?'Add to cart':'Out of stock',onPressed:p.availableToOrder?()=>onAdd(p):null,icon:Icon(p.availableToOrder?Icons.add_shopping_cart_rounded:Icons.remove_shopping_cart_outlined)),
       onTap:()=>Navigator.of(context).push<void>(MaterialPageRoute(builder:(_)=>CustomerProductDetailsPage(product:p,onAddToCart:()=>onAdd(p)))),
      );
     });
@@ -813,7 +818,7 @@ class CustomerProductDetailsPage extends StatelessWidget {
     Expanded(child:Text('Delivery availability and final fulfilment details are confirmed for your location at checkout.',style:const TextStyle(height:1.4,color:Color(0xFF285E4E))))
    ])),
    const SizedBox(height:22),
-   FilledButton.icon(onPressed:()=>onAddToCart(),icon:const Icon(Icons.add_shopping_cart_rounded),label:const Text('Add to cart'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(52))),
+   FilledButton.icon(onPressed:product.availableToOrder?()=>onAddToCart():null,icon:const Icon(Icons.add_shopping_cart_rounded),label:Text(product.availableToOrder?'Add to cart':'Out of stock'),style:FilledButton.styleFrom(minimumSize:const Size.fromHeight(52))),
   ])),
  );
 }
