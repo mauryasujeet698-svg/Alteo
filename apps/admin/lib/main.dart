@@ -2506,6 +2506,68 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     },
   );
 
+  Widget _adminSellerItemsBody() => StreamBuilder<List<Map<String, dynamic>>>(
+    stream: client.from('seller_products').stream(primaryKey: ['id'])
+      .eq('catalogue_source', 'seller').isFilter('archived_at', null)
+      .order('created_at', ascending: false),
+    builder: (context, snapshot) {
+      if (snapshot.hasError) return _error('Seller items unavailable. Check catalogue permissions.');
+      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+      final rows = snapshot.data!;
+      if (rows.isEmpty) return _empty('No seller items yet', 'Approved sellers’ product listings will appear here for review and management.');
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        children: [
+          const Text('Seller items', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900)),
+          const SizedBox(height: 5),
+          const Text('Review, edit, approve, pause or remove products submitted by marketplace sellers.', style: TextStyle(color: Color(0xFF68736D), height: 1.4)),
+          const SizedBox(height: 14),
+          for (final product in rows)
+            Card(
+              elevation: 0,
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: AlteoNetworkImage(
+                    url: product['image_url']?.toString() ?? '',
+                    width: 72, height: 76, fit: BoxFit.cover,
+                  ),
+                ),
+                title: Text(product['name']?.toString() ?? 'Item', style: const TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text(
+                  'Seller ${_short(product['seller_id'])} · ${(product['status']?.toString() ?? 'draft').toUpperCase()} · ₹${(((product['price_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)}\n${product['description'] ?? ''}',
+                  maxLines: 3, overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Wrap(spacing: 0, children: [
+                  PopupMenuButton<String>(
+                    tooltip: 'Approve or change listing status',
+                    onSelected: (value) => _setAdminProductStatus(product, value),
+                    itemBuilder: (_) => [
+                      for (final status in const ['active','paused','draft','rejected'])
+                        PopupMenuItem(value: status, child: Text(status == 'active' ? 'Approve / publish' : status[0].toUpperCase() + status.substring(1))),
+                    ],
+                    icon: const Icon(Icons.verified_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Edit seller item',
+                    onPressed: () => _editAdminProduct(product['seller_id'].toString(), product),
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
+                  IconButton(
+                    tooltip: 'Remove seller item',
+                    onPressed: () => _archiveAdminCatalogueProduct(product),
+                    icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFB3261E)),
+                  ),
+                ]),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+
   Future<void> _archiveAdminCatalogueProduct(Map<String, dynamic> product) async {
     final confirmed = await showDialog<bool>(
       context: context,
