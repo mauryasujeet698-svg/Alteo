@@ -1255,7 +1255,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
                   ClipRRect(borderRadius: BorderRadius.circular(10), child: SizedBox(
                     width: 70, height: 76,
                     child: imageUrl.startsWith('https://')
-                      ? Image.network(imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Icon(Icons.image_not_supported_outlined))
+                      ? AlteoNetworkImage(url: imageUrl, fit: BoxFit.cover, fallback: const Icon(Icons.image_not_supported_outlined))
                       : const Icon(Icons.image_outlined),
                   )),
                   const SizedBox(width: 11),
