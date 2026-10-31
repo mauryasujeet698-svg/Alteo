@@ -13,6 +13,7 @@ class CustomerOrderCard extends StatefulWidget {
 
 class _CustomerOrderCardState extends State<CustomerOrderCard> {
   Future<List<Map<String, dynamic>>>? _itemsFuture;
+  Future<String>? _deliveryCodeFuture;
 
   String get _status => widget.order['status']?.toString() ?? 'unknown';
   bool get _canCancelItems =>
@@ -130,8 +131,16 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
         title: Text('Order ${CustomerOrdersPage.shortId(widget.order['id'])}', style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text('Status: $status\nPayment: $payment · Total ₹$total'),
         onExpansionChanged: (expanded) {
-          if (expanded && _itemsFuture == null) {
-            setState(() => _itemsFuture = _loadItems());
+          if (expanded) {
+            setState(() {
+              _itemsFuture ??= _loadItems();
+              if (_status == 'out_for_delivery') {
+                _deliveryCodeFuture ??= Supabase.instance.client.rpc(
+                  'customer_get_delivery_verification_code',
+                  params: {'p_order_id': widget.order['id']},
+                ).then((value) => value.toString());
+              }
+            });
           }
         },
         children: [
@@ -194,6 +203,36 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
                     ),
                     const Divider(height: 1, indent: 16),
                   ],
+                  if (_status == 'out_for_delivery') ...[
+                    const SizedBox(height: 8),
+                    FutureBuilder<String>(
+                      future: _deliveryCodeFuture,
+                      builder: (context, codeSnapshot) {
+                        if (codeSnapshot.hasError) return const Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          child: Text('Your delivery code will appear here when it is available.', style: TextStyle(color: Color(0xFF68736D))),
+                        );
+                        if (!codeSnapshot.hasData) return const Padding(
+                          padding: EdgeInsets.all(16),
+                          child: LinearProgressIndicator(),
+                        );
+                        return Container(
+                          margin: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(color: const Color(0xFFE8F4ED), borderRadius: BorderRadius.circular(14)),
+                          child: Row(children: [
+                            const Icon(Icons.verified_user_outlined, color: Color(0xFF176B57)),
+                            const SizedBox(width: 10),
+                            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text('Share this delivery code', style: TextStyle(fontWeight: FontWeight.w800, color: Color(0xFF176B57))),
+                              Text('Give it to your delivery partner only when your order arrives.', style: TextStyle(fontSize: 11, color: Color(0xFF52675D))),
+                            ])),
+                            Text(codeSnapshot.data!, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF176B57))),
+                          ]),
+                        );
+                      },
+                    ),
+                  ],
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 14),
                     child: Row(
@@ -222,108 +261,222 @@ class _CustomerOrderCardState extends State<CustomerOrderCard> {
   }
 }
 
-class CustomerOrdersPage extends StatelessWidget {
+class CustomerOrdersPage extends StatefulWidget {
   const CustomerOrdersPage({super.key});
+
+  @override
+  State<CustomerOrdersPage> createState() => _CustomerOrdersPageState();
+
+  static String shortId(dynamic value) {
+    final id = value?.toString() ?? '';
+    return id.length > 8 ? id.substring(0, 8) : id.isEmpty ? '—' : id;
+  }
+}
+
+class _CustomerOrdersPageState extends State<CustomerOrdersPage> {
+  String filter = 'All';
+
+  bool _matches(Map<String, dynamic> order) {
+    final status = order['status']?.toString() ?? '';
+    switch (filter) {
+      case 'To confirm':
+        return const {'cod_pending', 'paid'}.contains(status);
+      case 'Preparing':
+        return const {'accepted', 'preparing', 'ready_for_pickup'}.contains(status);
+      case 'To receive':
+        return status == 'out_for_delivery';
+      case 'Completed':
+        return status == 'completed';
+      case 'Cancelled':
+        return const {'cancelled', 'refunded', 'refund_pending'}.contains(status);
+      default:
+        return true;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final client = Supabase.instance.client;
     final user = client.auth.currentUser;
     return Scaffold(
-      appBar: AppBar(title: const Text('Your activity')),
+      appBar: AppBar(title: const Text('My orders', style: TextStyle(fontWeight: FontWeight.w900))),
       body: user == null
         ? Center(child: Padding(
             padding: const EdgeInsets.all(28),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Container(height: 88, width: 88, decoration: BoxDecoration(color: const Color(0xFFE1F2E9), borderRadius: BorderRadius.circular(28)), child: const Icon(Icons.receipt_long_rounded, size: 42, color: Color(0xFF176B57))),
               const SizedBox(height: 20),
-              const Text('Explore first, sign in when needed', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+              const Text('Sign in to view your orders', textAlign: TextAlign.center, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
-              const Text('Browsing Alteo is open. Sign in only when you want to view your private order, ride and parcel history.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF737B76), height: 1.5)),
+              const Text('Your shopping orders, delivery progress and order details will appear here.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF737B76), height: 1.5)),
               const SizedBox(height: 18),
-              OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<bool>(builder: (_) => const CustomerAuthPage())), icon: const Icon(Icons.login_rounded), label: const Text('Sign in to view activity')),
+              OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<bool>(builder: (_) => const CustomerAuthPage())), icon: const Icon(Icons.login_rounded), label: const Text('Sign in with Google')),
             ]),
           ))
-        : ListView(
-            padding: const EdgeInsets.all(16),
-            children: [
-              const Text('Shopping and food orders', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              _orders(client, user.id),
-              const SizedBox(height: 22),
-              const Text('Rides', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              _rides(client, user.id),
-              const SizedBox(height: 22),
-              const Text('Parcels and deliveries', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-              const SizedBox(height: 8),
-              _parcels(client, user.id),
-            ],
+        : StreamBuilder<List<Map<String, dynamic>>>(
+            stream: client.from('orders').stream(primaryKey: ['id']).eq('customer_id', user.id).order('created_at', ascending: false),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) return const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Your orders could not load. Check your connection and try again.')));
+              if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+              final orders = snapshot.data!.where(_matches).toList();
+              return Column(children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
+                  color: Colors.white,
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Track, manage and review your purchases', style: TextStyle(color: Color(0xFF68736D))),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(children: [
+                        for (final label in const ['All','To confirm','Preparing','To receive','Completed','Cancelled'])
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(label),
+                              selected: filter == label,
+                              onSelected: (_) => setState(() => filter = label),
+                              selectedColor: const Color(0xFFD7EEE3),
+                              side: BorderSide(color: filter == label ? const Color(0xFF176B57) : const Color(0xFFE1E7E2)),
+                            ),
+                          ),
+                      ]),
+                    ),
+                  ]),
+                ),
+                Expanded(
+                  child: orders.isEmpty
+                    ? Center(child: Padding(
+                        padding: const EdgeInsets.all(28),
+                        child: Column(mainAxisSize: MainAxisSize.min, children: [
+                          const Icon(Icons.inventory_2_outlined, size: 48, color: Color(0xFF176B57)),
+                          const SizedBox(height: 12),
+                          Text(filter == 'All' ? 'No orders yet' : 'No $filter orders', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+                          const SizedBox(height: 5),
+                          const Text('Your shopping orders will appear here after checkout.', textAlign: TextAlign.center, style: TextStyle(color: Color(0xFF68736D))),
+                        ]),
+                      ))
+                    : RefreshIndicator(
+                        onRefresh: () async { setState(() {}); },
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(14, 14, 14, 26),
+                          children: orders.map((order) => CustomerOrderCard(order: order)).toList(),
+                        ),
+                      ),
+                ),
+              ]);
+            },
           ),
     );
   }
+}
 
-  Widget _orders(SupabaseClient client, String userId) => StreamBuilder<List<Map<String, dynamic>>>(
-    stream: client.from('orders').stream(primaryKey: ['id']).eq('customer_id', userId).order('created_at', ascending: false),
-    builder: (context, snapshot) {
-      if (snapshot.hasError) return _error('Your orders could not load. Check your connection and try again.');
-      if (!snapshot.hasData) return const LinearProgressIndicator();
-      final orders = snapshot.data!;
-      if (orders.isEmpty) return _empty('No orders yet', 'Orders will appear here after checkout.');
-      return Column(children: orders.map((order) => CustomerOrderCard(order: order)).toList());
-    },
-  );
+class CustomerTripsPage extends StatefulWidget {
+  const CustomerTripsPage({super.key, this.initialTab = 'rides'});
+  final String initialTab;
+
+  @override
+  State<CustomerTripsPage> createState() => _CustomerTripsPageState();
+}
+
+class _CustomerTripsPageState extends State<CustomerTripsPage> {
+  late String selected;
+
+  @override
+  void initState() {
+    super.initState();
+    selected = widget.initialTab == 'parcels' ? 'parcels' : 'rides';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final client = Supabase.instance.client;
+    final user = client.auth.currentUser;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Rides & parcels', style: TextStyle(fontWeight: FontWeight.w900))),
+      body: user == null
+        ? Center(child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.route_rounded, size: 48, color: Color(0xFF176B57)),
+              const SizedBox(height: 14),
+              const Text('Sign in to view your activity', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 18)),
+              const SizedBox(height: 8),
+              const Text('Your ride and parcel history will appear here.', textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              OutlinedButton.icon(onPressed: () => Navigator.of(context).push(MaterialPageRoute<bool>(builder: (_) => const CustomerAuthPage())), icon: const Icon(Icons.login_rounded), label: const Text('Sign in with Google')),
+            ]),
+          ))
+        : Column(children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+              child: Row(children: [
+                Expanded(child: ChoiceChip(
+                  avatar: const Icon(Icons.directions_car_rounded, size: 18),
+                  label: const Text('Rides'),
+                  selected: selected == 'rides',
+                  onSelected: (_) => setState(() => selected = 'rides'),
+                  selectedColor: const Color(0xFFD7EEE3),
+                )),
+                const SizedBox(width: 10),
+                Expanded(child: ChoiceChip(
+                  avatar: const Icon(Icons.local_shipping_rounded, size: 18),
+                  label: const Text('Parcels'),
+                  selected: selected == 'parcels',
+                  onSelected: (_) => setState(() => selected = 'parcels'),
+                  selectedColor: const Color(0xFFD7EEE3),
+                )),
+              ]),
+            ),
+            Expanded(child: selected == 'rides' ? _rides(client, user.id) : _parcels(client, user.id)),
+          ]),
+    );
+  }
 
   Widget _rides(SupabaseClient client, String userId) => StreamBuilder<List<Map<String, dynamic>>>(
     stream: client.from('rides').stream(primaryKey: ['id']).eq('customer_id', userId).order('created_at', ascending: false),
     builder: (context, snapshot) {
-      if (snapshot.hasError) return _error('Could not load rides.');
-      if (!snapshot.hasData) return const LinearProgressIndicator();
+      if (snapshot.hasError) return const Center(child: Text('Could not load rides. Please refresh and try again.'));
+      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       final rides = snapshot.data!;
-      if (rides.isEmpty) return _empty('No rides yet', 'Your ride requests and trip status will appear here.');
-      return Column(children: rides.map((ride) => Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
-        leading: const CircleAvatar(backgroundColor: Color(0xFFFFF0C7), child: Icon(Icons.directions_car_rounded, color: Color(0xFF8C6410))),
-        title: Text((ride['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (ride['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
-        subtitle: Text('Status: ' + (ride['status']?.toString() ?? 'requested').replaceAll('_', ' ') + ' · Fare ₹' + (((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-        trailing: TextButton.icon(
-          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'ride', entityId: ride['id'].toString()))),
-          icon: const Icon(Icons.my_location_rounded, size: 17),
-          label: const Text('Track'),
-        ),
-      ))).toList());
+      if (rides.isEmpty) return const Center(child: Text('No rides yet. Your ride requests will appear here.'));
+      return ListView(padding: const EdgeInsets.fromLTRB(14, 8, 14, 24), children: rides.map((ride) {
+        final fare = (((ride['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0);
+        return Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 10), child: ListTile(
+          leading: const CircleAvatar(backgroundColor: Color(0xFFFFF0C7), child: Icon(Icons.directions_car_rounded, color: Color(0xFF8C6410))),
+          title: Text((ride['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (ride['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: Text('Status: ' + (ride['status']?.toString() ?? 'requested').replaceAll('_', ' ') + ' · Fare ₹$fare'),
+          trailing: TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'ride', entityId: ride['id'].toString()))),
+            icon: const Icon(Icons.my_location_rounded, size: 17),
+            label: const Text('Track'),
+          ),
+        ));
+      }).toList());
     },
   );
 
   Widget _parcels(SupabaseClient client, String userId) => StreamBuilder<List<Map<String, dynamic>>>(
     stream: client.from('delivery_jobs').stream(primaryKey: ['id']).eq('customer_id', userId).order('created_at', ascending: false),
     builder: (context, snapshot) {
-      if (snapshot.hasError) return _error('Could not load parcels and deliveries.');
-      if (!snapshot.hasData) return const LinearProgressIndicator();
+      if (snapshot.hasError) return const Center(child: Text('Could not load parcels. Please refresh and try again.'));
+      if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
       final jobs = snapshot.data!.where((job) => job['job_type'] == 'parcel').toList();
-      if (jobs.isEmpty) return _empty('No parcels yet', 'Your parcel requests and delivery status will appear here.');
-      return Column(children: jobs.map((job) => Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 8), child: ListTile(
-        leading: const CircleAvatar(backgroundColor: Color(0xFFDDF3F1), child: Icon(Icons.local_shipping_rounded, color: Color(0xFF187B73))),
-        title: Text((job['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (job['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
-        subtitle: Text('Status: ' + (job['status']?.toString() ?? 'pending').replaceAll('_', ' ') + ' · Fare ₹' + (((job['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
-        trailing: TextButton.icon(
-          onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'parcel', entityId: job['id'].toString()))),
-          icon: const Icon(Icons.location_searching_rounded, size: 17),
-          label: const Text('Track'),
-        ),
-      ))).toList());
+      if (jobs.isEmpty) return const Center(child: Text('No parcels yet. Your parcel requests will appear here.'));
+      return ListView(padding: const EdgeInsets.fromLTRB(14, 8, 14, 24), children: jobs.map((job) {
+        final fare = (((job['fare_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0);
+        return Card(elevation: 0, color: Colors.white, margin: const EdgeInsets.only(bottom: 10), child: ListTile(
+          leading: const CircleAvatar(backgroundColor: Color(0xFFDDF3F1), child: Icon(Icons.local_shipping_rounded, color: Color(0xFF187B73))),
+          title: Text((job['pickup_label']?.toString() ?? 'Pickup') + ' → ' + (job['destination_label']?.toString() ?? 'Destination'), style: const TextStyle(fontWeight: FontWeight.w800)),
+          subtitle: Text('Status: ' + (job['status']?.toString() ?? 'pending').replaceAll('_', ' ') + ' · Fare ₹$fare'),
+          trailing: TextButton.icon(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => CustomerLiveTrackingPage(entityType: 'parcel', entityId: job['id'].toString()))),
+            icon: const Icon(Icons.location_searching_rounded, size: 17),
+            label: const Text('Track'),
+          ),
+        ));
+      }).toList());
     },
   );
-
-  Widget _empty(String title, String detail) => Container(
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE5EAE5))),
-    child: Column(children: [const Icon(Icons.inbox_outlined, size: 34, color: Color(0xFF176B57)), const SizedBox(height: 8), Text(title, style: const TextStyle(fontWeight: FontWeight.w800)), const SizedBox(height: 4), Text(detail, textAlign: TextAlign.center, style: const TextStyle(color: Color(0xFF737B76), height: 1.4))]),
-  );
-
-  Widget _error(String text) => Padding(padding: const EdgeInsets.all(12), child: Text(text, style: const TextStyle(color: Colors.red, height: 1.4)));
-
-  static String shortId(dynamic value) {
-    final id = value?.toString() ?? '';
-    return id.length > 8 ? id.substring(0, 8) : id.isEmpty ? '—' : id;
-  }
 }
