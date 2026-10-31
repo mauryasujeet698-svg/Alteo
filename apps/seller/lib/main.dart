@@ -1272,6 +1272,25 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               Text('Order ' + _short(o['id']), style: const TextStyle(fontWeight: FontWeight.w900)),
               const SizedBox(height: 5),
               Text('Status: ' + status + ' · Payment: ' + payment + ' · Total ₹' + (((o['total_minor'] as num?)?.toInt() ?? 0) / 100).toStringAsFixed(0)),
+              if (status == 'ready_for_pickup')
+                FutureBuilder<dynamic>(
+                  future: client.rpc('seller_get_pickup_verification_code', params: {'p_order_id': o['id']}),
+                  builder: (context, code) {
+                    if (code.hasError) return const Padding(padding: EdgeInsets.only(top: 8), child: Text('Pickup verification code is not available yet.', style: TextStyle(fontSize: 12, color: Color(0xFF68736D))));
+                    if (!code.hasData) return const Padding(padding: EdgeInsets.only(top: 8), child: LinearProgressIndicator());
+                    return Container(
+                      margin: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(color: const Color(0xFFE8F4ED), borderRadius: BorderRadius.circular(12)),
+                      child: Row(children: [
+                        const Icon(Icons.verified_user_outlined, color: Color(0xFF176B57)),
+                        const SizedBox(width: 8),
+                        const Expanded(child: Text('Share this pickup code with the delivery partner', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+                        Text(code.data.toString(), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: 3, color: Color(0xFF176B57))),
+                      ]),
+                    );
+                  },
+                ),
               if (buttons.isNotEmpty) Padding(padding: const EdgeInsets.only(top: 10), child: Wrap(spacing: 8, children: buttons)),
             ])));
           }).toList());
