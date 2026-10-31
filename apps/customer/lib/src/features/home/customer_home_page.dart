@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:alteo_partner_ui/alteo_partner_ui.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:geolocator/geolocator.dart';
 import 'package:alteo_notifications/alteo_notifications.dart';
@@ -687,7 +688,7 @@ Widget productCard(CustomerProduct p) {
                 width: double.infinity,
                 child: p.imageUrl.isEmpty
                   ? Container(color: const Color(0xFFEAF2EC), child: const Icon(Icons.shopping_bag_outlined, size: 48, color: Color(0xFF176B57)))
-                  : Image.network(p.imageUrl, fit: BoxFit.cover, errorBuilder: (_, __, ___) => Container(color: const Color(0xFFEAF2EC), child: const Icon(Icons.shopping_bag_outlined, size: 48, color: Color(0xFF176B57)))),
+                  : AlteoNetworkImage(url: p.imageUrl, fit: BoxFit.cover, fallback: Container(color: const Color(0xFFEAF2EC), child: const Icon(Icons.shopping_bag_outlined, size: 48, color: Color(0xFF176B57)))),
               ),
             ),
           ),
@@ -766,7 +767,7 @@ class _ProductSearch extends SearchDelegate<String>{
     return ListView.separated(padding:const EdgeInsets.all(14),itemCount:rows.length,separatorBuilder:(_,__)=>const Divider(),itemBuilder:(context,i){
      final p=CustomerProduct.fromMap(rows[i]);
      return ListTile(
-      leading:ClipRRect(borderRadius:BorderRadius.circular(10),child:SizedBox(width:54,height:54,child:p.imageUrl.isEmpty?const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined)):Image.network(p.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined))))),
+      leading:ClipRRect(borderRadius:BorderRadius.circular(10),child:SizedBox(width:54,height:54,child:p.imageUrl.isEmpty?const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined)):AlteoNetworkImage(url:p.imageUrl,fit:BoxFit.cover,fallback:const ColoredBox(color:Color(0xFFEAF2EC),child:Icon(Icons.shopping_bag_outlined))))),
       title:Text(p.name,style:const TextStyle(fontWeight:FontWeight.w800)),
       subtitle:Text(p.priceLabel),
       trailing:IconButton(tooltip:'Add to cart',onPressed:()=>onAdd(p),icon:const Icon(Icons.add_shopping_cart_rounded)),
@@ -788,7 +789,7 @@ class CustomerProductDetailsPage extends StatelessWidget {
   body:SafeArea(child:ListView(padding:const EdgeInsets.fromLTRB(18,8,18,28),children:[
    ClipRRect(borderRadius:BorderRadius.circular(22),child:AspectRatio(aspectRatio:1.05,child:product.imageUrl.isEmpty
     ?Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:84,color:Color(0xFF176B57)))
-    :Image.network(product.imageUrl,fit:BoxFit.cover,errorBuilder:(_,__,___)=>Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:84,color:Color(0xFF176B57)))))),
+    :AlteoNetworkImage(url:product.imageUrl,fit:BoxFit.cover,fallback:Container(color:const Color(0xFFEAF2EC),child:const Icon(Icons.shopping_bag_outlined,size:84,color:Color(0xFF176B57)))))),
    const SizedBox(height:20),
    Text(product.name,style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w900)),
    const SizedBox(height:8),
