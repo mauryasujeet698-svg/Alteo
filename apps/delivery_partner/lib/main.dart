@@ -1411,7 +1411,102 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
     ),
   );
 
+  Future<String?> _enterFourDigitCode({
+    required String title,
+    required String message,
+  }) async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(title),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(message),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              maxLength: 4,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: '4-digit verification code',
+                counterText: '',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: () {
+                final value = controller.text.trim();
+                if (!RegExp(r'^[0-9]{4}$').hasMatch(value)) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enter all four digits.')));
+                  return;
+                }
+                Navigator.pop(dialogContext, value);
+              },
+              child: const Text('Verify'),
+            ),
+          ],
+        ),
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  Future<void> _updateDeliveryWithVerification(
+    Map<String, dynamic> job,
+    String action, {
+    String? code,
+  }) async {
+    try {
+      final result = await client.rpc('partner_update_delivery_status', params: {
+        'p_delivery_job_id': job['id'],
+        'p_action': action,
+        'p_verification_code': code,
+        'p_cancellation_reason': null,
+      }).timeout(const Duration(seconds: 15));
+      if (result == false) {
+        notice(action == 'picked_up'
+          ? 'Pickup code is incorrect. Ask the seller or Dark Store to confirm the code.'
+          : 'Delivery code is incorrect. Ask the customer to check the four digits.');
+        return;
+      }
+      notice(action == 'picked_up'
+        ? 'Pickup verified. The order is now out for delivery.'
+        : 'Delivery code verified. Delivery completed successfully.');
+      if (mounted) setState(() {});
+    } catch (e) {
+      final detail = e is PostgrestException ? e.message : e.toString();
+      debugPrint('Delivery verification failed: $detail');
+      notice('Could not verify this step: $detail');
+    }
+  }
+
+  Future<void> _confirmPickup(Map<String, dynamic> job) async {
+    String? code;
+    if ((job['order_id']?.toString() ?? '').isNotEmpty) {
+      code = await _enterFourDigitCode(
+        title: 'Verify seller handover',
+        message: 'Ask the seller or Dark Store operator for the pickup verification code before collecting the order.',
+      );
+      if (code == null || !mounted) return;
+    }
+    await _updateDeliveryWithVerification(job, 'picked_up', code: code);
+  }
+
   Future<void> _confirmDeliveryComplete(Map<String, dynamic> job) async {
+    String? code;
+    if ((job['order_id']?.toString() ?? '').isNotEmpty) {
+      code = await _enterFourDigitCode(
+        title: 'Confirm customer delivery',
+        message: 'Ask the customer for their four-digit delivery code. Do not complete the order before verifying it.',
+      );
+      if (code == null || !mounted) return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -1424,37 +1519,84 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    await rpc(
-      'partner_update_delivery_status',
-      {'p_delivery_job_id': job['id'], 'p_action': 'delivered_cod_collected'},
-      'Delivery completed. Payment status updated where applicable.',
-    );
+    final action = (job['order_id']?.toString() ?? '').isEmpty ? 'delivered' : 'delivered_cod_collected';
+    await _updateDeliveryWithVerification(job, action, code: code);
   }
 
   Future<void> _cancelDelivery(Map<String, dynamic> job) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Cancel this delivery?'),
-        content: const Text(
-          'You can release this delivery only before pickup. Alteo will return it to the dispatch queue for another available partner.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep delivery')),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
-            child: const Text('Cancel delivery'),
+    final details = TextEditingController();
+    String? selectedReason;
+    const reasons = [
+      'Vehicle breakdown',
+      'Health or personal emergency',
+      'Unsafe pickup location',
+      'Long waiting time',
+      'Seller or customer unavailable',
+      'Incorrect delivery assignment',
+      'Other',
+    ];
+    try {
+      final reason = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: const Text('Cancel accepted delivery?'),
+            content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Select a reason. The delivery will return to the dispatch queue for reassignment.'),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: selectedReason,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Cancellation reason *', border: OutlineInputBorder()),
+                items: reasons.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                onChanged: (value) => setDialogState(() => selectedReason = value),
+              ),
+              if (selectedReason == 'Other') ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: details,
+                  maxLines: 2,
+                  maxLength: 160,
+                  decoration: const InputDecoration(labelText: 'Explain the reason *', border: OutlineInputBorder()),
+                ),
+              ],
+            ]),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Keep delivery')),
+              FilledButton(
+                style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB3261E)),
+                onPressed: selectedReason == null || (selectedReason == 'Other' && details.text.trim().length < 5)
+                  ? null
+                  : () => Navigator.pop(dialogContext, selectedReason == 'Other'
+                      ? 'Other: ' + details.text.trim()
+                      : selectedReason! + (details.text.trim().isEmpty ? '' : ' — ' + details.text.trim())),
+                child: const Text('Release delivery'),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    await rpc(
-      'partner_update_delivery_status',
-      {'p_delivery_job_id': job['id'], 'p_action': 'cancel'},
-      'Delivery released before pickup. It has returned to dispatch for reassignment.',
-    );
+        ),
+      );
+      if (reason == null || !mounted) return;
+      try {
+        final result = await client.rpc('partner_update_delivery_status', params: {
+          'p_delivery_job_id': job['id'],
+          'p_action': 'cancel',
+          'p_verification_code': null,
+          'p_cancellation_reason': reason,
+        }).timeout(const Duration(seconds: 15));
+        if (result == false) {
+          notice('The delivery was not cancelled. Refresh and try again.');
+          return;
+        }
+        notice('Delivery released. Reason recorded and job returned to dispatch.');
+        if (mounted) setState(() {});
+      } catch (e) {
+        final detail = e is PostgrestException ? e.message : e.toString();
+        notice('Could not release this delivery: $detail');
+      }
+    } finally {
+      details.dispose();
+    }
   }
 
   Widget _deliveryDashboard() => Scaffold(
@@ -1495,7 +1637,7 @@ class _RoleOperationsPageState extends State<RoleOperationsPage> {
               buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'accept'}, 'Delivery accepted.'), child: const Text('Accept')));
             }
             if (status == 'accepted' || (status == 'assigned' && assignmentStatus == 'accepted')) {
-              buttons.add(FilledButton(onPressed: () => rpc('partner_update_delivery_status', {'p_delivery_job_id': job['id'], 'p_action': 'picked_up'}, 'Pickup confirmed.'), child: const Text('Picked up')));
+              buttons.add(FilledButton(onPressed: () => _confirmPickup(job), child: const Text('Verify pickup code')));
               buttons.add(OutlinedButton(
                 onPressed: () => _cancelDelivery(job),
                 child: const Text('Cancel delivery'),
